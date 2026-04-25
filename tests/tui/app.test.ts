@@ -26,6 +26,8 @@ import {
   DEFAULT_STATUS_TEXT,
   getRenderedOutputText,
   getScrollingStatusText,
+  getStatusPaneWidths,
+  getTerminalTextWidth,
   INPUT_HISTORY_MARGIN_BOTTOM,
   isHelpOutput,
   getOutputTextParts,
@@ -363,16 +365,21 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
     }),
     {
       left: "按 Tab 补全命令或文件路径",
-      right: "Agent：正在生成提交信息 git commit -m ...",
+      right: "Agent：正在生成提交信息 g...",
     },
   );
 });
 
 test("agent status uses a bounded viewport and scrolls long text with ellipsis", () => {
-  assert.equal(DEFAULT_AGENT_STATUS_WIDTH, 36);
+  assert.equal(DEFAULT_AGENT_STATUS_WIDTH, 28);
   assert.equal(getAgentStatusWidth(undefined), DEFAULT_AGENT_STATUS_WIDTH);
-  assert.equal(getAgentStatusWidth(40), 24);
-  assert.equal(getAgentStatusWidth(200), 48);
+  assert.deepEqual(getStatusPaneWidths(undefined), { left: 28, right: 28 });
+  assert.deepEqual(getStatusPaneWidths(40), { left: 14, right: 14 });
+  assert.deepEqual(getStatusPaneWidths(120), { left: 54, right: 54 });
+  assert.equal(getAgentStatusWidth(40), 14);
+  assert.equal(getAgentStatusWidth(120), 54);
+  assert.equal(getTerminalTextWidth("Agent：空闲"), 11);
+  assert.equal(getTerminalTextWidth("按 Tab 补全命令或文件路径"), 25);
 
   assert.equal(
     getScrollingStatusText({
@@ -388,7 +395,7 @@ test("agent status uses a bounded viewport and scrolls long text with ellipsis",
       width: 24,
       offset: 0,
     }),
-    "Agent：正在请求帮助 git comm...",
+    "Agent：正在请求帮助 g...",
   );
   assert.equal(
     getScrollingStatusText({
@@ -396,19 +403,20 @@ test("agent status uses a bounded viewport and scrolls long text with ellipsis",
       width: 24,
       offset: 10,
     }),
-    "...帮助 git commit --am...",
+    "...在请求帮助 git com...",
   );
   assert.deepEqual(
     getStatusBarParts({
       isRunning: false,
       isAgentWaiting: true,
       agentCommand: "git commit --amend --no-edit --verbose",
+      tipStatusWidth: 14,
       agentStatusWidth: 24,
       agentStatusScrollOffset: 10,
     }),
     {
-      left: "按 Enter 执行命令",
-      right: "...帮助 git commit --am...",
+      left: "按 Enter 执...",
+      right: "...在请求帮助 git com...",
     },
   );
 });

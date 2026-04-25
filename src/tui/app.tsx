@@ -42,7 +42,8 @@ export const COMMIT_MESSAGE_IDLE_MS = 2000;
 export const BEFORE_RUN_SUCCESS_SKIP_THRESHOLD = 3;
 export const TUI_USAGE_TIP_INTERVAL_MS = 4000;
 export const TUI_AGENT_STATUS_SCROLL_INTERVAL_MS = 700;
-export const DEFAULT_AGENT_STATUS_WIDTH = 36;
+export const DEFAULT_AGENT_STATUS_WIDTH = 28;
+export const DEFAULT_STATUS_PANE_WIDTH = 28;
 export const TUI_USAGE_TIPS = [
   "按 Enter 执行命令",
   "按 Tab 补全命令或文件路径",
@@ -345,12 +346,78 @@ export function getStatusLine({
   return TUI_USAGE_TIPS[tipIndex % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
 }
 
+function getTerminalCharacterWidth(character: string) {
+  if (!character) {
+    return 0;
+  }
+
+  if (/[\u0300-\u036F]/.test(character)) {
+    return 0;
+  }
+
+  return /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(
+    character,
+  )
+    ? 2
+    : 1;
+}
+
+export function getTerminalTextWidth(text: string) {
+  return Array.from(text).reduce(
+    (width, character) => width + getTerminalCharacterWidth(character),
+    0,
+  );
+}
+
+function sliceTerminalTextByWidth(text: string, startWidth: number, maxWidth: number) {
+  if (maxWidth <= 0) {
+    return "";
+  }
+
+  let currentWidth = 0;
+  let result = "";
+  for (const character of Array.from(text)) {
+    const characterWidth = getTerminalCharacterWidth(character);
+    const nextWidth = currentWidth + characterWidth;
+    if (nextWidth <= startWidth) {
+      currentWidth = nextWidth;
+      continue;
+    }
+
+    const resultWidth = getTerminalTextWidth(result);
+    if (resultWidth + characterWidth > maxWidth) {
+      break;
+    }
+
+    result += character;
+    currentWidth = nextWidth;
+  }
+
+  return result;
+}
+
+export function getStatusPaneWidths(columns: number | undefined) {
+  if (!columns) {
+    return {
+      left: DEFAULT_STATUS_PANE_WIDTH,
+      right: DEFAULT_STATUS_PANE_WIDTH,
+    };
+  }
+
+  const contentWidth = Math.max(16, columns - 12);
+  const left = Math.max(8, Math.floor(contentWidth / 2));
+  return {
+    left,
+    right: Math.max(8, contentWidth - left),
+  };
+}
+
 export function getAgentStatusWidth(columns: number | undefined) {
   if (!columns) {
     return DEFAULT_AGENT_STATUS_WIDTH;
   }
 
-  return Math.min(48, Math.max(24, Math.floor(columns * 0.36)));
+  return getStatusPaneWidths(columns).right;
 }
 
 export function getScrollingStatusText({
@@ -366,7 +433,8 @@ export function getScrollingStatusText({
     return "";
   }
 
-  if (text.length <= width) {
+  const textWidth = getTerminalTextWidth(text);
+  if (textWidth <= width) {
     return text;
   }
 
@@ -374,31 +442,32 @@ export function getScrollingStatusText({
     return ".".repeat(width);
   }
 
-  const maxOffset = Math.max(0, text.length - width + 3);
+  const maxOffset = Math.max(0, textWidth - width + 3);
   const safeOffset = Math.min(Math.max(offset, 0), maxOffset);
 
   if (safeOffset === 0) {
-    return `${text.slice(0, width - 3)}...`;
+    return `${sliceTerminalTextByWidth(text, 0, width - 3)}...`;
   }
 
   if (safeOffset >= maxOffset) {
-    return `...${text.slice(text.length - width + 3)}`;
+    return `...${sliceTerminalTextByWidth(text, textWidth - width + 3, width - 3)}`;
   }
 
   if (width <= 6) {
-    return `${text.slice(safeOffset, safeOffset + width - 3)}...`;
+    return `${sliceTerminalTextByWidth(text, safeOffset, width - 3)}...`;
   }
 
-  return `...${text.slice(safeOffset, safeOffset + width - 6)}...`;
+  return `...${sliceTerminalTextByWidth(text, safeOffset, width - 6)}...`;
 }
 
 export function getStatusBarParts(
   options: Parameters<typeof getStatusLine>[0] & {
     agentStatusWidth?: number | undefined;
+    tipStatusWidth?: number | undefined;
     agentStatusScrollOffset?: number | undefined;
   },
 ) {
-  const left = TUI_USAGE_TIPS[(options.tipIndex ?? 0) % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
+  const tip = TUI_USAGE_TIPS[(options.tipIndex ?? 0) % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
   const right = getStatusLine({
     ...options,
     tipIndex: 0,
@@ -406,7 +475,11 @@ export function getStatusBarParts(
   const agentStatus = right === DEFAULT_STATUS_TEXT ? "Agent：空闲" : right;
 
   return {
-    left,
+    left: getScrollingStatusText({
+      text: tip,
+      width: options.tipStatusWidth,
+      offset: 0,
+    }),
     right: getScrollingStatusText({
       text: agentStatus,
       width: options.agentStatusWidth,
@@ -663,7 +736,7 @@ export function App() {
     cursorIndex,
     completionSuffix: completion?.suffix,
   });
-  const agentStatusWidth = getAgentStatusWidth(stdout.columns);
+  const statusPaneWidths = getStatusPaneWidths(stdout.columns);
   const statusBar = getStatusBarParts({
     isRunning,
     isAgentWaiting,
@@ -673,7 +746,8 @@ export function App() {
     isBeforeRunPending: Boolean(pendingBeforeRunCommand),
     pendingCommand: pendingBeforeRunCommand,
     tipIndex: usageTipIndex,
-    agentStatusWidth,
+    tipStatusWidth: statusPaneWidths.left,
+    agentStatusWidth: statusPaneWidths.right,
     agentStatusScrollOffset,
   });
   const sessionHeader = getSessionHeaderParts(session);
@@ -1091,10 +1165,12 @@ export function App() {
           ) : null}
         </Box>
 
-        <Box borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
-          <Text color="gray">{statusBar.left}</Text>
+        <Box borderStyle="single" borderColor="gray" paddingX={1}>
+          <Box width={statusPaneWidths.left}>
+            <Text color="gray">{statusBar.left}</Text>
+          </Box>
           {statusBar.right ? (
-            <Box width={agentStatusWidth} justifyContent="flex-end">
+            <Box width={statusPaneWidths.right} justifyContent="flex-end">
               <Text color="yellow">{statusBar.right}</Text>
             </Box>
           ) : null}
