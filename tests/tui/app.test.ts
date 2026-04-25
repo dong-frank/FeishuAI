@@ -411,11 +411,12 @@ test("agent status uses a bounded viewport and scrolls long text with ellipsis",
       isAgentWaiting: true,
       agentCommand: "git commit --amend --no-edit --verbose",
       tipStatusWidth: 14,
+      tipStatusScrollOffset: 4,
       agentStatusWidth: 24,
       agentStatusScrollOffset: 10,
     }),
     {
-      left: "按 Enter 执...",
+      left: "...nter 执...",
       right: "...在请求帮助 git com...",
     },
   );

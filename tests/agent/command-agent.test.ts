@@ -29,6 +29,8 @@ test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", 
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /push 后/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /commit 后/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /pull、merge、rebase 后/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /context\.gitRepository/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /branch、upstream 和 dirty/);
   assert.doesNotMatch(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /tldr_git_manual/);
   assert.doesNotMatch(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /generateCommitMessage/);
 });

@@ -47,6 +47,7 @@ export const AFTER_SUCCESS_AGENT_SYSTEM_PROMPT = `
 - context.rawCommand: 用户输入的完整命令
 - context.gitStats.successCount: 归一化后的同类 Git 命令最近连续成功次数
 - context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt
+- context.gitRepository: 当前 Git 仓库快照，和 TUI 顶部信息一致；包含 isRepository、root、branch、head、upstream、status(staged、unstaged、untracked、dirty)
 - result.exitCode: 命令退出码
 - result.stdout: 命令标准输出
 - result.stderr: 命令错误输出
@@ -58,6 +59,7 @@ export const AFTER_SUCCESS_AGENT_SYSTEM_PROMPT = `
 push 后，提醒是否需要打开 PR、通知维护者或检查远端状态。
 commit 后，提醒是否需要 push、继续拆分提交或查看状态。
 pull、merge、rebase 后，提醒检查 git status，并按项目习惯运行必要测试。
+如果 context.gitRepository 存在，可以结合 branch、upstream 和 dirty 状态给出更贴近当前仓库的提醒；不要编造不存在的远端、分支或文件名。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();

@@ -202,9 +202,29 @@ test("runCommandLine starts afterSuccess for key git command successes without w
   const result = await runCommandLine("git push origin main", {
     statsCwd,
     executeCommand: async () => 0,
+    initializeSession: async () => ({
+      startedAt: "2026-04-25T12:00:00.000Z",
+      cwd: "/repo/worktree",
+      git: {
+        isRepository: true,
+        root: "/repo",
+        branch: "main",
+        head: "abc1234",
+        upstream: "origin/main",
+        status: {
+          staged: 1,
+          unstaged: 0,
+          untracked: 2,
+          dirty: true,
+        },
+      },
+    }),
     agent: {
       afterSuccess(context) {
-        contexts.push(context.gitStats);
+        contexts.push({
+          gitStats: context.gitStats,
+          gitRepository: context.gitRepository,
+        });
         return new Promise((resolve) => {
           releaseAfterSuccess = () => resolve("pushed. consider opening a PR.");
         });
@@ -215,10 +235,26 @@ test("runCommandLine starts afterSuccess for key git command successes without w
   assert.equal(result.kind, "execute");
   assert.equal(result.exitCode, 0);
   assert.ok(result.afterSuccess);
+  await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(contexts, [
     {
-      successCount: 1,
-      failures: [],
+      gitStats: {
+        successCount: 1,
+        failures: [],
+      },
+      gitRepository: {
+        isRepository: true,
+        root: "/repo",
+        branch: "main",
+        head: "abc1234",
+        upstream: "origin/main",
+        status: {
+          staged: 1,
+          unstaged: 0,
+          untracked: 2,
+          dirty: true,
+        },
+      },
     },
   ]);
 
@@ -244,6 +280,7 @@ test("runCommandLine triggers afterSuccess even after repeated key command succe
 
   assert.equal(result.kind, "execute");
   assert.ok(result.afterSuccess);
+  await result.afterSuccess;
   assert.deepEqual(events, ["git push origin main"]);
   assert.deepEqual(await getGitCommandSuccessStats(statsCwd), {
     "git push": 3,

@@ -41,7 +41,7 @@ export const BEFORE_RUN_IDLE_MS = 5000;
 export const COMMIT_MESSAGE_IDLE_MS = 2000;
 export const BEFORE_RUN_SUCCESS_SKIP_THRESHOLD = 3;
 export const TUI_USAGE_TIP_INTERVAL_MS = 4000;
-export const TUI_AGENT_STATUS_SCROLL_INTERVAL_MS = 700;
+export const TUI_STATUS_SCROLL_INTERVAL_MS = 350;
 export const DEFAULT_AGENT_STATUS_WIDTH = 28;
 export const DEFAULT_STATUS_PANE_WIDTH = 28;
 export const TUI_USAGE_TIPS = [
@@ -464,6 +464,7 @@ export function getStatusBarParts(
   options: Parameters<typeof getStatusLine>[0] & {
     agentStatusWidth?: number | undefined;
     tipStatusWidth?: number | undefined;
+    tipStatusScrollOffset?: number | undefined;
     agentStatusScrollOffset?: number | undefined;
   },
 ) {
@@ -478,7 +479,7 @@ export function getStatusBarParts(
     left: getScrollingStatusText({
       text: tip,
       width: options.tipStatusWidth,
-      offset: 0,
+      offset: options.tipStatusScrollOffset,
     }),
     right: getScrollingStatusText({
       text: agentStatus,
@@ -729,6 +730,7 @@ export function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
   const [usageTipIndex, setUsageTipIndex] = useState(0);
+  const [tipStatusScrollOffset, setTipStatusScrollOffset] = useState(0);
   const [agentStatusScrollOffset, setAgentStatusScrollOffset] = useState(0);
   const completion = getCompletion(input);
   const promptLine = getPromptLineParts({
@@ -747,6 +749,7 @@ export function App() {
     pendingCommand: pendingBeforeRunCommand,
     tipIndex: usageTipIndex,
     tipStatusWidth: statusPaneWidths.left,
+    tipStatusScrollOffset,
     agentStatusWidth: statusPaneWidths.right,
     agentStatusScrollOffset,
   });
@@ -780,6 +783,10 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    setTipStatusScrollOffset(0);
+  }, [usageTipIndex]);
+
+  useEffect(() => {
     setAgentStatusScrollOffset(0);
   }, [
     isRunning,
@@ -792,8 +799,9 @@ export function App() {
 
   useEffect(() => {
     const interval = setInterval(() => {
+      setTipStatusScrollOffset((current) => current + 1);
       setAgentStatusScrollOffset((current) => current + 1);
-    }, TUI_AGENT_STATUS_SCROLL_INTERVAL_MS);
+    }, TUI_STATUS_SCROLL_INTERVAL_MS);
 
     return () => {
       clearInterval(interval);

@@ -1,3 +1,5 @@
+import type { TuiSessionGitInfo } from "../runtime/tui-session.js";
+
 export type CommandFailureContext = {
   count: number;
   exitCode: number;
@@ -17,6 +19,7 @@ export type CommandContext = {
   args: string[];
   rawCommand: string;
   gitStats?: GitCommandStatsContext;
+  gitRepository?: TuiSessionGitInfo;
 };
 
 export type CommandResult = {

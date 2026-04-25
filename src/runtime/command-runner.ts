@@ -10,6 +10,10 @@ import {
   recordGitCommandFailure,
   recordGitCommandSuccess,
 } from "./git-command-stats.js";
+import {
+  initializeTuiSession,
+  type TuiSessionGitInfo,
+} from "./tui-session.js";
 
 export type ParsedCommandLine = {
   command: string;
@@ -40,6 +44,7 @@ export type RunCommandLineOptions = {
   agent?: CommandAgent;
   statsCwd?: string;
   executeCommand?: typeof executeCommand;
+  initializeSession?: typeof initializeTuiSession;
 };
 
 export const AFTER_SUCCESS_KEY_GIT_SUBCOMMANDS = [
@@ -253,7 +258,18 @@ export async function runCommandLine(
           rawCommand,
         })
       ) {
-        afterSuccess = Promise.resolve(options.agent.afterSuccess(context, result));
+        afterSuccess = Promise.resolve(
+          buildGitRepositoryContext(options)
+            .then((gitRepository) =>
+              options.agent?.afterSuccess?.(
+                {
+                  ...context,
+                  gitRepository,
+                },
+                result,
+              ),
+            ),
+        );
       }
     } else {
       await recordGitCommandFailure(options.statsCwd ?? process.cwd(), rawCommand, result);
@@ -269,6 +285,16 @@ export async function runCommandLine(
     stderr: result.stderr,
     ...(afterSuccess ? { afterSuccess } : {}),
   };
+}
+
+async function buildGitRepositoryContext(
+  options: RunCommandLineOptions,
+): Promise<TuiSessionGitInfo> {
+  const initializeSession = options.initializeSession ?? initializeTuiSession;
+  const session = await initializeSession({
+    cwd: process.cwd(),
+  });
+  return session.git;
 }
 
 async function buildCommandContext(
