@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Writable } from "node:stream";
 import test from "node:test";
 
-import { executeCommand } from "../../src/commands/run.js";
+import { executeCommand, getSpawnCommand } from "../../src/commands/run.js";
 import type { CommandAgent } from "../../src/agent/types.js";
 
 function captureStream() {
@@ -33,6 +33,17 @@ test("executeCommand runs a command and forwards stdout", async () => {
   assert.equal(exitCode, 0);
   assert.equal(stdout.output(), "hello");
   assert.equal(stderr.output(), "");
+});
+
+test("getSpawnCommand forces color for git commands", () => {
+  assert.deepEqual(getSpawnCommand("git", ["status"]), {
+    command: "git",
+    args: ["-c", "color.ui=always", "status"],
+  });
+  assert.deepEqual(getSpawnCommand("node", ["-v"]), {
+    command: "node",
+    args: ["-v"],
+  });
 });
 
 test("executeCommand returns the child exit code and forwards stderr", async () => {

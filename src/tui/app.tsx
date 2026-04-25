@@ -6,6 +6,10 @@ import { Box, Text, useApp, useInput, useStdout } from "ink";
 import type { CommandContext } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
 import { classifyCommand } from "../runtime/command-registry.js";
+import {
+  buildCommitMessageContext,
+  quoteCommitMessageForShell,
+} from "../runtime/commit-message-context.js";
 import { getCompletion } from "../runtime/completion.js";
 import {
   parseCommandLine,
@@ -34,15 +38,24 @@ export type HistoryEntry =
     };
 
 export const BEFORE_RUN_IDLE_MS = 5000;
+export const COMMIT_MESSAGE_IDLE_MS = 2000;
 export const BEFORE_RUN_SUCCESS_SKIP_THRESHOLD = 3;
-export const DEFAULT_STATUS_TEXT = "Enter runs command. Tab completes. Ctrl+C exits.";
+export const TUI_USAGE_TIP_INTERVAL_MS = 4000;
+export const TUI_USAGE_TIPS = [
+  "按 Enter 执行命令",
+  "按 Tab 补全命令或文件路径",
+  "按 Ctrl+C 退出",
+  "按 Up/Down 或 PageUp/PageDown 滚动历史",
+  "完整 Git 命令停顿 5 秒后会请求 Agent 帮助",
+  "输入 git commit -m 并停顿 2 秒可生成 commit message",
+] as const;
+export const DEFAULT_STATUS_TEXT = TUI_USAGE_TIPS[0];
 export const WELCOME_TITLE = "Welcome to git-helper TUI";
 export const WELCOME_SUBTITLE = "Type a command, or type exit to quit.";
 export const INPUT_HISTORY_MARGIN_BOTTOM = 1;
 export const DEFAULT_HISTORY_VIEWPORT_HEIGHT = 14;
 export const MIN_HISTORY_VIEWPORT_HEIGHT = 1;
 export const RESERVED_TUI_CHROME_ROWS = 15;
-export const WELCOME_BANNER_ROWS = 3;
 
 export const COMPLETION_GHOST_STYLE = {
   color: "black",
@@ -291,35 +304,56 @@ export function isHelpOutput(result: CommandRunOutput) {
 export function getStatusLine({
   isRunning,
   isAgentWaiting,
+  isCommitMessageGenerating = false,
   isAgentReviewing = false,
   agentCommand,
   isBeforeRunPending = false,
   pendingCommand,
+  tipIndex = 0,
 }: {
   isRunning: boolean;
   isAgentWaiting: boolean;
+  isCommitMessageGenerating?: boolean | undefined;
   isAgentReviewing?: boolean | undefined;
   agentCommand?: string | undefined;
   isBeforeRunPending?: boolean | undefined;
   pendingCommand?: string | undefined;
+  tipIndex?: number | undefined;
 }) {
+  if (isCommitMessageGenerating) {
+    return `Agent：正在生成提交信息 ${agentCommand ?? "git commit -m"} ...`;
+  }
+
   if (isAgentWaiting) {
-    return `agent: asking help for ${agentCommand ?? "command"} ...`;
+    return `Agent：正在请求帮助 ${agentCommand ?? "command"} ...`;
   }
 
   if (isAgentReviewing) {
-    return `agent: reviewing ${agentCommand ?? "command"} ...`;
+    return `Agent：正在检查 ${agentCommand ?? "command"} ...`;
   }
 
   if (isRunning) {
-    return "command: running ...";
+    return "命令：正在执行 ...";
   }
 
   if (isBeforeRunPending) {
-    return `agent: standing by for ${pendingCommand ?? "command"}`;
+    return `Agent：等待触发 ${pendingCommand ?? "command"}`;
   }
 
-  return DEFAULT_STATUS_TEXT;
+  return TUI_USAGE_TIPS[tipIndex % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
+}
+
+export function getStatusBarParts(options: Parameters<typeof getStatusLine>[0]) {
+  const left = TUI_USAGE_TIPS[(options.tipIndex ?? 0) % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
+  const right = getStatusLine({
+    ...options,
+    tipIndex: 0,
+  });
+
+  return {
+    left,
+    right: right === DEFAULT_STATUS_TEXT ? "Agent：空闲" : right,
+  };
 }
 
 export function shouldScheduleBeforeRun({
@@ -340,6 +374,28 @@ export function shouldScheduleBeforeRun({
       !isRunning &&
       classification?.kind === "git" &&
       input.trim().length > 0,
+  );
+}
+
+export function shouldScheduleCommitMessageGeneration({
+  input,
+  completionSuffix,
+  isRunning,
+}: {
+  input: string;
+  completionSuffix?: string | undefined;
+  isRunning: boolean;
+}) {
+  const parsed = parseCommandLine(input);
+  return Boolean(
+    parsed &&
+      !parsed.hasUnclosedQuote &&
+      !completionSuffix &&
+      !isRunning &&
+      parsed.command === "git" &&
+      parsed.args.length === 2 &&
+      parsed.args[0] === "commit" &&
+      parsed.args[1] === "-m",
   );
 }
 
@@ -427,7 +483,19 @@ export function getNextHistoryScrollOffset(
 }
 
 export function getHistoryRows(history: HistoryEntry[]): HistoryRow[] {
-  return history.flatMap((entry) => getHistoryEntryRows(entry));
+  return [
+    {
+      text: WELCOME_TITLE,
+      color: "cyan",
+      bold: true,
+    },
+    {
+      text: WELCOME_SUBTITLE,
+      color: "gray",
+    },
+    { text: "" },
+    ...history.flatMap((entry) => getHistoryEntryRows(entry)),
+  ];
 }
 
 function getHistoryEntryRows(entry: HistoryEntry): HistoryRow[] {
@@ -519,6 +587,7 @@ export function App() {
   const [cursorIndex, setCursorIndex] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [isAgentWaiting, setIsAgentWaiting] = useState(false);
+  const [isCommitMessageGenerating, setIsCommitMessageGenerating] = useState(false);
   const [isAgentReviewing, setIsAgentReviewing] = useState(false);
   const [agentStatusCommand, setAgentStatusCommand] = useState<string | undefined>();
   const [pendingBeforeRunCommand, setPendingBeforeRunCommand] = useState<
@@ -527,24 +596,27 @@ export function App() {
   const lastBeforeRunCommand = useRef<string | undefined>(undefined);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
+  const [usageTipIndex, setUsageTipIndex] = useState(0);
   const completion = getCompletion(input);
   const promptLine = getPromptLineParts({
     input,
     cursorIndex,
     completionSuffix: completion?.suffix,
   });
-  const statusLine = getStatusLine({
+  const statusBar = getStatusBarParts({
     isRunning,
     isAgentWaiting,
+    isCommitMessageGenerating,
     isAgentReviewing,
     agentCommand: agentStatusCommand,
     isBeforeRunPending: Boolean(pendingBeforeRunCommand),
     pendingCommand: pendingBeforeRunCommand,
+    tipIndex: usageTipIndex,
   });
   const sessionHeader = getSessionHeaderParts(session);
   const historyViewportHeight = getHistoryViewportHeight(stdout.rows);
   const historyRows = getHistoryRows(history);
-  const historyRowLimit = Math.max(0, historyViewportHeight - WELCOME_BANNER_ROWS);
+  const historyRowLimit = historyViewportHeight;
   const visibleHistoryRows = getVisibleHistoryRows(
     history,
     historyRowLimit,
@@ -560,6 +632,16 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setUsageTipIndex((current) => (current + 1) % TUI_USAGE_TIPS.length);
+    }, TUI_USAGE_TIP_INTERVAL_MS);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
   async function refreshSession(isCancelled: () => boolean = () => false) {
     try {
       const nextSession = await initializeTuiSession();
@@ -572,6 +654,28 @@ export function App() {
   }
 
   useEffect(() => {
+    if (
+      shouldScheduleCommitMessageGeneration({
+        input,
+        completionSuffix: completion?.suffix,
+        isRunning,
+      })
+    ) {
+      let cancelled = false;
+      const commandLine = input.trim();
+      setPendingBeforeRunCommand(commandLine);
+      const timeout = setTimeout(() => {
+        setPendingBeforeRunCommand(undefined);
+        void triggerCommitMessageGeneration(commandLine, () => cancelled);
+      }, COMMIT_MESSAGE_IDLE_MS);
+
+      return () => {
+        cancelled = true;
+        clearTimeout(timeout);
+        setPendingBeforeRunCommand(undefined);
+      };
+    }
+
     if (
       !shouldScheduleBeforeRun({
         input,
@@ -726,6 +830,54 @@ export function App() {
     }
   }
 
+  async function triggerCommitMessageGeneration(
+    commandLine: string,
+    isCancelled: () => boolean = () => false,
+  ) {
+    setIsAgentWaiting(true);
+    setIsCommitMessageGenerating(true);
+    setAgentStatusCommand(commandLine);
+    try {
+      const context = await buildCommitMessageContext();
+      if (isCancelled()) {
+        return;
+      }
+
+      const message = await createCommandAgent().generateCommitMessage?.(context);
+      if (isCancelled() || !message) {
+        return;
+      }
+
+      const normalizedMessage = message.trim().replace(/^["']|["']$/g, "");
+      const nextInput = `${commandLine} ${quoteCommitMessageForShell(normalizedMessage)}`;
+      setInput(nextInput);
+      setCursorIndex(nextInput.length);
+      const entry: HistoryEntry = {
+        type: "output",
+        result: {
+          commandLine,
+          kind: "help",
+          classification: { kind: "git", subcommand: "commit" },
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          help: normalizedMessage,
+        },
+      };
+      setHistory((current) => [...current, entry].slice(-20));
+      setHistoryScrollOffset(0);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const entry: HistoryEntry = { type: "system", text: message };
+      setHistory((current) => [...current, entry].slice(-20));
+      setHistoryScrollOffset(0);
+    } finally {
+      setIsCommitMessageGenerating(false);
+      setIsAgentWaiting(false);
+      setAgentStatusCommand(undefined);
+    }
+  }
+
   async function triggerAfterSuccessReview(
     result: CommandRunOutput & { kind: "execute"; afterSuccess: Promise<string | void> },
   ) {
@@ -840,7 +992,6 @@ export function App() {
           height={historyViewportHeight}
           overflowY="hidden"
         >
-          <WelcomeBanner />
           {visibleHistoryRows.map((row, index) => (
             <HistoryRowLine key={index} row={row} />
           ))}
@@ -856,10 +1007,9 @@ export function App() {
           ) : null}
         </Box>
 
-        <Box borderStyle="single" borderColor="gray" paddingX={1}>
-          <Text color={isAgentWaiting || isAgentReviewing || isRunning ? "yellow" : "gray"}>
-            {statusLine}
-          </Text>
+        <Box borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
+          <Text color="gray">{statusBar.left}</Text>
+          {statusBar.right ? <Text color="yellow">{statusBar.right}</Text> : null}
         </Box>
       </Box>
     </Box>
@@ -873,23 +1023,6 @@ function hasAfterSuccessReview(
   afterSuccess: Promise<string | void>;
 } {
   return result.kind === "execute" && Boolean(result.afterSuccess);
-}
-
-function WelcomeBanner() {
-  return (
-    <Box
-      borderStyle="round"
-      borderColor="cyan"
-      flexDirection="column"
-      paddingX={1}
-      marginBottom={1}
-    >
-      <Text color="cyan" bold>
-        {WELCOME_TITLE}
-      </Text>
-      <Text color="gray">{WELCOME_SUBTITLE}</Text>
-    </Box>
-  );
 }
 
 function HistoryRowLine({ row }: { row: HistoryRow }) {
