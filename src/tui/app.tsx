@@ -41,6 +41,8 @@ export const BEFORE_RUN_IDLE_MS = 5000;
 export const COMMIT_MESSAGE_IDLE_MS = 2000;
 export const BEFORE_RUN_SUCCESS_SKIP_THRESHOLD = 3;
 export const TUI_USAGE_TIP_INTERVAL_MS = 4000;
+export const TUI_AGENT_STATUS_SCROLL_INTERVAL_MS = 700;
+export const DEFAULT_AGENT_STATUS_WIDTH = 36;
 export const TUI_USAGE_TIPS = [
   "按 Enter 执行命令",
   "按 Tab 补全命令或文件路径",
@@ -343,16 +345,73 @@ export function getStatusLine({
   return TUI_USAGE_TIPS[tipIndex % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
 }
 
-export function getStatusBarParts(options: Parameters<typeof getStatusLine>[0]) {
+export function getAgentStatusWidth(columns: number | undefined) {
+  if (!columns) {
+    return DEFAULT_AGENT_STATUS_WIDTH;
+  }
+
+  return Math.min(48, Math.max(24, Math.floor(columns * 0.36)));
+}
+
+export function getScrollingStatusText({
+  text,
+  width = DEFAULT_AGENT_STATUS_WIDTH,
+  offset = 0,
+}: {
+  text: string;
+  width?: number | undefined;
+  offset?: number | undefined;
+}) {
+  if (width <= 0) {
+    return "";
+  }
+
+  if (text.length <= width) {
+    return text;
+  }
+
+  if (width <= 3) {
+    return ".".repeat(width);
+  }
+
+  const maxOffset = Math.max(0, text.length - width + 3);
+  const safeOffset = Math.min(Math.max(offset, 0), maxOffset);
+
+  if (safeOffset === 0) {
+    return `${text.slice(0, width - 3)}...`;
+  }
+
+  if (safeOffset >= maxOffset) {
+    return `...${text.slice(text.length - width + 3)}`;
+  }
+
+  if (width <= 6) {
+    return `${text.slice(safeOffset, safeOffset + width - 3)}...`;
+  }
+
+  return `...${text.slice(safeOffset, safeOffset + width - 6)}...`;
+}
+
+export function getStatusBarParts(
+  options: Parameters<typeof getStatusLine>[0] & {
+    agentStatusWidth?: number | undefined;
+    agentStatusScrollOffset?: number | undefined;
+  },
+) {
   const left = TUI_USAGE_TIPS[(options.tipIndex ?? 0) % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
   const right = getStatusLine({
     ...options,
     tipIndex: 0,
   });
+  const agentStatus = right === DEFAULT_STATUS_TEXT ? "Agent：空闲" : right;
 
   return {
     left,
-    right: right === DEFAULT_STATUS_TEXT ? "Agent：空闲" : right,
+    right: getScrollingStatusText({
+      text: agentStatus,
+      width: options.agentStatusWidth,
+      offset: options.agentStatusScrollOffset,
+    }),
   };
 }
 
@@ -597,12 +656,14 @@ export function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
   const [usageTipIndex, setUsageTipIndex] = useState(0);
+  const [agentStatusScrollOffset, setAgentStatusScrollOffset] = useState(0);
   const completion = getCompletion(input);
   const promptLine = getPromptLineParts({
     input,
     cursorIndex,
     completionSuffix: completion?.suffix,
   });
+  const agentStatusWidth = getAgentStatusWidth(stdout.columns);
   const statusBar = getStatusBarParts({
     isRunning,
     isAgentWaiting,
@@ -612,6 +673,8 @@ export function App() {
     isBeforeRunPending: Boolean(pendingBeforeRunCommand),
     pendingCommand: pendingBeforeRunCommand,
     tipIndex: usageTipIndex,
+    agentStatusWidth,
+    agentStatusScrollOffset,
   });
   const sessionHeader = getSessionHeaderParts(session);
   const historyViewportHeight = getHistoryViewportHeight(stdout.rows);
@@ -636,6 +699,27 @@ export function App() {
     const interval = setInterval(() => {
       setUsageTipIndex((current) => (current + 1) % TUI_USAGE_TIPS.length);
     }, TUI_USAGE_TIP_INTERVAL_MS);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    setAgentStatusScrollOffset(0);
+  }, [
+    isRunning,
+    isAgentWaiting,
+    isCommitMessageGenerating,
+    isAgentReviewing,
+    agentStatusCommand,
+    pendingBeforeRunCommand,
+  ]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAgentStatusScrollOffset((current) => current + 1);
+    }, TUI_AGENT_STATUS_SCROLL_INTERVAL_MS);
 
     return () => {
       clearInterval(interval);
@@ -1009,7 +1093,11 @@ export function App() {
 
         <Box borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
           <Text color="gray">{statusBar.left}</Text>
-          {statusBar.right ? <Text color="yellow">{statusBar.right}</Text> : null}
+          {statusBar.right ? (
+            <Box width={agentStatusWidth} justifyContent="flex-end">
+              <Text color="yellow">{statusBar.right}</Text>
+            </Box>
+          ) : null}
         </Box>
       </Box>
     </Box>

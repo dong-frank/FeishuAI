@@ -11,7 +11,9 @@ import {
   buildBeforeRunContext,
   COMPLETION_GHOST_STYLE,
   CURSOR_STYLE,
+  DEFAULT_AGENT_STATUS_WIDTH,
   TUI_USAGE_TIPS,
+  getAgentStatusWidth,
   getNextEditableInput,
   getOutputSections,
   getPromptLineParts,
@@ -23,6 +25,7 @@ import {
   getVisibleHistoryRows,
   DEFAULT_STATUS_TEXT,
   getRenderedOutputText,
+  getScrollingStatusText,
   INPUT_HISTORY_MARGIN_BOTTOM,
   isHelpOutput,
   getOutputTextParts,
@@ -361,6 +364,51 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
     {
       left: "按 Tab 补全命令或文件路径",
       right: "Agent：正在生成提交信息 git commit -m ...",
+    },
+  );
+});
+
+test("agent status uses a bounded viewport and scrolls long text with ellipsis", () => {
+  assert.equal(DEFAULT_AGENT_STATUS_WIDTH, 36);
+  assert.equal(getAgentStatusWidth(undefined), DEFAULT_AGENT_STATUS_WIDTH);
+  assert.equal(getAgentStatusWidth(40), 24);
+  assert.equal(getAgentStatusWidth(200), 48);
+
+  assert.equal(
+    getScrollingStatusText({
+      text: "Agent：空闲",
+      width: 24,
+      offset: 10,
+    }),
+    "Agent：空闲",
+  );
+  assert.equal(
+    getScrollingStatusText({
+      text: "Agent：正在请求帮助 git commit --amend --no-edit --verbose ...",
+      width: 24,
+      offset: 0,
+    }),
+    "Agent：正在请求帮助 git comm...",
+  );
+  assert.equal(
+    getScrollingStatusText({
+      text: "Agent：正在请求帮助 git commit --amend --no-edit --verbose ...",
+      width: 24,
+      offset: 10,
+    }),
+    "...帮助 git commit --am...",
+  );
+  assert.deepEqual(
+    getStatusBarParts({
+      isRunning: false,
+      isAgentWaiting: true,
+      agentCommand: "git commit --amend --no-edit --verbose",
+      agentStatusWidth: 24,
+      agentStatusScrollOffset: 10,
+    }),
+    {
+      left: "按 Enter 执行命令",
+      right: "...帮助 git commit --am...",
     },
   );
 });
