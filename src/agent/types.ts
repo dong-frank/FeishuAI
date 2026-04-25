@@ -1,8 +1,22 @@
+export type CommandFailureContext = {
+  count: number;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  occurredAt: string;
+};
+
+export type GitCommandStatsContext = {
+  successCount: number;
+  failures: CommandFailureContext[];
+};
+
 export type CommandContext = {
   cwd: string;
   command: string;
   args: string[];
   rawCommand: string;
+  gitStats?: GitCommandStatsContext;
 };
 
 export type CommandResult = {
@@ -11,15 +25,26 @@ export type CommandResult = {
   stderr: string;
 };
 
+export type CommitMessageContext = {
+  cwd: string;
+  status?: string;
+  stagedDiff?: string;
+  unstagedDiff?: string;
+  recentCommits?: string[];
+};
+
 export type CommandAgent = {
   askForHelp?: (context: CommandContext) => string | Promise<string>;
-  beforeRun?: (context: CommandContext) => void | Promise<void>;
+  beforeRun?: (context: CommandContext) => string | void | Promise<string | void>;
   afterSuccess?: (
     context: CommandContext,
     result: CommandResult,
-  ) => void | Promise<void>;
+  ) => string | void | Promise<string | void>;
   afterFail?: (
     context: CommandContext,
     result: CommandResult,
   ) => void | Promise<void>;
+  generateCommitMessage?: (
+    context: CommitMessageContext,
+  ) => string | Promise<string>;
 };
