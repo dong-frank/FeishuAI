@@ -156,12 +156,11 @@ test("runCommandLine records git failure and ignores non-git command counts", as
   assert.equal(stats?.failures.at(-1)?.exitCode, 129);
 });
 
-test("shouldTriggerAfterSuccess only allows key git commands in the first two success counts", () => {
+test("shouldTriggerAfterSuccess allows key git command successes regardless of success count", () => {
   assert.equal(
     shouldTriggerAfterSuccess({
       classification: { kind: "git", subcommand: "push" },
       rawCommand: "git push origin main",
-      gitStats: { successCount: 1, failures: [] },
     }),
     true,
   );
@@ -169,7 +168,6 @@ test("shouldTriggerAfterSuccess only allows key git commands in the first two su
     shouldTriggerAfterSuccess({
       classification: { kind: "git", subcommand: "push" },
       rawCommand: "git push origin main",
-      gitStats: { successCount: 2, failures: [] },
     }),
     true,
   );
@@ -177,15 +175,13 @@ test("shouldTriggerAfterSuccess only allows key git commands in the first two su
     shouldTriggerAfterSuccess({
       classification: { kind: "git", subcommand: "push" },
       rawCommand: "git push origin main",
-      gitStats: { successCount: 3, failures: [] },
     }),
-    false,
+    true,
   );
   assert.equal(
     shouldTriggerAfterSuccess({
       classification: { kind: "git", subcommand: "status" },
       rawCommand: "git status",
-      gitStats: { successCount: 1, failures: [] },
     }),
     false,
   );
@@ -193,7 +189,6 @@ test("shouldTriggerAfterSuccess only allows key git commands in the first two su
     shouldTriggerAfterSuccess({
       classification: { kind: "other", reason: "External command: node" },
       rawCommand: "node -v",
-      gitStats: { successCount: 1, failures: [] },
     }),
     false,
   );
@@ -231,7 +226,7 @@ test("runCommandLine starts afterSuccess for key git command successes without w
   assert.equal(await result.afterSuccess, "pushed. consider opening a PR.");
 });
 
-test("runCommandLine skips afterSuccess after the second consecutive key command success", async () => {
+test("runCommandLine triggers afterSuccess even after repeated key command successes", async () => {
   const statsCwd = await createTempCwd();
   await recordGitCommandSuccess(statsCwd, "git push", new Date("2026-04-25T12:00:00.000Z"));
   await recordGitCommandSuccess(statsCwd, "git push origin main", new Date("2026-04-25T12:01:00.000Z"));
@@ -248,8 +243,8 @@ test("runCommandLine skips afterSuccess after the second consecutive key command
   });
 
   assert.equal(result.kind, "execute");
-  assert.equal(result.afterSuccess, undefined);
-  assert.deepEqual(events, []);
+  assert.ok(result.afterSuccess);
+  assert.deepEqual(events, ["git push origin main"]);
   assert.deepEqual(await getGitCommandSuccessStats(statsCwd), {
     "git push": 3,
   });

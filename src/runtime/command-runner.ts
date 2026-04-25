@@ -5,7 +5,6 @@ import { executeCommand } from "../commands/run.js";
 import { classifyCommand, type CommandClassification } from "./command-registry.js";
 import {
   getGitCommandStats,
-  type GitCommandFailure,
   loadGitCommandStats,
   normalizeGitCommand,
   recordGitCommandFailure,
@@ -50,7 +49,6 @@ export const AFTER_SUCCESS_KEY_GIT_SUBCOMMANDS = [
   "merge",
   "rebase",
 ] as const;
-export const AFTER_SUCCESS_MAX_SUCCESS_COUNT = 2;
 
 const AFTER_SUCCESS_KEY_GIT_SUBCOMMAND_SET = new Set<string>(
   AFTER_SUCCESS_KEY_GIT_SUBCOMMANDS,
@@ -59,11 +57,9 @@ const AFTER_SUCCESS_KEY_GIT_SUBCOMMAND_SET = new Set<string>(
 export function shouldTriggerAfterSuccess({
   classification,
   rawCommand,
-  gitStats,
 }: {
   classification?: CommandClassification | undefined;
   rawCommand: string;
-  gitStats?: { successCount: number; failures: GitCommandFailure[] } | undefined;
 }) {
   if (classification?.kind !== "git") {
     return false;
@@ -77,7 +73,7 @@ export function shouldTriggerAfterSuccess({
     return false;
   }
 
-  return (gitStats?.successCount ?? 0) <= AFTER_SUCCESS_MAX_SUCCESS_COUNT;
+  return true;
 }
 
 export async function getGitCommandSuccessStats(cwd: string = process.cwd()) {
@@ -255,7 +251,6 @@ export async function runCommandLine(
         shouldTriggerAfterSuccess({
           classification,
           rawCommand,
-          gitStats: context.gitStats,
         })
       ) {
         afterSuccess = Promise.resolve(options.agent.afterSuccess(context, result));
