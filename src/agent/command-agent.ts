@@ -22,7 +22,7 @@ export const COMMAND_AGENT_SYSTEM_PROMPT = `
 - context.args: 命令参数数组
 - context.rawCommand: 用户输入的完整命令
 - context.gitStats.successCount: 归一化后的同类 Git 命令最近连续成功次数
-- context.gitStats.failures: 归一化后的同类 Git 命令最近失败记录数组，最多 3 条，包含 exitCode、stdout、stderr、occurredAt
+- context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt；count 表示该报错已出现次数
 - result.exitCode: 命令退出码
 - result.stdout: 命令标准输出
 - result.stderr: 命令错误输出

@@ -9,12 +9,27 @@ type ExecuteCommandOptions = {
   stderr?: Writable;
 };
 
+export function getSpawnCommand(command: string, args: string[]) {
+  if (command === "git") {
+    return {
+      command,
+      args: ["-c", "color.ui=always", ...args],
+    };
+  }
+
+  return {
+    command,
+    args,
+  };
+}
+
 export async function executeCommand(
   command: string,
   args: string[],
   options: ExecuteCommandOptions = {},
 ): Promise<number> {
-  const child = spawn(command, args, {
+  const spawnCommand = getSpawnCommand(command, args);
+  const child = spawn(spawnCommand.command, spawnCommand.args, {
     cwd: process.cwd(),
     env: process.env,
     shell: false,
