@@ -14,9 +14,6 @@ export async function executeCommand(
   args: string[],
   options: ExecuteCommandOptions = {},
 ): Promise<number> {
-  const context = createCommandContext(command, args);
-  await options.agent?.beforeRun?.(context);
-
   const child = spawn(command, args, {
     cwd: process.cwd(),
     env: process.env,
@@ -48,22 +45,7 @@ export async function executeCommand(
         stderr: Buffer.concat(stderrChunks).toString(),
       };
 
-      if (exitCode === 0) {
-        await options.agent?.afterSuccess?.(context, result);
-      } else {
-        await options.agent?.afterFail?.(context, result);
-      }
-
       resolve(exitCode);
     });
   });
-}
-
-function createCommandContext(command: string, args: string[]): CommandContext {
-  return {
-    cwd: process.cwd(),
-    command,
-    args,
-    rawCommand: [command, ...args].join(" "),
-  };
 }

@@ -12,6 +12,7 @@ export type CommandResult = {
 };
 
 export type CommandAgent = {
+  askForHelp?: (context: CommandContext) => string | Promise<string>;
   beforeRun?: (context: CommandContext) => void | Promise<void>;
   afterSuccess?: (
     context: CommandContext,

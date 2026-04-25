@@ -1,0 +1,125 @@
+import type { StructuredToolInterface } from "@langchain/core/tools";
+import { ChatOpenAI } from "@langchain/openai";
+import { createAgent } from "langchain";
+import { traceable } from "langsmith/traceable";
+
+export type LangChainChatModelConfig = {
+  apiKey?: string;
+  baseURL?: string;
+  model?: string;
+  disableThinking?: boolean;
+  modelKwargs?: Record<string, unknown>;
+};
+
+export type LangChainAgentOptions = {
+  systemPrompt: string;
+  tools?: StructuredToolInterface[];
+  model?: ChatOpenAI;
+  name?: string;
+};
+
+export type LangChainAgent = {
+  systemPrompt: string;
+  tools: StructuredToolInterface[];
+  invoke: (input: string) => Promise<string>;
+};
+
+export function createLangChainChatModel(config: LangChainChatModelConfig = {}) {
+  const disableThinking = config.disableThinking ?? true;
+
+  return new ChatOpenAI({
+    apiKey: config.apiKey ?? process.env.API_KEY ?? "",
+    model: config.model ?? process.env.MODEL ?? "",
+    temperature: 0.7,
+    modelKwargs: {
+      ...(disableThinking ? { thinking: { type: "disabled" } } : {}),
+      ...config.modelKwargs,
+    },
+    configuration: {
+      baseURL:
+        config.baseURL ?? "https://ark.cn-beijing.volces.com/api/v3",
+    },
+  });
+}
+
+export function createLangChainAgent(options: LangChainAgentOptions): LangChainAgent {
+  const tools = options.tools ?? [];
+  const model = options.model ?? createLangChainChatModel();
+  const agent = createAgent({
+    model,
+    tools,
+    systemPrompt: options.systemPrompt,
+  });
+  const name = options.name ?? "LangChain Agent";
+
+  return {
+    systemPrompt: options.systemPrompt,
+    tools,
+    invoke: traceable(
+      async (input: string) => {
+        const result = await agent.invoke({
+          messages: [{ role: "user", content: input }],
+        });
+
+        return getLastMessageText(result);
+      },
+      {
+        name,
+        run_type: "chain",
+      },
+    ),
+  };
+}
+
+function getLastMessageText(result: unknown): string {
+  if (!isRecord(result) || !Array.isArray(result.messages)) {
+    return stringifyContent(result);
+  }
+
+  const lastMessage = result.messages.at(-1);
+  if (!isRecord(lastMessage) || !("content" in lastMessage)) {
+    return stringifyContent(lastMessage);
+  }
+
+  return stringifyContent(lastMessage.content);
+}
+
+function stringifyContent(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content.map(stringifyContentBlock).filter(Boolean).join("\n");
+  }
+
+  if (content == null) {
+    return "";
+  }
+
+  return JSON.stringify(content);
+}
+
+function stringifyContentBlock(block: unknown): string {
+  if (typeof block === "string") {
+    return block;
+  }
+
+  if (!isRecord(block)) {
+    return stringifyContent(block);
+  }
+
+  if (typeof block.text === "string") {
+    return block.text;
+  }
+
+  if (typeof block.content === "string") {
+    return block.content;
+  }
+
+  return JSON.stringify(block);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}

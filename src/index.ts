@@ -3,7 +3,10 @@
 import { Command } from "commander";
 
 import { createCommandAgent } from "./agent/command-agent.js";
+import { createInitCommand } from "./commands/init.js";
+import { createLarkCommand } from "./commands/lark.js";
 import { executeCommand } from "./commands/run.js";
+import { renderTui } from "./tui/render.js";
 
 const program = new Command();
 
@@ -40,4 +43,11 @@ program
     }
   });
 
-program.parse();
+program.addCommand(createLarkCommand());
+program.addCommand(createInitCommand());
+
+if (process.argv.length <= 2) {
+  renderTui();
+} else {
+  program.parse();
+}
