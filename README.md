@@ -23,7 +23,6 @@
 
 - CLI 名称设为 `git-helper`。
 - 无参数启动时进入 TUI，形成类似 Git Bash 的交互入口。
-- 支持 `git-helper run <cmd> [...args]` 实际执行命令。
 - runtime 层完成命令解析、命令分类和帮助请求识别。
 - 支持的 Git 命令、自定义命令和其他命令已经有明确分类。
 - 支持 Git 子命令 Tab 补全，例如输入 `git sta` 可补全到 `git status`。
@@ -48,7 +47,7 @@
 ```text
 用户输入命令
     ↓
-TUI / CLI 入口
+TUI 入口
     ↓
 runtime 解析命令、分类、判断是否请求帮助
     ↓
@@ -64,7 +63,7 @@ Agent 根据 phase 决定行为
 ```text
 src/
   agent/          LangChain Agent 封装、命令 Agent、phase 接口
-  commands/       CLI 子命令，例如 run、init、lark
+  commands/       CLI 子命令，例如 init、lark
   integrations/   外部工具集成，例如 lark-cli、tldr
   runtime/        命令解析、分类、补全、运行时流程
   tui/            Ink/React TUI 交互界面
@@ -110,12 +109,6 @@ npm install
 
 ```bash
 npm run dev
-```
-
-执行命令：
-
-```bash
-npm run dev -- run git status
 ```
 
 进入 TUI：

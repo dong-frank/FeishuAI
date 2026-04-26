@@ -1,8 +1,8 @@
 import { Writable } from "node:stream";
 
 import type { CommandAgent, CommandContext } from "../agent/types.js";
-import { executeCommand } from "../commands/run.js";
 import { classifyCommand, type CommandClassification } from "./command-registry.js";
+import { executeCommand } from "./command-executor.js";
 import {
   getGitCommandStats,
   loadGitCommandStats,
