@@ -23,6 +23,8 @@ import {
   getHistoryViewportWidth,
   getNextHistoryScrollOffset,
   getVisibleHistoryRows,
+  replaceAgentHistoryEntry,
+  type AgentHistoryEntry,
   type HistoryEntry,
   type HistoryScrollAction,
 } from "./history.js";
@@ -70,6 +72,7 @@ export function App() {
   const [agentStatusCommand, setAgentStatusCommand] = useState<string | undefined>();
   const [agentSuggestedCommand, setAgentSuggestedCommand] = useState<string | undefined>();
   const lastTabAgentInput = useRef<string | undefined>(undefined);
+  const nextAgentHistoryId = useRef(1);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number | undefined>();
@@ -295,38 +298,30 @@ export function App() {
   }
 
   async function triggerBeforeRun(context: CommandContext) {
+    const agentHistoryId = appendPendingAgentHistoryEntry("command", context.rawCommand);
     setIsAgentWaiting(true);
     setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
     try {
       const message = await createCommandAgent().beforeRun?.(context);
       if (!message) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
         return;
       }
       setAgentSuggestedCommand(message.suggestedCommand);
 
-      const parsed = parseCommandLine(context.rawCommand);
-      const classification = parsed ? classifyCommand(parsed) : undefined;
-      const entry: HistoryEntry = {
-        type: "output",
-        result: {
-          commandLine: context.rawCommand,
-          kind: "help",
-          agentKind: "command",
-          ...(classification ? { classification } : {}),
-          exitCode: 0,
-          stdout: "",
-          stderr: "",
-          help: message.content,
-          ...(message.metadata ? { agentMetadata: message.metadata } : {}),
-        },
-      };
-      setHistory((current) => [...current, entry].slice(-20));
+      updateAgentHistoryEntry(agentHistoryId, {
+        state: "success",
+        content: message.content,
+        ...(message.metadata ? { metadata: message.metadata } : {}),
+      });
       setHistoryScrollOffset(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const entry: HistoryEntry = { type: "system", text: message };
-      setHistory((current) => [...current, entry].slice(-20));
+      updateAgentHistoryEntry(agentHistoryId, {
+        state: "failed",
+        error: message,
+      });
       setHistoryScrollOffset(0);
     } finally {
       setIsAgentWaiting(false);
@@ -341,35 +336,38 @@ export function App() {
       afterSuccess: Promise<CommandAgentOutput | string | void>;
       afterSuccessAgentKind?: "command" | "lark";
     },
+    options: {
+      onAgentHistoryEntryCreated?: (
+        id: string,
+        agentKind: AgentKind,
+      ) => void;
+    } = {},
   ) {
+    const agentKind = result.afterSuccessAgentKind ?? "command";
+    const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine);
+    options.onAgentHistoryEntryCreated?.(agentHistoryId, agentKind);
     setIsAgentReviewing(true);
-    setActiveAgentKind(result.afterSuccessAgentKind ?? "command");
+    setActiveAgentKind(agentKind);
     setAgentStatusCommand(result.commandLine);
     try {
       const output = normalizeAgentOutput(await result.afterSuccess);
       if (!output) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
         return;
       }
       setAgentSuggestedCommand(output.suggestedCommand);
 
-      const entry: HistoryEntry = {
-        type: "output",
-        result: {
-          commandLine: result.commandLine,
-          kind: "help",
-          agentKind: result.afterSuccessAgentKind ?? "command",
-          ...(result.classification ? { classification: result.classification } : {}),
-          exitCode: 0,
-          stdout: "",
-          stderr: "",
-          help: output.content,
-          ...(output.metadata ? { agentMetadata: output.metadata } : {}),
-        },
-      };
-      setHistory((current) => [...current, entry].slice(-20));
+      updateAgentHistoryEntry(agentHistoryId, {
+        state: "success",
+        content: output.content,
+        ...(output.metadata ? { metadata: output.metadata } : {}),
+      });
       setHistoryScrollOffset(0);
-    } catch {
-      // afterSuccess is advisory and should never disturb command output.
+    } catch (error) {
+      updateAgentHistoryEntry(agentHistoryId, {
+        state: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setIsAgentReviewing(false);
       setActiveAgentKind(undefined);
@@ -384,34 +382,30 @@ export function App() {
       afterFailAgentKind?: "command";
     },
   ) {
+    const agentKind = result.afterFailAgentKind ?? "command";
+    const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine);
     setIsAgentReviewing(true);
-    setActiveAgentKind(result.afterFailAgentKind ?? "command");
+    setActiveAgentKind(agentKind);
     setAgentStatusCommand(result.commandLine);
     try {
       const output = normalizeAgentOutput(await result.afterFail);
       if (!output) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
         return;
       }
       setAgentSuggestedCommand(output.suggestedCommand);
 
-      const entry: HistoryEntry = {
-        type: "output",
-        result: {
-          commandLine: result.commandLine,
-          kind: "help",
-          agentKind: result.afterFailAgentKind ?? "command",
-          ...(result.classification ? { classification: result.classification } : {}),
-          exitCode: 0,
-          stdout: "",
-          stderr: "",
-          help: output.content,
-          ...(output.metadata ? { agentMetadata: output.metadata } : {}),
-        },
-      };
-      setHistory((current) => [...current, entry].slice(-20));
+      updateAgentHistoryEntry(agentHistoryId, {
+        state: "success",
+        content: output.content,
+        ...(output.metadata ? { metadata: output.metadata } : {}),
+      });
       setHistoryScrollOffset(0);
-    } catch {
-      // afterFail is advisory and should never disturb command output.
+    } catch (error) {
+      updateAgentHistoryEntry(agentHistoryId, {
+        state: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setIsAgentReviewing(false);
       setActiveAgentKind(undefined);
@@ -444,6 +438,8 @@ export function App() {
     let liveStdout = "";
     let liveStderr = "";
     let hasLiveOutput = false;
+    let larkAgentHistoryId: string | undefined;
+    const bufferedLarkAgentChunks: CommandOutputChunk[] = [];
 
     function updateLiveOutput(chunk: CommandOutputChunk, source: "user" | "agent" = "user") {
       if (chunk.stream === "stdout") {
@@ -479,7 +475,14 @@ export function App() {
     }
 
     const updateUserLiveOutput = (chunk: CommandOutputChunk) => updateLiveOutput(chunk, "user");
-    const updateAgentLiveOutput = (chunk: CommandOutputChunk) => updateLiveOutput(chunk, "agent");
+    const updateAgentLiveOutput = (chunk: CommandOutputChunk) => {
+      if (!larkAgentHistoryId) {
+        bufferedLarkAgentChunks.push(chunk);
+        return;
+      }
+
+      appendAgentHistoryOutput(larkAgentHistoryId, chunk);
+    };
 
     try {
       const result = await runCommandLine(commandLine, {
@@ -507,7 +510,18 @@ export function App() {
         void refreshSession(result.nextCwd ?? currentCwd);
       }
       if (hasAfterSuccessReview(result)) {
-        void triggerAfterSuccessReview(result);
+        void triggerAfterSuccessReview(result, {
+          onAgentHistoryEntryCreated(id, agentKind) {
+            if (agentKind !== "lark") {
+              return;
+            }
+
+            larkAgentHistoryId = id;
+            for (const chunk of bufferedLarkAgentChunks.splice(0)) {
+              appendAgentHistoryOutput(id, chunk);
+            }
+          },
+        });
       }
       if (hasAfterFailReview(result)) {
         void triggerAfterFailReview(result);
@@ -526,6 +540,47 @@ export function App() {
     setHistoryScrollOffset((current) =>
       getNextHistoryScrollOffset(current, action, historyRows.length, historyRowLimit),
     );
+  }
+
+  function appendPendingAgentHistoryEntry(
+    agentKind: AgentKind,
+    commandLine: string,
+  ) {
+    const id = `agent-${nextAgentHistoryId.current}`;
+    nextAgentHistoryId.current += 1;
+    const entry: AgentHistoryEntry = {
+      type: "agent",
+      id,
+      agentKind,
+      commandLine,
+      state: "pending",
+    };
+    setHistory((current) => [...current, entry].slice(-20));
+    setHistoryScrollOffset(0);
+    return id;
+  }
+
+  function updateAgentHistoryEntry(
+    id: string,
+    patch: Partial<Omit<AgentHistoryEntry, "type" | "id" | "agentKind" | "commandLine">>,
+  ) {
+    setHistory((current) => replaceAgentHistoryEntry(current, id, patch));
+    setHistoryScrollOffset(0);
+  }
+
+  function appendAgentHistoryOutput(id: string, chunk: CommandOutputChunk) {
+    setHistory((current) =>
+      replaceAgentHistoryEntry(current, id, {
+        ...(chunk.stream === "stdout"
+          ? {
+              stdout: `${getAgentHistoryOutput(current, id, "stdout")}${chunk.text}`,
+            }
+          : {
+              stderr: `${getAgentHistoryOutput(current, id, "stderr")}${chunk.text}`,
+            }),
+      }),
+    );
+    setHistoryScrollOffset(0);
   }
 
   return (
@@ -561,6 +616,18 @@ function hasAfterFailReview(
   afterFailAgentKind?: "command";
 } {
   return result.kind === "execute" && Boolean(result.afterFail);
+}
+
+function getAgentHistoryOutput(
+  history: HistoryEntry[],
+  id: string,
+  stream: "stdout" | "stderr",
+) {
+  const entry = history.find(
+    (candidate): candidate is AgentHistoryEntry =>
+      candidate.type === "agent" && candidate.id === id,
+  );
+  return stream === "stdout" ? entry?.stdout ?? "" : entry?.stderr ?? "";
 }
 
 function normalizeAgentOutput(

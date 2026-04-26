@@ -21,6 +21,7 @@ import {
   getPromptLineParts,
   getHistoryViewportHeight,
   getHistoryRows,
+  replaceAgentHistoryEntry,
   getSessionHeaderParts,
   getStatusBarParts,
   getStatusLine,
@@ -878,6 +879,117 @@ test("help output is rendered in a banner instead of normal history text", () =>
     }),
     false,
   );
+});
+
+test("agent history entries render pending, success, failed, and empty states", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "command",
+      commandLine: "git commit",
+      state: "pending",
+    },
+    {
+      type: "agent",
+      id: "agent-2",
+      agentKind: "lark",
+      commandLine: "lark init",
+      state: "success",
+      content: "auth ready",
+      metadata: {
+        durationMs: 2500,
+        tokenUsage: {
+          totalTokens: 1031,
+        },
+      },
+    },
+    {
+      type: "agent",
+      id: "agent-3",
+      agentKind: "command",
+      commandLine: "git push",
+      state: "failed",
+      error: "model timeout",
+    },
+    {
+      type: "agent",
+      id: "agent-4",
+      agentKind: "command",
+      commandLine: "git status",
+      state: "empty",
+    },
+  ]);
+
+  const gitAgentTitles = rows.filter((row) => row.text === "Git Agent");
+  assert.equal(gitAgentTitles[0]?.rightText, "[running]");
+  assert.equal(gitAgentTitles[0]?.rightColor, "yellow");
+  assert.equal(gitAgentTitles[1]?.rightText, "[failed]");
+  assert.equal(gitAgentTitles[1]?.rightColor, "red");
+  assert.equal(gitAgentTitles[2]?.rightText, "[done]");
+  assert.equal(gitAgentTitles[2]?.rightColor, "gray");
+  assert.ok(rows.some((row) => row.text === "model timeout"));
+  assert.ok(rows.some((row) => row.text === "No agent suggestion generated."));
+
+  const larkAgentTitle = rows.find((row) => row.text === "Lark Agent");
+  assert.equal(larkAgentTitle?.rightText, "[✓ 2.5s · 1031 tokens]");
+  assert.equal(larkAgentTitle?.rightColor, "cyan");
+  assert.ok(rows.some((row) => row.text === "auth ready"));
+});
+
+test("agent history replacement keeps the original position", () => {
+  const history = [
+    {
+      type: "input" as const,
+      text: "git push",
+    },
+    {
+      type: "agent" as const,
+      id: "agent-1",
+      agentKind: "command" as const,
+      commandLine: "git push",
+      state: "pending" as const,
+    },
+    {
+      type: "input" as const,
+      text: "git status",
+    },
+  ];
+
+  assert.deepEqual(
+    replaceAgentHistoryEntry(history, "agent-1", {
+      state: "success",
+      content: "pushed. consider opening a PR.",
+    }),
+    [
+      history[0],
+      {
+        ...history[1],
+        state: "success",
+        content: "pushed. consider opening a PR.",
+      },
+      history[2],
+    ],
+  );
+});
+
+test("agent history entries render live agent command output under the agent banner", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "lark",
+      commandLine: "lark init",
+      state: "pending",
+      stdout: "authorize link\n",
+      stderr: "waiting for login\n",
+    },
+  ]);
+
+  assert.ok(rows.some((row) => row.text === "Lark Agent"));
+  assert.equal(rows.some((row) => row.text === "agent: lark init"), false);
+  assert.equal(rows.find((row) => row.text === "authorize link")?.parts?.[0]?.color, "magenta");
+  assert.equal(rows.find((row) => row.text === "waiting for login")?.parts?.[0]?.color, "magenta");
 });
 
 test("output sections strip terminal control characters before rendering", () => {

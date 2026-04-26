@@ -19,6 +19,21 @@ import { getTerminalTextWidth } from "./status.js";
 
 type HistoryColor = NonNullable<OutputTextPart["color"]>;
 type OutputSource = "user" | "agent";
+type AgentHistoryKind = "command" | "lark";
+type AgentHistoryState = "pending" | "success" | "failed" | "empty";
+
+export type AgentHistoryEntry = {
+  type: "agent";
+  id: string;
+  agentKind: AgentHistoryKind;
+  commandLine: string;
+  state: AgentHistoryState;
+  content?: string | undefined;
+  error?: string | undefined;
+  metadata?: AgentRunMetadata | undefined;
+  stdout?: string | undefined;
+  stderr?: string | undefined;
+};
 
 export type HistoryEntry =
   | {
@@ -33,7 +48,8 @@ export type HistoryEntry =
   | {
       type: "system";
       text: string;
-    };
+    }
+  | AgentHistoryEntry;
 
 export type HistoryRow = {
   text: string;
@@ -136,6 +152,10 @@ function getHistoryEntryRows(
     return splitPlainTextRows(entry.text, { color: "gray" }, wrapWidth);
   }
 
+  if (entry.type === "agent") {
+    return getAgentHistoryEntryRows(entry, wrapWidth);
+  }
+
   if (isHelpOutput(entry.result)) {
     const output = getOutputSections(entry.result);
     return [
@@ -168,6 +188,21 @@ function getHistoryEntryRows(
     : outputRows;
 
   return rows;
+}
+
+export function replaceAgentHistoryEntry(
+  history: HistoryEntry[],
+  id: string,
+  patch: Partial<Omit<AgentHistoryEntry, "type" | "id" | "agentKind" | "commandLine">>,
+): HistoryEntry[] {
+  return history.map((entry) =>
+    entry.type === "agent" && entry.id === id
+      ? {
+          ...entry,
+          ...patch,
+        }
+      : entry,
+  );
 }
 
 function isFailedOutputForCommand(
@@ -231,6 +266,94 @@ function formatAgentMetadata(metadata: AgentRunMetadata | undefined) {
   }
 
   return `[${parts.join(" · ")}]`;
+}
+
+function getAgentHistoryEntryRows(
+  entry: AgentHistoryEntry,
+  wrapWidth?: number | undefined,
+): HistoryRow[] {
+  const outputRows = splitOutputPartsIntoRows(
+    getStyledOutputTextParts(
+      getOutputTextParts({
+        commandLine: entry.commandLine,
+        kind: "execute",
+        exitCode: entry.state === "failed" ? 1 : 0,
+        stdout: entry.stdout ?? "",
+        stderr: entry.stderr ?? "",
+      }),
+      "agent",
+    ),
+  );
+  const bodyRows = getAgentHistoryBodyRows(entry, wrapWidth);
+
+  return [
+    { text: "" },
+    {
+      text: getAgentHistoryTitle(entry.agentKind),
+      color: "cyan",
+      bold: true,
+      rightText: getAgentHistoryRightText(entry),
+      rightColor: getAgentHistoryRightColor(entry),
+    },
+    ...outputRows,
+    ...bodyRows,
+    { text: "" },
+  ];
+}
+
+function getAgentHistoryBodyRows(
+  entry: AgentHistoryEntry,
+  wrapWidth?: number | undefined,
+): HistoryRow[] {
+  if (entry.state === "failed") {
+    return splitPlainTextRows(entry.error?.trim() || "Agent failed.", { color: "red" }, wrapWidth);
+  }
+
+  if (entry.state === "empty") {
+    return splitPlainTextRows("No agent suggestion generated.", { color: "gray" }, wrapWidth);
+  }
+
+  if (entry.content?.trim()) {
+    return splitPlainTextRows(entry.content.trim(), { color: "cyan" }, wrapWidth);
+  }
+
+  if (entry.state === "pending") {
+    return splitPlainTextRows("Waiting for agent response...", { color: "gray" }, wrapWidth);
+  }
+
+  return [];
+}
+
+function getAgentHistoryRightText(entry: AgentHistoryEntry) {
+  if (entry.state === "pending") {
+    return "[running]";
+  }
+
+  if (entry.state === "failed") {
+    return "[failed]";
+  }
+
+  if (entry.state === "empty") {
+    return "[done]";
+  }
+
+  return formatAgentMetadata(entry.metadata) ?? "[done]";
+}
+
+function getAgentHistoryRightColor(entry: AgentHistoryEntry): HistoryColor {
+  if (entry.state === "pending") {
+    return "yellow";
+  }
+
+  if (entry.state === "failed") {
+    return "red";
+  }
+
+  if (entry.state === "empty") {
+    return "gray";
+  }
+
+  return "cyan";
 }
 
 function getAgentHistoryTitle(agentKind: "command" | "lark" | undefined) {
