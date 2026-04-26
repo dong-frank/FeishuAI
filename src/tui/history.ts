@@ -223,10 +223,10 @@ function formatAgentMetadata(metadata: AgentRunMetadata | undefined) {
     return undefined;
   }
 
-  const parts = [formatCommandDuration(metadata.durationMs)];
+  const parts = [`✓ ${formatCommandDuration(metadata.durationMs)}`];
   const tokenCount = getAgentTokenCount(metadata.tokenUsage);
   if (typeof tokenCount === "number") {
-    parts.push(`${tokenCount} tok`);
+    parts.push(`${tokenCount} tokens`);
   }
 
   return `[${parts.join(" · ")}]`;

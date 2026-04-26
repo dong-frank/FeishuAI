@@ -832,7 +832,7 @@ test("help output is rendered in a banner instead of normal history text", () =>
     },
   ]);
   const agentTitle = rows.find((row) => row.text === "Agent");
-  assert.equal(agentTitle?.rightText, "[1.2s · 456 tok]");
+  assert.equal(agentTitle?.rightText, "[✓ 1.2s · 456 tokens]");
   assert.equal(agentTitle?.rightColor, "cyan");
   assert.equal(
     isHelpOutput({
