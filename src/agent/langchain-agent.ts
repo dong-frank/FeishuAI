@@ -1,37 +1,42 @@
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { ChatOpenAI } from "@langchain/openai";
-import { createAgent, type ResponseFormat } from "langchain";
+import { createAgent, type ResponseFormat, type TypedToolStrategy } from "langchain";
 import { traceable } from "langsmith/traceable";
 
 export type LangChainChatModelConfig = {
   apiKey?: string;
   baseURL?: string;
   model?: string;
+  modelRole?: LangChainModelRole;
   disableThinking?: boolean;
   modelKwargs?: Record<string, unknown>;
 };
+
+export type LangChainModelRole = "default" | "command" | "lark";
 
 export type LangChainAgentOptions = {
   systemPrompt: string;
   tools?: StructuredToolInterface[];
   model?: ChatOpenAI;
   name?: string;
-  responseFormat?: ResponseFormat | undefined;
+  responseFormat?: LangChainResponseFormat | undefined;
 };
 
 export type LangChainAgent = {
   systemPrompt: string;
   tools: StructuredToolInterface[];
-  responseFormat?: ResponseFormat | undefined;
+  responseFormat?: LangChainResponseFormat | undefined;
   invoke: (input: string) => Promise<string>;
 };
+
+export type LangChainResponseFormat = ResponseFormat | TypedToolStrategy<unknown>;
 
 export function createLangChainChatModel(config: LangChainChatModelConfig = {}) {
   const disableThinking = config.disableThinking ?? true;
 
   return new ChatOpenAI({
     apiKey: config.apiKey ?? process.env.API_KEY ?? "",
-    model: config.model ?? process.env.MODEL ?? "",
+    model: config.model ?? resolveLangChainModelName(config.modelRole, process.env),
     temperature: 0.7,
     modelKwargs: {
       ...(disableThinking ? { thinking: { type: "disabled" } } : {}),
@@ -39,9 +44,24 @@ export function createLangChainChatModel(config: LangChainChatModelConfig = {}) 
     },
     configuration: {
       baseURL:
-        config.baseURL ?? "https://ark.cn-beijing.volces.com/api/v3",
+        config.baseURL ?? process.env.BASE_URL ?? "",
     },
   });
+}
+
+export function resolveLangChainModelName(
+  modelRole: LangChainModelRole = "default",
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  if (modelRole === "command") {
+    return env.COMMAND_MODEL ?? env.MODEL ?? "";
+  }
+
+  if (modelRole === "lark") {
+    return env.LARK_MODEL ?? env.MODEL ?? "";
+  }
+
+  return env.MODEL ?? "";
 }
 
 export function createLangChainAgent(options: LangChainAgentOptions): LangChainAgent {

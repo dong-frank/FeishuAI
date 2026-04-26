@@ -22,7 +22,6 @@ function getAgentLabel(agentKind: AgentKind | undefined) {
 export function getStatusLine({
   isRunning,
   isAgentWaiting,
-  isCommitMessageGenerating = false,
   isAgentReviewing = false,
   agentKind,
   agentCommand,
@@ -30,17 +29,12 @@ export function getStatusLine({
 }: {
   isRunning: boolean;
   isAgentWaiting: boolean;
-  isCommitMessageGenerating?: boolean | undefined;
   isAgentReviewing?: boolean | undefined;
   agentKind?: AgentKind | undefined;
   agentCommand?: string | undefined;
   tipIndex?: number | undefined;
 }) {
   const agentLabel = getAgentLabel(agentKind);
-
-  if (isCommitMessageGenerating) {
-    return `${agentLabel}：正在生成提交信息 ${agentCommand ?? "git commit -m"} ...`;
-  }
 
   if (isAgentWaiting) {
     if (agentKind === "lark") {

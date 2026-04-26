@@ -1,4 +1,7 @@
-import type { TuiSessionGitInfo } from "../runtime/tui-session.js";
+import type {
+  TuiSessionGitInfo,
+  TuiSessionLarkInfo,
+} from "../runtime/tui-session.js";
 
 export type CommandFailureContext = {
   count: number;
@@ -20,20 +23,24 @@ export type CommandContext = {
   rawCommand: string;
   gitStats?: GitCommandStatsContext;
   gitRepository?: TuiSessionGitInfo;
+  tuiSession?: CommandTuiSessionContext;
+};
+
+export type CommandTuiSessionContext = {
+  cwd: string;
+  git: TuiSessionGitInfo;
+  lark: TuiSessionLarkInfo;
+  header: {
+    cwd: string;
+    gitSummary: string;
+    larkSummary: string;
+  };
 };
 
 export type CommandResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
-};
-
-export type CommitMessageContext = {
-  cwd: string;
-  status?: string;
-  stagedDiff?: string;
-  unstagedDiff?: string;
-  recentCommits?: string[];
 };
 
 export type CommandAgentOutput = {
@@ -52,9 +59,6 @@ export type CommandAgent = {
   afterFail?: (
     context: CommandContext,
     result: CommandResult,
-  ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
-  generateCommitMessage?: (
-    context: CommitMessageContext,
   ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
 };
 

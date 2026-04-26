@@ -1,4 +1,4 @@
-import type { CommandContext } from "../agent/types.js";
+import type { CommandContext, CommandTuiSessionContext } from "../agent/types.js";
 import { classifyCommand } from "../runtime/command-registry.js";
 import { parseCommandLine, type CommandRunOutput } from "../runtime/command-runner.js";
 import { getGitCommandStats } from "../runtime/git-command-stats.js";
@@ -25,29 +25,10 @@ export function shouldTriggerBeforeRunOnTab({
   );
 }
 
-export function shouldTriggerCommitMessageGenerationOnTab({
-  input,
-  isRunning,
-}: {
-  input: string;
-  completionSuffix?: string | undefined;
-  isRunning: boolean;
-}) {
-  const parsed = parseCommandLine(input);
-  return Boolean(
-    parsed &&
-      !parsed.hasUnclosedQuote &&
-      !isRunning &&
-      parsed.command === "git" &&
-      parsed.args.length === 2 &&
-      parsed.args[0] === "commit" &&
-      parsed.args[1] === "-m",
-  );
-}
-
 export function buildBeforeRunContext(
   input: string,
   cwd: string = process.cwd(),
+  session?: TuiSessionInfo | undefined,
 ): Promise<CommandContext | undefined> {
   const parsed = parseCommandLine(input);
   const classification = parsed ? classifyCommand(parsed) : undefined;
@@ -65,7 +46,18 @@ export function buildBeforeRunContext(
       successCount: stats?.successCount ?? 0,
       failures: stats?.failures ?? [],
     },
+    ...(session ? { tuiSession: buildCommandTuiSessionContext(session) } : {}),
   }));
+}
+
+function buildCommandTuiSessionContext(session: TuiSessionInfo): CommandTuiSessionContext {
+  const header = getSessionHeaderParts(session);
+  return {
+    cwd: session.cwd,
+    git: session.git,
+    lark: session.lark,
+    header,
+  };
 }
 
 export function shouldIgnoreTabAgentTrigger({

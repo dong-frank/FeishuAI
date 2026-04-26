@@ -36,7 +36,6 @@ import {
   isHelpOutput,
   getOutputTextParts,
   parseAnsiTextParts,
-  shouldTriggerCommitMessageGenerationOnTab,
   shouldRefreshSessionAfterCommand,
   shouldIgnoreTabAgentTrigger,
   shouldShowClassificationLine,
@@ -669,16 +668,6 @@ test("status line keeps waiting indicators outside the prompt box", () => {
     getStatusLine({
       isRunning: false,
       isAgentWaiting: false,
-      isCommitMessageGenerating: true,
-      agentKind: "command",
-      agentCommand: "git commit -m",
-    }),
-    "Command Agent：正在生成提交信息 git commit -m ...",
-  );
-  assert.equal(
-    getStatusLine({
-      isRunning: false,
-      isAgentWaiting: false,
       isAgentReviewing: true,
       agentKind: "command",
       agentCommand: "git push",
@@ -702,15 +691,14 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
   assert.deepEqual(
     getStatusBarParts({
       isRunning: false,
-      isAgentWaiting: false,
-      isCommitMessageGenerating: true,
+      isAgentWaiting: true,
       agentKind: "command",
       agentCommand: "git commit -m",
       tipIndex: 1,
     }),
     {
       left: "按 Tab 请求 Agent 帮助",
-      right: "Command Agent：正在生成提...",
+      right: "Command Agent：正在请求帮...",
     },
   );
   assert.deepEqual(
@@ -924,46 +912,34 @@ test("beforeRun triggers only for complete Tab-requested git commands", () => {
   );
 });
 
-test("commit message generation triggers only for explicit Tab on git commit -m", () => {
+test("beforeRun handles git commit Tab requests", () => {
   assert.equal(
-    shouldTriggerCommitMessageGenerationOnTab({
-      input: "git commit -m",
-      completionSuffix: undefined,
-      isRunning: false,
-    }),
-    true,
-  );
-  assert.equal(
-    shouldTriggerCommitMessageGenerationOnTab({
-      input: "git commit -m \"message\"",
-      completionSuffix: undefined,
-      isRunning: false,
-    }),
-    false,
-  );
-  assert.equal(
-    shouldTriggerCommitMessageGenerationOnTab({
-      input: 'git commit -m "',
-      completionSuffix: undefined,
-      isRunning: false,
-    }),
-    false,
-  );
-  assert.equal(
-    shouldTriggerCommitMessageGenerationOnTab({
+    shouldTriggerBeforeRunOnTab({
       input: "git commit",
-      completionSuffix: undefined,
-      isRunning: false,
-    }),
-    false,
-  );
-  assert.equal(
-    shouldTriggerCommitMessageGenerationOnTab({
-      input: "git commit -m",
-      completionSuffix: "essage",
       isRunning: false,
     }),
     true,
+  );
+  assert.equal(
+    shouldTriggerBeforeRunOnTab({
+      input: "git commit -m",
+      isRunning: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldTriggerBeforeRunOnTab({
+      input: "git commit -m \"message\"",
+      isRunning: false,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldTriggerBeforeRunOnTab({
+      input: "git commit",
+      isRunning: true,
+    }),
+    false,
   );
 });
 
@@ -1048,6 +1024,54 @@ test("beforeRun context includes recent failures", async () => {
           occurredAt: "2026-04-25T12:05:00.000Z",
         },
       ],
+    },
+  });
+});
+
+test("beforeRun context includes current TUI session header state", async () => {
+  const cwd = await createTempCwd();
+  const session = {
+    startedAt: "2026-04-26T09:00:00.000Z",
+    cwd,
+    git: {
+      isRepository: true as const,
+      root: cwd,
+      branch: "main",
+      head: "abc1234",
+      upstream: "origin/main",
+      status: {
+        staged: 1,
+        unstaged: 2,
+        untracked: 3,
+        dirty: true,
+      },
+    },
+    lark: {
+      isInstalled: true as const,
+      isConnected: true as const,
+      identity: "user",
+      name: "Dong",
+    },
+  };
+
+  assert.deepEqual(await buildBeforeRunContext("git status", cwd, session), {
+    cwd,
+    command: "git",
+    args: ["status"],
+    rawCommand: "git status",
+    gitStats: {
+      successCount: 0,
+      failures: [],
+    },
+    tuiSession: {
+      cwd,
+      git: session.git,
+      lark: session.lark,
+      header: {
+        cwd,
+        gitSummary: "git: main abc1234 -> origin/main dirty S1 U2 ?3",
+        larkSummary: "lark: connected user Dong",
+      },
     },
   });
 });

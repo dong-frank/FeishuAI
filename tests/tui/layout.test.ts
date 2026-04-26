@@ -121,7 +121,6 @@ test("history output keeps boundary lines without spacer rows around it", () => 
     statusState: {
       isRunning: false,
       isAgentWaiting: false,
-      isCommitMessageGenerating: false,
       isAgentReviewing: false,
     },
     viewportRows: 15,
@@ -161,7 +160,6 @@ test("layout pins fixed chrome to the terminal height", () => {
     statusState: {
       isRunning: false,
       isAgentWaiting: false,
-      isCommitMessageGenerating: false,
       isAgentReviewing: false,
     },
     viewportRows: 15,

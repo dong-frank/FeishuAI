@@ -5,9 +5,6 @@ import type { CommandAgentOutput, CommandContext } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
 import { createLarkAgent } from "../agent/lark-agent.js";
 import { classifyCommand } from "../runtime/command-registry.js";
-import {
-  buildCommitMessageContext,
-} from "../runtime/commit-message-context.js";
 import { getCompletion } from "../runtime/completion.js";
 import {
   parseCommandLine,
@@ -49,7 +46,6 @@ import {
   shouldRefreshSessionAfterCommand,
   shouldIgnoreTabAgentTrigger,
   shouldTriggerBeforeRunOnTab,
-  shouldTriggerCommitMessageGenerationOnTab,
 } from "./runtime.js";
 import { getStatusPaneWidths, type AgentKind } from "./status.js";
 
@@ -69,7 +65,6 @@ export function App() {
   const [cursorIndex, setCursorIndex] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [isAgentWaiting, setIsAgentWaiting] = useState(false);
-  const [isCommitMessageGenerating, setIsCommitMessageGenerating] = useState(false);
   const [isAgentReviewing, setIsAgentReviewing] = useState(false);
   const [activeAgentKind, setActiveAgentKind] = useState<AgentKind | undefined>();
   const [agentStatusCommand, setAgentStatusCommand] = useState<string | undefined>();
@@ -94,7 +89,6 @@ export function App() {
   const statusState = {
     isRunning,
     isAgentWaiting,
-    isCommitMessageGenerating,
     isAgentReviewing,
     agentKind: activeAgentKind,
     agentCommand: agentStatusCommand,
@@ -275,21 +269,9 @@ export function App() {
       shouldIgnoreTabAgentTrigger({
         input: commandLine,
         lastTriggeredInput: lastTabAgentInput.current,
-        isAgentBusy: isAgentWaiting || isCommitMessageGenerating || isAgentReviewing,
+        isAgentBusy: isAgentWaiting || isAgentReviewing,
       })
     ) {
-      return;
-    }
-
-    if (
-      shouldTriggerCommitMessageGenerationOnTab({
-        input: commandLine,
-        completionSuffix: completion?.suffix,
-        isRunning,
-      })
-    ) {
-      lastTabAgentInput.current = commandLine;
-      await triggerCommitMessageGeneration(commandLine);
       return;
     }
 
@@ -303,7 +285,7 @@ export function App() {
       return;
     }
 
-    const context = await buildBeforeRunContext(commandLine, currentCwd);
+    const context = await buildBeforeRunContext(commandLine, currentCwd, session);
     if (!context) {
       return;
     }
@@ -345,53 +327,6 @@ export function App() {
       setHistory((current) => [...current, entry].slice(-20));
       setHistoryScrollOffset(0);
     } finally {
-      setIsAgentWaiting(false);
-      setActiveAgentKind(undefined);
-      setAgentStatusCommand(undefined);
-    }
-  }
-
-  async function triggerCommitMessageGeneration(
-    commandLine: string,
-    isCancelled: () => boolean = () => false,
-  ) {
-    setIsAgentWaiting(true);
-    setIsCommitMessageGenerating(true);
-    setActiveAgentKind("command");
-    setAgentStatusCommand(commandLine);
-    try {
-      const context = await buildCommitMessageContext({ cwd: currentCwd });
-      if (isCancelled()) {
-        return;
-      }
-
-      const output = await createCommandAgent().generateCommitMessage?.(context);
-      if (isCancelled() || !output) {
-        return;
-      }
-
-      setAgentSuggestedCommand(output.suggestedCommand);
-      const entry: HistoryEntry = {
-        type: "output",
-        result: {
-          commandLine,
-          kind: "help",
-          classification: { kind: "git", subcommand: "commit" },
-          exitCode: 0,
-          stdout: "",
-          stderr: "",
-          help: output.content,
-        },
-      };
-      setHistory((current) => [...current, entry].slice(-20));
-      setHistoryScrollOffset(0);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const entry: HistoryEntry = { type: "system", text: message };
-      setHistory((current) => [...current, entry].slice(-20));
-      setHistoryScrollOffset(0);
-    } finally {
-      setIsCommitMessageGenerating(false);
       setIsAgentWaiting(false);
       setActiveAgentKind(undefined);
       setAgentStatusCommand(undefined);

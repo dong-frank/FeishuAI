@@ -1,9 +1,11 @@
+import { execFile } from "node:child_process";
+
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
 import { providerStrategy } from "langchain";
 import { z } from "zod";
 
 import type { CommandAgent, CommandAgentOutput } from "./types.js";
-import { createLangChainAgent } from "./langchain-agent.js";
+import { createLangChainAgent, createLangChainChatModel } from "./langchain-agent.js";
 import { readTldrPage } from "../integrations/tldr.js";
 
 const TERMINAL_OUTPUT_REQUIREMENTS = `
@@ -27,15 +29,20 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 - context.command: 命令名
 - context.args: 命令参数数组
 - context.rawCommand: 用户输入的完整命令
-- context.gitStats.successCount: 归一化后的同类 Git 命令最近连续成功次数
-- context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt；count 表示该报错已出现次数
+- context.gitStats.successCount: 归一化后的同类 Git 命令最近连续成功次数，属于用户历史画像
+- context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，属于用户历史画像，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt；count 表示该报错已出现次数
+- context.tuiSession: 当前 TUI 顶部状态栏对应的会话快照；包含 cwd、git、lark 结构化状态，以及 header.cwd、header.gitSummary、header.larkSummary 三段顶部展示文本
 
 用户不知道这条命令该如何使用，需要请求你的帮助。
 请给出该命令对应的参数，和使用方法。
 如果是 Git 命令，优先使用 tldr_git_manual 工具查询通用用法，再结合输入上下文回答。
+如果 context.command 是 git 且 context.args 的第一项是 commit，优先考虑生成 commit message。需要判断当前变更时，必须调用 git_commit_context 工具获取 Git 信息；不要要求初始 context 提供 diff、status 或 recent commits。
+生成 commit message 时，content 输出生成的 commit message 或一条极短说明；suggestedCommand 输出完整提交命令，例如 git commit -m "feat: add structured agent output"。不要执行 git commit，不要要求用户执行命令。优先基于 stagedDiff；如果 stagedDiff 为空，再参考 unstagedDiff 和 status；如果 recentCommits 存在，尽量贴近其中的语言、粒度和前缀风格。
+commit message 场景的当前工作区状态只能以 git_commit_context 工具返回的实时结果为准，其次参考 context.tuiSession；不要把 gitStats.failures 中的历史失败输出当成当前工作区状态，也不要因为历史 failures 里出现 nothing to commit 就拒绝生成 commit message。
 如果 context.gitStats 存在，需要参考 successCount 和 failures：
 成功次数较高且没有近期失败时，回答可以更短，只补充关键参数提醒。
-存在近期失败时，优先结合 failures 中的错误输出解释可能原因和下一步命令。
+存在近期失败时，可以结合 failures 中的错误输出解释用户过去可能遇到的问题和下一步命令；但 failures 始终是历史画像，不是当前事实。
+如果 context.tuiSession 存在，可以结合顶部状态栏中的 git/lark 状态给出更贴近当前环境的建议；不要编造不存在的分支、远端、登录身份或文件名。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
@@ -88,29 +95,32 @@ export const AFTER_FAIL_AGENT_SYSTEM_PROMPT = `
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
 
-export const COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT = `
-你是 git-helper TUI/CLI 中的 commit message 生成 Agent。
+export const GIT_COMMIT_CONTEXT_DIFF_LIMIT = 3000;
+export const GIT_COMMIT_CONTEXT_SUMMARY_LIMIT = 1000;
 
-## 输入结构
+type GitCommandResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+};
 
-- context.cwd: 当前工作目录
-- context.status: git status 或类似的工作区摘要
-- context.stagedDiff: 已暂存变更 diff
-- context.unstagedDiff: 未暂存变更 diff
-- context.recentCommits: 最近提交消息，用来参考项目的 commit message 风格
+type GitCommandRunner = (
+  args: string[],
+  cwd: string,
+) => Promise<GitCommandResult>;
 
-用户希望你根据当前 Git 变更生成一条 commit message。
+type GitCommitContextOptions = {
+  cwd: string;
+  runGitCommand?: GitCommandRunner | undefined;
+};
 
-content 输出生成的 commit message 或一条极短说明。
-suggestedCommand 输出完整提交命令，例如 git commit -m "feat: add structured agent output"。
-不要执行 git commit，不要要求用户执行命令。
-优先基于 stagedDiff 生成；如果 stagedDiff 为空，再参考 unstagedDiff 和 status。
-如果 recentCommits 存在，尽量贴近其中的语言、粒度和前缀风格。
-消息应简短准确，概括真实变更，不要编造 diff 中不存在的内容。
-如果无法判断具体变更，输出一个保守的通用 message。
-
-${TERMINAL_OUTPUT_REQUIREMENTS}
-`.trim();
+type GitCommitContextOutput = {
+  command: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  truncated: boolean;
+};
 
 export const COMMAND_AGENT_TOOLS: StructuredToolInterface[] = [
   tool(
@@ -124,7 +134,98 @@ export const COMMAND_AGENT_TOOLS: StructuredToolInterface[] = [
       }),
     },
   ),
+  tool(
+    async ({ cwd }) => JSON.stringify(await buildGitCommitContext({ cwd })),
+    {
+      name: "git_commit_context",
+      description:
+        "按需读取生成 commit message 所需的 Git 信息。只在 git commit 场景使用；内部固定运行 git status --short、git diff --cached、git diff、git log -5 --pretty=%s，并会截断过长输出。",
+      schema: z.object({
+        cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
+      }),
+    },
+  ),
 ];
+
+export async function buildGitCommitContext({
+  cwd,
+  runGitCommand = runGit,
+}: GitCommitContextOptions) {
+  const [status, stagedDiff, unstagedDiff, recentCommits] = await Promise.all([
+    runGitCommand(["status", "--short"], cwd),
+    runGitCommand(["diff", "--cached"], cwd),
+    runGitCommand(["diff"], cwd),
+    runGitCommand(["log", "-5", "--pretty=%s"], cwd),
+  ]);
+
+  const recentCommitsOutput = formatGitOutput(
+    "git log -5 --pretty=%s",
+    recentCommits,
+    GIT_COMMIT_CONTEXT_SUMMARY_LIMIT,
+  );
+
+  return {
+    status: formatGitOutput("git status --short", status, GIT_COMMIT_CONTEXT_SUMMARY_LIMIT),
+    stagedDiff: formatGitOutput("git diff --cached", stagedDiff, GIT_COMMIT_CONTEXT_DIFF_LIMIT),
+    unstagedDiff: formatGitOutput("git diff", unstagedDiff, GIT_COMMIT_CONTEXT_DIFF_LIMIT),
+    recentCommits: {
+      ...recentCommitsOutput,
+      subjects: recentCommitsOutput.stdout.split("\n").filter(Boolean),
+    },
+  };
+}
+
+function formatGitOutput(
+  command: string,
+  result: GitCommandResult,
+  limit: number,
+): GitCommitContextOutput {
+  const stdout = result.stdout.trim();
+  const stderr = result.stderr.trim();
+  return {
+    command,
+    exitCode: result.exitCode,
+    stdout: stdout.slice(0, limit),
+    stderr: stderr.slice(0, limit),
+    truncated: stdout.length > limit || stderr.length > limit,
+  };
+}
+
+function runGit(args: string[], cwd: string): Promise<GitCommandResult> {
+  return new Promise((resolve) => {
+    execFile(
+      "git",
+      args,
+      {
+        cwd,
+        timeout: 1500,
+        maxBuffer: 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        resolve({
+          exitCode: getExitCode(error),
+          stdout,
+          stderr,
+        });
+      },
+    );
+  });
+}
+
+function getExitCode(error: unknown) {
+  if (!error) {
+    return 0;
+  }
+
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const code = error.code;
+    if (typeof code === "number") {
+      return code;
+    }
+  }
+
+  return 1;
+}
 
 export const COMMAND_AGENT_OUTPUT_SCHEMA = z
   .object({
@@ -133,15 +234,19 @@ export const COMMAND_AGENT_OUTPUT_SCHEMA = z
   })
   .strict();
 
-const COMMAND_AGENT_RESPONSE_FORMAT = providerStrategy({
-  schema: z
-    .object({
-      content: z.string(),
-      suggestedCommand: z.string(),
-    })
-    .strict(),
+const COMMAND_AGENT_RESPONSE_SCHEMA = z
+  .object({
+    content: z.string(),
+    suggestedCommand: z.string(),
+  })
+  .strict();
+
+export const COMMAND_AGENT_PROVIDER_RESPONSE_FORMAT = providerStrategy({
+  schema: COMMAND_AGENT_RESPONSE_SCHEMA,
   strict: true,
 });
+
+export const COMMAND_AGENT_RESPONSE_FORMAT = COMMAND_AGENT_PROVIDER_RESPONSE_FORMAT;
 
 export function parseCommandAgentOutput(output: string): CommandAgentOutput | undefined {
   const trimmed = output.trim();
@@ -172,25 +277,24 @@ export function parseCommandAgentOutput(output: string): CommandAgentOutput | un
 }
 
 export function createCommandAgent(): CommandAgent {
+  const model = createLangChainChatModel({ modelRole: "command" });
   const helpAgent = createLangChainAgent({
     name: "Command Help Agent",
     systemPrompt: HELP_AGENT_SYSTEM_PROMPT,
     tools: COMMAND_AGENT_TOOLS,
+    model,
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
   const afterSuccessAgent = createLangChainAgent({
     name: "Command After Success Agent",
     systemPrompt: AFTER_SUCCESS_AGENT_SYSTEM_PROMPT,
+    model,
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
   const afterFailAgent = createLangChainAgent({
     name: "Command After Fail Agent",
     systemPrompt: AFTER_FAIL_AGENT_SYSTEM_PROMPT,
-    responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
-  });
-  const commitMessageAgent = createLangChainAgent({
-    name: "Commit Message Agent",
-    systemPrompt: COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT,
+    model,
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
 
@@ -207,9 +311,6 @@ export function createCommandAgent(): CommandAgent {
       return parseCommandAgentOutput(
         await afterFailAgent.invoke(JSON.stringify({ context, result })),
       );
-    },
-    async generateCommitMessage(context) {
-      return parseCommandAgentOutput(await commitMessageAgent.invoke(JSON.stringify({ context })));
     },
   };
 }

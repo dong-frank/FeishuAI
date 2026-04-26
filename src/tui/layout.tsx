@@ -48,7 +48,6 @@ type AppLayoutProps = {
 type StatusState = {
   isRunning: boolean;
   isAgentWaiting: boolean;
-  isCommitMessageGenerating: boolean;
   isAgentReviewing: boolean;
   agentKind?: AgentKind | undefined;
   agentCommand?: string | undefined;
@@ -239,7 +238,6 @@ function StatusBar({
   }, [
     statusState.isRunning,
     statusState.isAgentWaiting,
-    statusState.isCommitMessageGenerating,
     statusState.isAgentReviewing,
     statusState.agentKind,
     statusState.agentCommand,

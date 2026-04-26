@@ -10,6 +10,7 @@ import {
   createLangChainAgent,
   createLangChainChatModel,
   getLangChainAgentOutputText,
+  resolveLangChainModelName,
   shouldTraceLangChainAgent,
 } from "../../src/agent/langchain-agent.js";
 
@@ -21,6 +22,27 @@ test("createLangChainChatModel reads model configuration", () => {
   });
 
   assert.equal(model.model, "test-model");
+});
+
+test("resolveLangChainModelName reads role-specific model environment variables", () => {
+  const env = {
+    MODEL: "default-model",
+    COMMAND_MODEL: "structured-command-model",
+    LARK_MODEL: "lark-model",
+  };
+
+  assert.equal(resolveLangChainModelName("default", env), "default-model");
+  assert.equal(resolveLangChainModelName("command", env), "structured-command-model");
+  assert.equal(resolveLangChainModelName("lark", env), "lark-model");
+});
+
+test("resolveLangChainModelName falls back to MODEL for role-specific agents", () => {
+  const env = {
+    MODEL: "default-model",
+  };
+
+  assert.equal(resolveLangChainModelName("command", env), "default-model");
+  assert.equal(resolveLangChainModelName("lark", env), "default-model");
 });
 
 test("createLangChainChatModel disables thinking by default", () => {

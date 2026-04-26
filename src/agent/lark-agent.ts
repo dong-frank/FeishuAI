@@ -2,7 +2,11 @@ import { tool, type StructuredToolInterface } from "@langchain/core/tools";
 import { z } from "zod";
 import { join } from "node:path";
 
-import { createLangChainAgent, type LangChainAgent } from "./langchain-agent.js";
+import {
+  createLangChainAgent,
+  createLangChainChatModel,
+  type LangChainAgent,
+} from "./langchain-agent.js";
 import {
   createSkillRegistry,
   formatAvailableSkills,
@@ -178,5 +182,6 @@ function createLarkPhaseAgent(
     name,
     systemPrompt,
     tools,
+    model: createLangChainChatModel({ modelRole: "lark" }),
   });
 }
