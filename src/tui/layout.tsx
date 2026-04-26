@@ -8,6 +8,8 @@ import {
 } from "./constants.js";
 import type { HistoryRow } from "./history.js";
 
+export { HISTORY_ROW_WRAP_MODE } from "./components.js";
+
 type PromptLine = {
   beforeCursor: string;
   cursor: string;
@@ -19,6 +21,7 @@ type AppLayoutProps = {
   sessionHeader: {
     cwd: string;
     gitSummary: string;
+    larkSummary: string;
   };
   isRunning: boolean;
   historyViewportHeight: number;
@@ -34,6 +37,50 @@ type AppLayoutProps = {
   };
 };
 
+type SessionHeaderRowsInput = {
+  sessionHeader: AppLayoutProps["sessionHeader"];
+  isRunning: boolean;
+};
+
+type SessionHeaderRows = [
+  {
+    label: "cwd";
+    text: string;
+    status: "ready" | "running";
+    brand: "git-helper";
+  },
+  {
+    label: "git";
+    text: string;
+  },
+  {
+    label: "lark";
+    text: string;
+  },
+];
+
+export function getSessionHeaderRows({
+  sessionHeader,
+  isRunning,
+}: SessionHeaderRowsInput): SessionHeaderRows {
+  return [
+    {
+      label: "cwd",
+      text: sessionHeader.cwd,
+      status: isRunning ? "running" : "ready",
+      brand: "git-helper",
+    },
+    {
+      label: "git",
+      text: stripStatusPrefix(sessionHeader.gitSummary, "git"),
+    },
+    {
+      label: "lark",
+      text: stripStatusPrefix(sessionHeader.larkSummary, "lark"),
+    },
+  ];
+}
+
 export function AppLayout({
   sessionHeader,
   isRunning,
@@ -43,6 +90,12 @@ export function AppLayout({
   statusPaneWidths,
   statusBar,
 }: AppLayoutProps) {
+  const headerRows = getSessionHeaderRows({ sessionHeader, isRunning });
+  const layoutHistoryRows = getLayoutHistoryRows(
+    visibleHistoryRows,
+    historyViewportHeight,
+  );
+
   return (
     <Box
       flexDirection="column"
@@ -51,16 +104,25 @@ export function AppLayout({
       paddingY={1}
     >
       <Box borderStyle="double" borderColor="cyan" flexDirection="column" paddingX={1}>
-        <Box borderStyle="single" paddingX={1} marginBottom={1}>
-          <Text color="cyan" bold>
-            git-helper
-          </Text>
-          <Text> cwd: {sessionHeader.cwd}</Text>
-          <Text color="gray"> {sessionHeader.gitSummary}</Text>
-          <Text color={isRunning ? "yellow" : "green"}>
-            {" "}
-            {isRunning ? "running" : "ready"}
-          </Text>
+        <Box borderStyle="single" flexDirection="column" paddingX={1} marginBottom={1}>
+          <Box justifyContent="space-between">
+            <Box>
+              <Text>cwd: {headerRows[0].text}</Text>
+              <Text color={isRunning ? "yellow" : "green"}>
+                {" "}
+                {headerRows[0].status}
+              </Text>
+            </Box>
+            <Text color="cyan" bold>
+              {headerRows[0].brand}
+            </Text>
+          </Box>
+          <Box>
+            <Text color="gray">git: {headerRows[1].text}</Text>
+          </Box>
+          <Box>
+            <Text color="gray">lark: {headerRows[2].text}</Text>
+          </Box>
         </Box>
 
         <Box
@@ -68,7 +130,7 @@ export function AppLayout({
           height={historyViewportHeight}
           overflowY="hidden"
         >
-          {visibleHistoryRows.map((row, index) => (
+          {layoutHistoryRows.map((row, index) => (
             <HistoryRowLine key={index} row={row} />
           ))}
         </Box>
@@ -96,4 +158,27 @@ export function AppLayout({
       </Box>
     </Box>
   );
+}
+
+export function getLayoutHistoryRows(
+  visibleHistoryRows: HistoryRow[],
+  historyViewportHeight: number,
+): HistoryRow[] {
+  if (historyViewportHeight <= 0) {
+    return [];
+  }
+
+  const rows = visibleHistoryRows.slice(0, historyViewportHeight);
+  return [
+    ...rows,
+    ...Array.from(
+      { length: Math.max(0, historyViewportHeight - rows.length) },
+      () => ({ text: "" }),
+    ),
+  ];
+}
+
+function stripStatusPrefix(value: string, label: "git" | "lark") {
+  const prefix = `${label}: `;
+  return value.startsWith(prefix) ? value.slice(prefix.length) : value;
 }

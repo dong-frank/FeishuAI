@@ -3,6 +3,7 @@ import { classifyCommand } from "../runtime/command-registry.js";
 import { parseCommandLine, type CommandRunOutput } from "../runtime/command-runner.js";
 import { getGitCommandStats } from "../runtime/git-command-stats.js";
 import {
+  formatTuiSessionLarkSummary,
   formatTuiSessionGitSummary,
   type TuiSessionInfo,
 } from "../runtime/tui-session.js";
@@ -84,9 +85,15 @@ export function getSessionHeaderParts(session: TuiSessionInfo | undefined) {
   return {
     cwd: session?.cwd ?? process.cwd(),
     gitSummary: session ? formatTuiSessionGitSummary(session.git) : "git: initializing",
+    larkSummary: session ? formatTuiSessionLarkSummary(session.lark) : "lark: initializing",
   };
 }
 
 export function shouldRefreshSessionAfterCommand(result: CommandRunOutput) {
-  return result.kind === "execute" && result.classification?.kind === "git";
+  return (
+    result.kind === "execute" &&
+    (result.classification?.kind === "git" ||
+      (result.classification?.kind === "custom" &&
+        result.classification.name === "lark"))
+  );
 }

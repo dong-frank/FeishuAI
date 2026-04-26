@@ -20,10 +20,26 @@ export type TuiSessionGitInfo =
       status: GitPorcelainStatus;
     };
 
+export type TuiSessionLarkInfo =
+  | {
+      isInstalled: false;
+    }
+  | {
+      isInstalled: true;
+      isConnected: false;
+    }
+  | {
+      isInstalled: true;
+      isConnected: true;
+      identity?: string | undefined;
+      name?: string | undefined;
+    };
+
 export type TuiSessionInfo = {
   startedAt: string;
   cwd: string;
   git: TuiSessionGitInfo;
+  lark: TuiSessionLarkInfo;
 };
 
 type GitCommandResult = {
@@ -37,10 +53,16 @@ type GitCommandRunner = (
   cwd: string,
 ) => Promise<GitCommandResult>;
 
+type LarkCommandRunner = (
+  args: string[],
+  cwd: string,
+) => Promise<GitCommandResult>;
+
 type InitializeTuiSessionOptions = {
   cwd?: string | undefined;
   now?: Date | undefined;
   runGitCommand?: GitCommandRunner | undefined;
+  runLarkCommand?: LarkCommandRunner | undefined;
 };
 
 export async function initializeTuiSession(
@@ -49,6 +71,8 @@ export async function initializeTuiSession(
   const cwd = options.cwd ?? process.cwd();
   const now = options.now ?? new Date();
   const runGitCommand = options.runGitCommand ?? runGit;
+  const runLarkCommand = options.runLarkCommand ?? runLark;
+  const larkPromise = getLarkInfo(runLarkCommand, cwd);
 
   const root = await runGitCommand(["rev-parse", "--show-toplevel"], cwd);
   if (root.exitCode !== 0) {
@@ -58,6 +82,7 @@ export async function initializeTuiSession(
       git: {
         isRepository: false,
       },
+      lark: await larkPromise,
     };
   }
 
@@ -81,6 +106,7 @@ export async function initializeTuiSession(
     startedAt: now.toISOString(),
     cwd,
     git,
+    lark: await larkPromise,
   };
 }
 
@@ -131,6 +157,102 @@ export function formatTuiSessionGitSummary(git: TuiSessionGitInfo) {
   return `git: ${identity}${upstream}${dirty}`;
 }
 
+export function formatTuiSessionLarkSummary(lark: TuiSessionLarkInfo) {
+  if (!lark.isInstalled) {
+    return "lark: not installed";
+  }
+
+  if (!lark.isConnected) {
+    return "lark: not logged in";
+  }
+
+  const identity = [lark.identity, lark.name].filter(Boolean).join(" ");
+  return `lark: connected${identity ? ` ${identity}` : ""}`;
+}
+
+async function getLarkInfo(
+  runLarkCommand: LarkCommandRunner,
+  cwd: string,
+): Promise<TuiSessionLarkInfo> {
+  try {
+    const result = await runLarkCommand(["auth", "status"], cwd);
+    if (result.exitCode !== 0) {
+      return {
+        isInstalled: true,
+        isConnected: false,
+      };
+    }
+
+    const status = parseLarkAuthStatus(result.stdout);
+    if (!status.isConnected) {
+      return {
+        isInstalled: true,
+        isConnected: false,
+      };
+    }
+
+    return {
+      isInstalled: true,
+      isConnected: true,
+      ...(status.identity ? { identity: status.identity } : {}),
+      ...(status.name ? { name: status.name } : {}),
+    };
+  } catch (error) {
+    if (isCommandMissing(error)) {
+      return {
+        isInstalled: false,
+      };
+    }
+
+    return {
+      isInstalled: true,
+      isConnected: false,
+    };
+  }
+}
+
+function parseLarkAuthStatus(output: string): {
+  isConnected: boolean;
+  identity?: string | undefined;
+  name?: string | undefined;
+} {
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    if (!isRecord(parsed)) {
+      return { isConnected: false };
+    }
+
+    const user = isRecord(parsed.user) ? parsed.user : undefined;
+    const tokenStatus = parsed.tokenStatus;
+    const isConnected = typeof tokenStatus === "string"
+      ? tokenStatus === "valid"
+      : true;
+    const name = getFirstString([
+      parsed.userName,
+      parsed.name,
+      user?.name,
+    ]);
+
+    return {
+      isConnected,
+      ...(typeof parsed.identity === "string" ? { identity: parsed.identity } : {}),
+      ...(name ? { name } : {}),
+    };
+  } catch {
+    return { isConnected: false };
+  }
+}
+
+function getFirstString(values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
 function runGit(args: string[], cwd: string): Promise<GitCommandResult> {
   return new Promise((resolve) => {
     execFile(
@@ -142,6 +264,32 @@ function runGit(args: string[], cwd: string): Promise<GitCommandResult> {
         maxBuffer: 1024 * 1024,
       },
       (error, stdout, stderr) => {
+        resolve({
+          exitCode: getExitCode(error),
+          stdout,
+          stderr,
+        });
+      },
+    );
+  });
+}
+
+function runLark(args: string[], cwd: string): Promise<GitCommandResult> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      "lark-cli",
+      args,
+      {
+        cwd,
+        timeout: 1500,
+        maxBuffer: 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        if (isCommandMissing(error)) {
+          reject(error);
+          return;
+        }
+
         resolve({
           exitCode: getExitCode(error),
           stdout,
@@ -165,4 +313,16 @@ function getExitCode(error: unknown) {
   }
 
   return 1;
+}
+
+function isCommandMissing(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

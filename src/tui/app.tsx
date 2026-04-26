@@ -332,10 +332,12 @@ export function App() {
         },
       };
       setHistory((current) => [...current, entry].slice(-20));
+      setHistoryScrollOffset(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const entry: HistoryEntry = { type: "system", text: message };
       setHistory((current) => [...current, entry].slice(-20));
+      setHistoryScrollOffset(0);
     } finally {
       setIsAgentWaiting(false);
       setActiveAgentKind(undefined);
@@ -461,7 +463,7 @@ export function App() {
     let liveStderr = "";
     let hasLiveOutput = false;
 
-    function updateLiveOutput(chunk: CommandOutputChunk) {
+    function updateLiveOutput(chunk: CommandOutputChunk, source: "user" | "agent" = "user") {
       if (chunk.stream === "stdout") {
         liveStdout += chunk.text;
       } else {
@@ -472,6 +474,7 @@ export function App() {
       hasLiveOutput = true;
       const entry: HistoryEntry = {
         type: "output",
+        ...(source === "agent" ? { source } : {}),
         result: {
           commandLine,
           kind: "execute",
@@ -486,19 +489,23 @@ export function App() {
         const canReplace =
           shouldReplaceLiveEntry &&
           lastEntry?.type === "output" &&
+          lastEntry.source === entry.source &&
           lastEntry.result.commandLine === commandLine;
         return [...(canReplace ? current.slice(0, -1) : current), entry].slice(-20);
       });
       setHistoryScrollOffset(0);
     }
 
+    const updateUserLiveOutput = (chunk: CommandOutputChunk) => updateLiveOutput(chunk, "user");
+    const updateAgentLiveOutput = (chunk: CommandOutputChunk) => updateLiveOutput(chunk, "agent");
+
     try {
       const result = await runCommandLine(commandLine, {
         agent: createCommandAgent(),
         larkAgent: createLarkAgent({
-          onLarkCliOutput: updateLiveOutput,
+          onLarkCliOutput: updateAgentLiveOutput,
         }),
-        onOutput: updateLiveOutput,
+        onOutput: updateUserLiveOutput,
       });
       const entry: HistoryEntry = { type: "output", result };
       setHistory((current) => {

@@ -18,6 +18,7 @@ import {
   getOutputSections,
   getPromptLineParts,
   getHistoryViewportHeight,
+  getHistoryRows,
   getSessionHeaderParts,
   getStatusBarParts,
   getStatusLine,
@@ -106,10 +107,17 @@ test("session header includes initialized workspace and git information", () => 
           dirty: true,
         },
       },
+      lark: {
+        isInstalled: true,
+        isConnected: true,
+        identity: "user",
+        name: "Dong",
+      },
     }),
     {
       cwd: "/repo/worktree",
       gitSummary: "git: main abc1234 -> origin/main dirty S1 U0 ?2",
+      larkSummary: "lark: connected user Dong",
     },
   );
 });
@@ -156,6 +164,33 @@ test("history viewport clips long command output by rows before rendering", () =
   ]);
 });
 
+test("agent command output is visually distinct from user input commands", () => {
+  const rows = getHistoryRows([
+    { type: "input", text: "git status" },
+    {
+      type: "output",
+      source: "agent",
+      result: {
+        commandLine: "lark-cli auth status",
+        kind: "execute",
+        exitCode: 0,
+        stdout: "ready\n",
+        stderr: "",
+      },
+    },
+  ]);
+
+  const userCommandRow = rows.find((row) => row.text === "$ git status");
+  assert.equal(userCommandRow?.color, "green");
+
+  const agentCommandRow = rows.find((row) => row.text === "agent: lark-cli auth status");
+  assert.equal(agentCommandRow?.color, "magenta");
+  assert.equal(agentCommandRow?.bold, true);
+
+  const agentOutputRow = rows.find((row) => row.text === "ready");
+  assert.equal(agentOutputRow?.parts?.[0]?.color, "magenta");
+});
+
 test("history viewport supports scrolling through older rows", () => {
   const history = Array.from({ length: 8 }, (_, index) => ({
     type: "input" as const,
@@ -177,7 +212,7 @@ test("history viewport supports scrolling through older rows", () => {
   assert.equal(getNextHistoryScrollOffset(40, "pageUp", 16, 4), 12);
 });
 
-test("session refresh is triggered only after real git command execution", () => {
+test("session refresh is triggered after real git or lark command execution", () => {
   assert.equal(
     shouldRefreshSessionAfterCommand({
       commandLine: "git status",
@@ -200,6 +235,17 @@ test("session refresh is triggered only after real git command execution", () =>
       help: "usage",
     }),
     false,
+  );
+  assert.equal(
+    shouldRefreshSessionAfterCommand({
+      commandLine: "lark status",
+      kind: "execute",
+      classification: { kind: "custom", name: "lark" },
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+    }),
+    true,
   );
   assert.equal(
     shouldRefreshSessionAfterCommand({

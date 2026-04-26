@@ -15,6 +15,9 @@ import {
   type OutputTextPart,
 } from "./output.js";
 
+type HistoryColor = NonNullable<OutputTextPart["color"]>;
+type OutputSource = "user" | "agent";
+
 export type HistoryEntry =
   | {
       type: "input";
@@ -23,6 +26,7 @@ export type HistoryEntry =
   | {
       type: "output";
       result: CommandRunOutput;
+      source?: OutputSource | undefined;
     }
   | {
       type: "system";
@@ -32,7 +36,7 @@ export type HistoryEntry =
 export type HistoryRow = {
   text: string;
   parts?: OutputTextPart[] | undefined;
-  color?: "red" | "green" | "yellow" | "cyan" | "gray" | undefined;
+  color?: HistoryColor | undefined;
   bold?: boolean | undefined;
 };
 
@@ -123,13 +127,27 @@ function getHistoryEntryRows(entry: HistoryEntry): HistoryRow[] {
     ];
   }
 
-  const outputRows = splitOutputPartsIntoRows(getOutputTextParts(entry.result));
+  const isAgentOutput = entry.source === "agent";
+  const outputRows = splitOutputPartsIntoRows(
+    getStyledOutputTextParts(getOutputTextParts(entry.result), entry.source),
+  );
+  const rows = isAgentOutput
+    ? [
+        {
+          text: `agent: ${entry.result.commandLine}`,
+          color: "magenta" as const,
+          bold: true,
+        },
+        ...outputRows,
+      ]
+    : outputRows;
+
   if (entry.result.exitCode === 0) {
-    return outputRows;
+    return rows;
   }
 
   return [
-    ...outputRows,
+    ...rows,
     {
       text: `exit code: ${entry.result.exitCode}`,
       color: "red",
@@ -144,6 +162,20 @@ function splitPlainTextRows(
   return text.split("\n").map((line) => ({
     text: line,
     ...style,
+  }));
+}
+
+function getStyledOutputTextParts(
+  parts: OutputTextPart[],
+  source: OutputSource | undefined,
+): OutputTextPart[] {
+  if (source !== "agent") {
+    return parts;
+  }
+
+  return parts.map((part) => ({
+    ...part,
+    color: part.color ?? "magenta",
   }));
 }
 

@@ -2,13 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  formatTuiSessionLarkSummary,
   formatTuiSessionGitSummary,
   initializeTuiSession,
   parseGitPorcelainStatus,
 } from "../../src/runtime/tui-session.js";
 
-test("initializeTuiSession records workspace and git repository information", async () => {
+test("initializeTuiSession records workspace, git repository, and lark status", async () => {
   const calls: string[][] = [];
+  const larkCalls: string[][] = [];
 
   const session = await initializeTuiSession({
     cwd: "/repo/worktree",
@@ -38,6 +40,14 @@ test("initializeTuiSession records workspace and git repository information", as
 
       return Promise.resolve({ exitCode: 1, stdout: "", stderr: "unexpected command" });
     },
+    runLarkCommand(args) {
+      larkCalls.push(args);
+      return Promise.resolve({
+        exitCode: 0,
+        stdout: '{"identity":"user","user":{"name":"Dong"}}',
+        stderr: "",
+      });
+    },
   });
 
   assert.deepEqual(calls, [
@@ -47,6 +57,7 @@ test("initializeTuiSession records workspace and git repository information", as
     ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
     ["status", "--porcelain=v1"],
   ]);
+  assert.deepEqual(larkCalls, [["auth", "status"]]);
   assert.deepEqual(session, {
     startedAt: "2026-04-25T12:00:00.000Z",
     cwd: "/repo/worktree",
@@ -63,6 +74,67 @@ test("initializeTuiSession records workspace and git repository information", as
         dirty: true,
       },
     },
+    lark: {
+      isInstalled: true,
+      isConnected: true,
+      identity: "user",
+      name: "Dong",
+    },
+  });
+});
+
+test("initializeTuiSession reads current lark-cli auth status fields", async () => {
+  const session = await initializeTuiSession({
+    cwd: "/repo/worktree",
+    now: new Date("2026-04-25T12:00:00.000Z"),
+    runGitCommand() {
+      return Promise.resolve({ exitCode: 128, stdout: "", stderr: "" });
+    },
+    runLarkCommand() {
+      return Promise.resolve({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          identity: "user",
+          tokenStatus: "valid",
+          userName: "饶东申",
+          userOpenId: "ou_be45663bf336a23da9696c6a25eb7c27",
+        }),
+        stderr: "",
+      });
+    },
+  });
+
+  assert.deepEqual(session.lark, {
+    isInstalled: true,
+    isConnected: true,
+    identity: "user",
+    name: "饶东申",
+  });
+});
+
+test("initializeTuiSession treats invalid lark tokens as not logged in", async () => {
+  const session = await initializeTuiSession({
+    cwd: "/repo/worktree",
+    now: new Date("2026-04-25T12:00:00.000Z"),
+    runGitCommand() {
+      return Promise.resolve({ exitCode: 128, stdout: "", stderr: "" });
+    },
+    runLarkCommand() {
+      return Promise.resolve({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          identity: "user",
+          tokenStatus: "expired",
+          userName: "饶东申",
+        }),
+        stderr: "",
+      });
+    },
+  });
+
+  assert.deepEqual(session.lark, {
+    isInstalled: true,
+    isConnected: false,
   });
 });
 
@@ -77,6 +149,13 @@ test("initializeTuiSession records non-git workspaces without throwing", async (
         stderr: "fatal: not a git repository",
       });
     },
+    runLarkCommand() {
+      return Promise.resolve({
+        exitCode: 1,
+        stdout: "",
+        stderr: "not logged in",
+      });
+    },
   });
 
   assert.deepEqual(session, {
@@ -85,6 +164,29 @@ test("initializeTuiSession records non-git workspaces without throwing", async (
     git: {
       isRepository: false,
     },
+    lark: {
+      isInstalled: true,
+      isConnected: false,
+    },
+  });
+});
+
+test("initializeTuiSession records missing lark-cli without throwing", async () => {
+  const session = await initializeTuiSession({
+    cwd: "/repo/worktree",
+    now: new Date("2026-04-25T12:00:00.000Z"),
+    runGitCommand() {
+      return Promise.resolve({ exitCode: 128, stdout: "", stderr: "" });
+    },
+    runLarkCommand() {
+      const error = new Error("spawn lark-cli ENOENT") as NodeJS.ErrnoException;
+      error.code = "ENOENT";
+      return Promise.reject(error);
+    },
+  });
+
+  assert.deepEqual(session.lark, {
+    isInstalled: false,
   });
 });
 
@@ -124,4 +226,24 @@ test("formatTuiSessionGitSummary keeps startup git info compact", () => {
     "git: main abc1234 -> origin/main dirty S1 U2 ?3",
   );
   assert.equal(formatTuiSessionGitSummary({ isRepository: false }), "git: no repository");
+});
+
+test("formatTuiSessionLarkSummary keeps connection info compact", () => {
+  assert.equal(
+    formatTuiSessionLarkSummary({
+      isInstalled: true,
+      isConnected: true,
+      identity: "user",
+      name: "Dong",
+    }),
+    "lark: connected user Dong",
+  );
+  assert.equal(
+    formatTuiSessionLarkSummary({
+      isInstalled: true,
+      isConnected: false,
+    }),
+    "lark: not logged in",
+  );
+  assert.equal(formatTuiSessionLarkSummary({ isInstalled: false }), "lark: not installed");
 });

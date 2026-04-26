@@ -4,13 +4,15 @@ import { Text } from "ink";
 import type { HistoryRow } from "./history.js";
 import type { OutputTextPart } from "./output.js";
 
+export const HISTORY_ROW_WRAP_MODE = "truncate-end";
+
 export function HistoryRowLine({ row }: { row: HistoryRow }) {
   const style = {
     ...(row.color ? { color: row.color } : {}),
     ...(row.bold ? { bold: true } : {}),
   };
   return (
-    <Text {...style}>
+    <Text {...style} wrap={HISTORY_ROW_WRAP_MODE}>
       {row.parts
         ? row.parts.map((part, index) => <OutputPartText key={index} part={part} />)
         : row.text}
@@ -24,5 +26,5 @@ function OutputPartText({ part }: { part: OutputTextPart }) {
     ...(part.bold ? { bold: true } : {}),
   };
 
-  return <Text {...style}>{part.text}</Text>;
+  return <Text {...style} wrap={HISTORY_ROW_WRAP_MODE}>{part.text}</Text>;
 }
