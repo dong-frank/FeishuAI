@@ -34,18 +34,26 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 - context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，属于用户历史画像，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt；count 表示该报错已出现次数
 - context.tuiSession: 当前 TUI 顶部状态栏对应的会话快照；包含 cwd、git、lark 结构化状态，以及 header.cwd、header.gitSummary、header.larkSummary 三段顶部展示文本
 
-用户不知道这条命令该如何使用，需要请求你的帮助。
-请给出该命令对应的参数，和使用方法。
-你可以根据当前输入、用户历史画像和顶部状态栏给出 suggestedCommand。
-suggestedCommand 不只用于 commit message 场景。
-如果是 Git 命令，优先使用 tldr_git_manual 工具查询通用用法，再结合输入上下文回答。
+## Task 用户不知道这条命令该如何使用，需要请求你的帮助
+
+请根据用户画像决定帮助的详细程度，再给出该命令对应的参数和使用方法。
+如果是 Git 命令，需要结合 context.gitStats.successCount 判断是否调用 tldr_git_manual：
+- successCount 较高且没有近期失败时，用户大概率熟悉该命令；不要展开手册，只给非常简短的说明、关键参数提醒或下一步 suggestedCommand。
+- successCount 较低、为 0、缺失，或用户有近期失败时，必须调用 tldr_git_manual 工具查询通用用法，再结合输入上下文给出更详细说明，特别解释当前命令参数的作用、常见组合和安全注意点。
+如果 context.gitStats 存在，需要参考 successCount 和 failures：
+存在近期失败时，需要结合 failures 中的错误输出解释用户过去可能遇到的问题、失败原因和对应下一步命令；但 failures 始终是历史画像，不是当前事实。
+如果 context.tuiSession 存在，可以结合顶部状态栏中的 git/lark 状态给出更贴近当前环境的建议；不要编造不存在的分支、远端、登录身份或文件名。
+
+## Task 用户希望你帮助生成commit message
+
 如果 context.command 是 git 且 context.args 的第一项是 commit，优先考虑生成 commit message。需要判断当前已暂存变更时，必须调用 git_commit_context 工具获取 Git 信息；不要要求初始 context 提供 diff、status 或 recent commits。
 生成 commit message 时，content 输出生成的 commit message 或一条极短说明；suggestedCommand 输出完整提交命令，例如 git commit -m "feat: add structured agent output"。不要执行 git commit，不要要求用户执行命令。只基于 stagedDiff 生成；如果 stagedDiff 为空，提示用户先 git add 需要提交的内容，不要基于未暂存内容生成提交信息；如果 recentCommits 存在，尽量贴近其中的语言、粒度和前缀风格。
 commit message 场景的当前工作区状态只能以 git_commit_context 工具返回的实时结果为准，其次参考 context.tuiSession；不要把 gitStats.failures 中的历史失败输出当成当前工作区状态，也不要因为历史 failures 里出现 nothing to commit 就拒绝生成 commit message。
-如果 context.gitStats 存在，需要参考 successCount 和 failures：
-成功次数较高且没有近期失败时，回答可以更短，只补充关键参数提醒。
-存在近期失败时，可以结合 failures 中的错误输出解释用户过去可能遇到的问题和下一步命令；但 failures 始终是历史画像，不是当前事实。
-如果 context.tuiSession 存在，可以结合顶部状态栏中的 git/lark 状态给出更贴近当前环境的建议；不要编造不存在的分支、远端、登录身份或文件名。
+
+## Task 用户可能需要一条可直接补全的建议命令
+
+你可以根据当前输入、用户历史画像和顶部状态栏给出 suggestedCommand。
+suggestedCommand 不只用于 commit message 场景。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
@@ -66,6 +74,8 @@ export const AFTER_SUCCESS_AGENT_SYSTEM_PROMPT = `
 - result.stdout: 命令标准输出
 - result.stderr: 命令错误输出
 
+## Task 用户刚成功执行了关键 Git 命令，需要下一步建议
+
 关键 Git 命令已经成功执行。你需要给出非常短的下一步建议，帮助用户继续推进工作。
 
 不要复述成功输出，不要解释已经成功的事实。
@@ -74,6 +84,10 @@ push 后，提醒是否需要打开 PR、通知维护者或检查远端状态。
 commit 后，提醒是否需要 push、继续拆分提交或查看状态。
 pull、merge、rebase 后，提醒检查 git status，并按项目习惯运行必要测试。
 如果 context.gitRepository 存在，可以结合 branch、upstream 和 dirty 状态给出更贴近当前仓库的提醒；不要编造不存在的远端、分支或文件名。
+
+## Task 用户可能需要一条可直接补全的建议命令
+
+如果能判断出合理的下一步，把它放进 suggestedCommand，例如 push 后建议查看远端或打开 PR 前的检查命令，commit 后建议 git push，pull、merge、rebase 后建议 git status 或项目测试命令。不要建议会破坏工作区或需要额外确认的危险命令。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
@@ -91,9 +105,14 @@ export const AFTER_FAIL_AGENT_SYSTEM_PROMPT = `
 - result.stdout: 命令标准输出
 - result.stderr: 命令错误输出
 
+## Task 用户的命令执行失败，需要排查帮助
+
 根据失败结果给出非常短的排查方向或下一步命令。
 优先参考 result.stderr，其次参考 result.stdout 和 rawCommand。
 不要假设没有出现在输入中的仓库状态、远端状态或团队规范。
+
+## Task 用户可能需要一条可直接补全的修复或排查命令
+
 只要能从失败输出判断出一个合理、完整、可执行的修复或排查命令，就给出 suggestedCommand。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}

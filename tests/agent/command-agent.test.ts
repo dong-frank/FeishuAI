@@ -36,6 +36,15 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /header\.larkSummary/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /大胆给出 suggestedCommand/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /用户不一定会接受/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /## Task 用户不知道这条命令该如何使用/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /## Task 用户希望你帮助生成commit message/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /## Task 用户可能需要一条可直接补全的建议命令/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /帮助的详细程度/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /successCount 较高且没有近期失败/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /successCount 较低、为 0、缺失/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /必须调用 tldr_git_manual/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /当前命令参数的作用/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /失败原因和对应下一步命令/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git commit/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git_commit_context/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git commit -m/);
@@ -48,6 +57,8 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
 
 test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", () => {
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /成功后建议 Agent/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /## Task 用户刚成功执行了关键 Git 命令/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /## Task 用户可能需要一条可直接补全的建议命令/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /不要复述成功输出/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /push 后/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /commit 后/);
@@ -63,6 +74,8 @@ test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", 
 
 test("AFTER_FAIL_AGENT_SYSTEM_PROMPT only describes failure behavior", () => {
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /失败后辅助 Agent/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /## Task 用户的命令执行失败/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /## Task 用户可能需要一条可直接补全的修复或排查命令/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.exitCode/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.stderr/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /排查方向或下一步命令/);
