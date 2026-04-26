@@ -36,6 +36,8 @@ export type HistoryEntry =
 
 export type HistoryRow = {
   text: string;
+  rightText?: string | undefined;
+  rightColor?: HistoryColor | undefined;
   parts?: OutputTextPart[] | undefined;
   color?: HistoryColor | undefined;
   bold?: boolean | undefined;
@@ -121,8 +123,10 @@ function getHistoryEntryRows(
 ): HistoryRow[] {
   if (entry.type === "input") {
     const color = isFailedOutputForCommand(nextEntry, entry.text) ? "red" : "green";
+    const statusText = getCommandStatusText(nextEntry, entry.text);
+    const commandRows = splitPlainTextRows(`$ ${entry.text}`, { color }, wrapWidth);
     return [
-      ...splitPlainTextRows(`$ ${entry.text}`, { color }, wrapWidth),
+      ...attachCommandStatus(commandRows, statusText, color),
       ...Array.from({ length: INPUT_HISTORY_MARGIN_BOTTOM }, () => ({ text: "" })),
     ];
   }
@@ -135,7 +139,7 @@ function getHistoryEntryRows(
     const output = getOutputSections(entry.result);
     return [
       {
-        text: "Agent help",
+        text: "Agent",
         color: "cyan",
         bold: true,
       },
@@ -159,17 +163,7 @@ function getHistoryEntryRows(
       ]
     : outputRows;
 
-  if (entry.result.exitCode === 0) {
-    return rows;
-  }
-
-  return [
-    ...rows,
-    {
-      text: `exit code: ${entry.result.exitCode}`,
-      color: "red",
-    },
-  ];
+  return rows;
 }
 
 function isFailedOutputForCommand(
@@ -181,6 +175,67 @@ function isFailedOutputForCommand(
     entry.result.commandLine === commandLine &&
     entry.result.exitCode !== 0
   );
+}
+
+function getCommandStatusText(
+  entry: HistoryEntry | undefined,
+  commandLine: string,
+) {
+  if (
+    entry?.type !== "output" ||
+    entry.result.kind !== "execute" ||
+    entry.result.commandLine !== commandLine ||
+    typeof entry.result.durationMs !== "number"
+  ) {
+    return undefined;
+  }
+
+  const duration = formatCommandDuration(entry.result.durationMs);
+  if (entry.result.exitCode === 0) {
+    return `✓ ${duration}`;
+  }
+
+  return `✗ ${entry.result.exitCode} ${duration}`;
+}
+
+export function formatCommandDuration(durationMs: number) {
+  const safeDurationMs = Math.max(0, Math.round(durationMs));
+  if (safeDurationMs < 1000) {
+    return `${safeDurationMs}ms`;
+  }
+
+  if (safeDurationMs < 60_000) {
+    const seconds = safeDurationMs / 1000;
+    const precision = safeDurationMs < 10_000 ? 1 : 0;
+    return `${seconds.toFixed(precision).replace(/\.0$/, "")}s`;
+  }
+
+  const minutes = Math.floor(safeDurationMs / 60_000);
+  const seconds = Math.round((safeDurationMs % 60_000) / 1000);
+  return `${minutes}m${seconds}s`;
+}
+
+function attachCommandStatus(
+  rows: HistoryRow[],
+  statusText: string | undefined,
+  statusColor: HistoryColor,
+) {
+  if (!statusText || rows.length === 0) {
+    return rows;
+  }
+
+  const nextRows = [...rows];
+  const lastRow = nextRows[nextRows.length - 1];
+  if (!lastRow) {
+    return rows;
+  }
+
+  nextRows[nextRows.length - 1] = {
+    ...lastRow,
+    rightText: `[${statusText}]`,
+    rightColor: statusColor,
+  };
+  return nextRows;
 }
 
 function splitPlainTextRows(

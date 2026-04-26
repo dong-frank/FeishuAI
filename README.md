@@ -63,7 +63,7 @@ Agent 根据 phase 决定行为
 ```text
 src/
   agent/          LangChain Agent 封装、命令 Agent、phase 接口
-  commands/       CLI 子命令，例如 init、lark
+  commands/       CLI 子命令，例如 lark
   integrations/   外部工具集成，例如 lark-cli、tldr
   runtime/        命令解析、分类、补全、运行时流程
   tui/            Ink/React TUI 交互界面
@@ -128,9 +128,7 @@ git push origin main
 飞书 CLI 相关命令：
 
 ```bash
-npm run dev -- lark status
-npm run dev -- lark setup
-npm run dev -- lark login
+npm run dev -- lark init
 ```
 
 ## 环境变量

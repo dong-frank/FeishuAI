@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { Writable } from "node:stream";
 
 type ExecuteCommandOptions = {
+  cwd?: string;
   stdout?: Writable;
   stderr?: Writable;
 };
@@ -27,7 +28,7 @@ export async function executeCommand(
 ): Promise<number> {
   const spawnCommand = getSpawnCommand(command, args);
   const child = spawn(spawnCommand.command, spawnCommand.args, {
-    cwd: process.cwd(),
+    cwd: options.cwd ?? process.cwd(),
     env: process.env,
     shell: false,
   });

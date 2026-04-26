@@ -92,7 +92,8 @@ export function getSessionHeaderParts(session: TuiSessionInfo | undefined) {
 export function shouldRefreshSessionAfterCommand(result: CommandRunOutput) {
   return (
     result.kind === "execute" &&
-    (result.classification?.kind === "git" ||
+    (Boolean(result.nextCwd) ||
+      result.classification?.kind === "git" ||
       (result.classification?.kind === "custom" &&
         result.classification.name === "lark"))
   );

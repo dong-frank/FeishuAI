@@ -1,3 +1,6 @@
+import { stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 import { Writable } from "node:stream";
 
 import { createLarkAgent } from "../agent/lark-agent.js";
@@ -29,6 +32,8 @@ type BaseCommandRunOutput = {
   exitCode: number;
   stdout: string;
   stderr: string;
+  durationMs?: number;
+  nextCwd?: string;
 };
 
 export type CommandRunOutput =
@@ -46,6 +51,7 @@ export type CommandRunOutput =
 
 export type RunCommandLineOptions = {
   agent?: CommandAgent;
+  cwd?: string;
   larkAgent?: Pick<LarkAgent, "authorize">;
   statsCwd?: string;
   executeCommand?: typeof executeCommand;
@@ -204,6 +210,7 @@ export async function runCommandLine(
   commandLine: string,
   options: RunCommandLineOptions = {},
 ): Promise<CommandRunOutput> {
+  const cwd = options.cwd ?? process.cwd();
   const parsed = parseCommandLine(commandLine);
   if (!parsed) {
     return {
@@ -222,15 +229,26 @@ export async function runCommandLine(
     options.onOutput?.({ stream: "stderr", text });
   });
   const classification = classifyCommand(parsed);
+  if (parsed.command === "cd") {
+    return runCdCommand(commandLine, parsed, classification, cwd);
+  }
+
+  if (parsed.command === "git-helper" && parsed.args.length === 0) {
+    return runBlockedNestedTuiCommand(commandLine, classification);
+  }
+
   if (classification.kind === "custom" && classification.name === "lark") {
-    return runLarkCustomCommand(commandLine, parsed, classification, options);
+    return runLarkCustomCommand(commandLine, parsed, classification, cwd, options);
   }
 
   const runCommand = options.executeCommand ?? executeCommand;
+  const startedAt = Date.now();
   const exitCode = await runCommand(parsed.command, parsed.args, {
+    cwd,
     stdout: stdout.stream,
     stderr: stderr.stream,
   });
+  const durationMs = Date.now() - startedAt;
   const rawCommand = [parsed.command, ...parsed.args].join(" ");
   const result = {
     exitCode,
@@ -239,12 +257,14 @@ export async function runCommandLine(
   };
   let afterSuccess: Promise<string | void> | undefined;
   let afterFail: Promise<string | void> | undefined;
+  const statsCwd = options.statsCwd ?? cwd;
   if (classification.kind === "git") {
     if (exitCode === 0) {
-      await recordGitCommandSuccess(options.statsCwd ?? process.cwd(), rawCommand);
+      await recordGitCommandSuccess(statsCwd, rawCommand);
       const context = await buildCommandContext(
         parsed,
-        options.statsCwd ?? process.cwd(),
+        cwd,
+        statsCwd,
       );
       if (
         options.agent?.afterSuccess &&
@@ -254,7 +274,7 @@ export async function runCommandLine(
         })
       ) {
         afterSuccess = Promise.resolve(
-          buildGitRepositoryContext(options)
+          buildGitRepositoryContext(cwd, options)
             .then((gitRepository) =>
               options.agent?.afterSuccess?.(
                 {
@@ -267,12 +287,12 @@ export async function runCommandLine(
         );
       }
     } else {
-      await recordGitCommandFailure(options.statsCwd ?? process.cwd(), rawCommand, result);
+      await recordGitCommandFailure(statsCwd, rawCommand, result);
     }
   }
   if (exitCode !== 0 && options.agent?.afterFail) {
     afterFail = Promise.resolve(
-      buildCommandContext(parsed, options.statsCwd ?? process.cwd()).then((context) =>
+      buildCommandContext(parsed, cwd, statsCwd).then((context) =>
         options.agent?.afterFail?.(context, result),
       ),
     );
@@ -283,6 +303,7 @@ export async function runCommandLine(
     kind: "execute",
     classification,
     exitCode,
+    durationMs,
     stdout: result.stdout,
     stderr: result.stderr,
     ...(afterSuccess ? { afterSuccess } : {}),
@@ -296,9 +317,11 @@ async function runLarkCustomCommand(
   commandLine: string,
   parsed: ParsedCommandLine,
   classification: CommandClassification,
+  cwd: string,
   options: RunCommandLineOptions,
 ): Promise<CommandRunOutput> {
   const subcommand = parsed.args[0];
+  const startedAt = Date.now();
 
   if (subcommand !== "init") {
     return {
@@ -306,6 +329,7 @@ async function runLarkCustomCommand(
       kind: "execute",
       classification,
       exitCode: 1,
+      durationMs: Date.now() - startedAt,
       stdout: "",
       stderr: `Unsupported lark command: ${subcommand ?? ""}\n`,
     };
@@ -313,7 +337,7 @@ async function runLarkCustomCommand(
 
   try {
     const afterSuccess = getLarkAgent(options).authorize({
-      cwd: process.cwd(),
+      cwd,
       intent: "init",
     });
 
@@ -322,6 +346,7 @@ async function runLarkCustomCommand(
       kind: "execute",
       classification,
       exitCode: 0,
+      durationMs: Date.now() - startedAt,
       stdout: "Lark authorization agent started in background.\n",
       stderr: "",
       afterSuccess,
@@ -334,10 +359,97 @@ async function runLarkCustomCommand(
       kind: "execute",
       classification,
       exitCode: 1,
+      durationMs: Date.now() - startedAt,
       stdout: "",
       stderr: `${message}\n`,
     };
   }
+}
+
+async function runCdCommand(
+  commandLine: string,
+  parsed: ParsedCommandLine,
+  classification: CommandClassification,
+  cwd: string,
+): Promise<CommandRunOutput> {
+  const startedAt = Date.now();
+  const target = parsed.args[0] ?? "~";
+  if (target === "-") {
+    return {
+      commandLine,
+      kind: "execute",
+      classification,
+      exitCode: 1,
+      durationMs: Date.now() - startedAt,
+      stdout: "",
+      stderr: "cd: OLDPWD is not supported in git-helper TUI\n",
+    };
+  }
+
+  const nextCwd = resolveCdTarget(cwd, target);
+  try {
+    const targetStat = await stat(nextCwd);
+    if (!targetStat.isDirectory()) {
+      return {
+        commandLine,
+        kind: "execute",
+        classification,
+        exitCode: 1,
+        durationMs: Date.now() - startedAt,
+        stdout: "",
+        stderr: `cd: not a directory: ${target}\n`,
+      };
+    }
+
+    return {
+      commandLine,
+      kind: "execute",
+      classification,
+      exitCode: 0,
+      durationMs: Date.now() - startedAt,
+      stdout: "",
+      stderr: "",
+      nextCwd,
+    };
+  } catch {
+    return {
+      commandLine,
+      kind: "execute",
+      classification,
+      exitCode: 1,
+      durationMs: Date.now() - startedAt,
+      stdout: "",
+      stderr: `cd: no such file or directory: ${target}\n`,
+    };
+  }
+}
+
+function resolveCdTarget(cwd: string, target: string) {
+  if (target === "~") {
+    return homedir();
+  }
+
+  if (target.startsWith("~/")) {
+    return resolve(homedir(), target.slice(2));
+  }
+
+  return resolve(cwd, target);
+}
+
+function runBlockedNestedTuiCommand(
+  commandLine: string,
+  classification: CommandClassification,
+): CommandRunOutput {
+  const startedAt = Date.now();
+  return {
+    commandLine,
+    kind: "execute",
+    classification,
+    exitCode: 1,
+    durationMs: Date.now() - startedAt,
+    stdout: "",
+    stderr: "git-helper: cannot start git-helper inside git-helper TUI\n",
+  };
 }
 
 function getLarkAgent(options: RunCommandLineOptions) {
@@ -345,24 +457,26 @@ function getLarkAgent(options: RunCommandLineOptions) {
 }
 
 async function buildGitRepositoryContext(
+  cwd: string,
   options: RunCommandLineOptions,
 ): Promise<TuiSessionGitInfo> {
   const initializeSession = options.initializeSession ?? initializeTuiSession;
   const session = await initializeSession({
-    cwd: process.cwd(),
+    cwd,
   });
   return session.git;
 }
 
 async function buildCommandContext(
   parsed: ParsedCommandLine,
+  cwd: string,
   statsCwd: string,
 ): Promise<CommandContext> {
   const rawCommand = [parsed.command, ...parsed.args].join(" ");
   const stats = await getGitCommandStats(statsCwd, rawCommand);
 
   return {
-    cwd: process.cwd(),
+    cwd,
     command: parsed.command,
     args: parsed.args,
     rawCommand,

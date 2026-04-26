@@ -63,6 +63,7 @@ export * from "./status.js";
 export function App() {
   const { exit } = useApp();
   const { stdout } = useStdout();
+  const [currentCwd, setCurrentCwd] = useState(process.cwd());
   const [session, setSession] = useState<TuiSessionInfo | undefined>();
   const [input, setInput] = useState("");
   const [cursorIndex, setCursorIndex] = useState(0);
@@ -77,7 +78,7 @@ export function App() {
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number | undefined>();
   const [commandHistoryDraft, setCommandHistoryDraft] = useState("");
-  const completion = getCompletion(input);
+  const completion = getCompletion(input, currentCwd);
   const promptLine = getPromptLineParts({
     input,
     cursorIndex,
@@ -110,12 +111,12 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    void refreshSession(() => cancelled);
+    void refreshSession(currentCwd, () => cancelled);
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentCwd]);
 
   useEffect(() => {
     if (!stdout.isTTY || !shouldEnableMouseWheelReporting()) {
@@ -129,9 +130,12 @@ export function App() {
     };
   }, [stdout]);
 
-  async function refreshSession(isCancelled: () => boolean = () => false) {
+  async function refreshSession(
+    cwd: string = currentCwd,
+    isCancelled: () => boolean = () => false,
+  ) {
     try {
-      const nextSession = await initializeTuiSession();
+      const nextSession = await initializeTuiSession({ cwd });
       if (!isCancelled()) {
         setSession(nextSession);
       }
@@ -292,7 +296,7 @@ export function App() {
       return;
     }
 
-    const context = await buildBeforeRunContext(commandLine);
+    const context = await buildBeforeRunContext(commandLine, currentCwd);
     if (!context) {
       return;
     }
@@ -348,7 +352,7 @@ export function App() {
     setActiveAgentKind("command");
     setAgentStatusCommand(commandLine);
     try {
-      const context = await buildCommitMessageContext();
+      const context = await buildCommitMessageContext({ cwd: currentCwd });
       if (isCancelled()) {
         return;
       }
@@ -530,6 +534,7 @@ export function App() {
 
     try {
       const result = await runCommandLine(commandLine, {
+        cwd: currentCwd,
         agent: createCommandAgent(),
         larkAgent: createLarkAgent({
           onLarkCliOutput: updateAgentLiveOutput,
@@ -546,8 +551,11 @@ export function App() {
         return [...(canReplace ? current.slice(0, -1) : current), entry].slice(-20);
       });
       setHistoryScrollOffset(0);
+      if (result.kind === "execute" && result.nextCwd) {
+        setCurrentCwd(result.nextCwd);
+      }
       if (shouldRefreshSessionAfterCommand(result)) {
-        void refreshSession();
+        void refreshSession(result.nextCwd ?? currentCwd);
       }
       if (hasAfterSuccessReview(result)) {
         void triggerAfterSuccessReview(result);

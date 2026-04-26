@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -105,10 +105,86 @@ test("runCommandLine reports command output chunks before completion", async () 
   assert.equal(result.stderr, "open link\n");
 });
 
+test("runCommandLine passes cwd to ordinary external commands", async () => {
+  const cwd = await createTempCwd();
+  const calls: unknown[] = [];
+
+  const result = await runCommandLine("node -v", {
+    cwd,
+    executeCommand: async (command, args, options) => {
+      calls.push({ command, args, cwd: options.cwd });
+      return 0;
+    },
+  });
+
+  assert.equal(result.kind, "execute");
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(calls, [{ command: "node", args: ["-v"], cwd }]);
+});
+
+test("runCommandLine changes cwd for cd commands without spawning", async () => {
+  const parent = await createTempCwd();
+  const child = join(parent, "child");
+  await mkdir(child);
+  const calls: unknown[] = [];
+
+  const result = await runCommandLine("cd ..", {
+    cwd: child,
+    executeCommand: async () => {
+      calls.push("spawn");
+      return 0;
+    },
+  });
+
+  assert.equal(result.kind, "execute");
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.nextCwd, parent);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+  assert.deepEqual(calls, []);
+});
+
+test("runCommandLine changes cwd to home for empty cd and cd tilde", async () => {
+  const cwd = await createTempCwd();
+
+  assert.equal((await runCommandLine("cd", { cwd })).nextCwd, homedir());
+  assert.equal((await runCommandLine("cd ~", { cwd })).nextCwd, homedir());
+});
+
+test("runCommandLine reports failed cd without changing cwd", async () => {
+  const cwd = await createTempCwd();
+  const result = await runCommandLine("cd missing", { cwd });
+
+  assert.equal(result.kind, "execute");
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.nextCwd, undefined);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /cd: no such file or directory: missing/);
+});
+
+test("runCommandLine blocks recursive empty git-helper TUI launches", async () => {
+  const calls: unknown[] = [];
+
+  const result = await runCommandLine("git-helper", {
+    executeCommand: async () => {
+      calls.push("spawn");
+      return 0;
+    },
+  });
+
+  assert.equal(result.kind, "execute");
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /cannot start git-helper inside git-helper TUI/);
+  assert.deepEqual(calls, []);
+});
+
 test("runCommandLine starts lark init authorization agent without waiting", async () => {
   const events: unknown[] = [];
   let releaseAuthorize: (() => void) | undefined;
+  const cwd = await createTempCwd();
   const result = await runCommandLine("lark init", {
+    cwd,
     larkAgent: {
       authorize(context) {
         events.push(context);
@@ -131,7 +207,7 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(events, [
     {
-      cwd: process.cwd(),
+      cwd,
       intent: "init",
     },
   ]);
@@ -340,7 +416,9 @@ test("runCommandLine skips afterSuccess for non-key successes and failures", asy
 test("runCommandLine triggers afterFail for command-not-found failures", async () => {
   const events: unknown[] = [];
 
+  const cwd = await createTempCwd();
   const result = await runCommandLine("aaa", {
+    cwd,
     executeCommand: async (_command, _args, options) => {
       options.stderr?.write("command not found: aaa\n");
       return 127;
@@ -362,7 +440,7 @@ test("runCommandLine triggers afterFail for command-not-found failures", async (
   assert.deepEqual(events, [
     {
       context: {
-        cwd: process.cwd(),
+        cwd,
         command: "aaa",
         args: [],
         rawCommand: "aaa",

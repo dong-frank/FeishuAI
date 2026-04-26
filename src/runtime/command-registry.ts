@@ -34,7 +34,14 @@ export const COMMON_GIT_SUBCOMMANDS = [
   "switch",
 ] as const;
 
-const SUPPORTED_CUSTOM_COMMANDS = new Set(["init", "lark", "help", "exit", "quit"]);
+const SUPPORTED_CUSTOM_COMMANDS = new Set([
+  "cd",
+  "git-helper",
+  "help",
+  "lark",
+  "exit",
+  "quit",
+]);
 
 export function classifyCommand(parsed: ParsedCommandLine): CommandClassification {
   if (parsed.command === "git") {

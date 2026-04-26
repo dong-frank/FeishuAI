@@ -11,13 +11,38 @@ export function HistoryRowLine({ row }: { row: HistoryRow }) {
     ...(row.color ? { color: row.color } : {}),
     ...(row.bold ? { bold: true } : {}),
   };
+  const rightColor = row.rightColor ?? row.color;
+
   return (
-    <Box height={HISTORY_ROW_HEIGHT} overflow="hidden" flexWrap="nowrap">
-      {row.parts
-        ? row.parts.map((part, index) => <OutputPartText key={index} part={part} />)
-        : <Text {...style}>{row.text}</Text>}
+    <Box
+      height={HISTORY_ROW_HEIGHT}
+      overflow="hidden"
+      flexWrap="nowrap"
+      justifyContent={row.rightText ? "space-between" : "flex-start"}
+      width="100%"
+    >
+      <Box overflow="hidden" flexShrink={1}>
+        {row.parts
+          ? row.parts.map((part, index) => <OutputPartText key={index} part={part} />)
+          : <Text {...style}>{row.text}</Text>}
+      </Box>
+      {row.rightText ? <RightStatusText color={rightColor} text={row.rightText} /> : null}
     </Box>
   );
+}
+
+function RightStatusText({
+  color,
+  text,
+}: {
+  color?: HistoryRow["rightColor"] | undefined;
+  text: string;
+}) {
+  if (color) {
+    return <Text color={color}>{text}</Text>;
+  }
+
+  return <Text>{text}</Text>;
 }
 
 function OutputPartText({ part }: { part: OutputTextPart }) {

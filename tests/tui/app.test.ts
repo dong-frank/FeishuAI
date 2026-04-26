@@ -26,6 +26,7 @@ import {
   getNextHistoryScrollOffset,
   getVisibleHistoryRows,
   DEFAULT_STATUS_TEXT,
+  formatCommandDuration,
   getRenderedOutputText,
   getScrollingStatusText,
   getStatusPaneWidths,
@@ -212,6 +213,79 @@ test("agent command output is visually distinct from user input commands", () =>
   assert.equal(agentOutputRow?.parts?.[0]?.color, "magenta");
 });
 
+test("executed command history keeps duration and failure code in a right-side field", () => {
+  const rows = getHistoryRows([
+    { type: "input", text: "git status" },
+    {
+      type: "output",
+      result: {
+        commandLine: "git status",
+        kind: "execute",
+        exitCode: 0,
+        durationMs: 42,
+        stdout: "",
+        stderr: "",
+      },
+    },
+    { type: "input", text: "git push" },
+    {
+      type: "output",
+      result: {
+        commandLine: "git push",
+        kind: "execute",
+        exitCode: 128,
+        durationMs: 1234,
+        stdout: "",
+        stderr: "failed\n",
+      },
+    },
+  ]);
+
+  const successCommandRow = rows.find((row) => row.text === "$ git status");
+  assert.equal(successCommandRow?.color, "green");
+  assert.equal(successCommandRow?.rightText, "[✓ 42ms]");
+  assert.equal(successCommandRow?.rightColor, "green");
+
+  const failedCommandRow = rows.find((row) => row.text === "$ git push");
+  assert.equal(failedCommandRow?.color, "red");
+  assert.equal(failedCommandRow?.rightText, "[✗ 128 1.2s]");
+  assert.equal(failedCommandRow?.rightColor, "red");
+  assert.equal(rows.some((row) => row.text === "exit code: 128"), false);
+});
+
+test("command history keeps right-side status on the final wrapped command row", () => {
+  const rows = getHistoryRows(
+    [
+      { type: "input", text: "git status --short" },
+      {
+        type: "output",
+        result: {
+          commandLine: "git status --short",
+          kind: "execute",
+          exitCode: 0,
+          durationMs: 900,
+          stdout: "",
+          stderr: "",
+        },
+      },
+    ],
+    12,
+  );
+
+  assert.equal(rows[3]?.text, "$ git status");
+  assert.equal(rows[3]?.rightText, undefined);
+  assert.equal(rows[4]?.text, " --short");
+  assert.equal(rows[4]?.rightText, "[✓ 900ms]");
+  assert.equal(rows[5]?.text, "");
+});
+
+test("command duration text uses compact shell-style units", () => {
+  assert.equal(formatCommandDuration(42.4), "42ms");
+  assert.equal(formatCommandDuration(1234), "1.2s");
+  assert.equal(formatCommandDuration(12_345), "12s");
+  assert.equal(formatCommandDuration(61_234), "1m1s");
+});
+
 test("failed command history colors the submitted command red", () => {
   const rows = getHistoryRows([
     { type: "input", text: "aaa" },
@@ -304,6 +378,18 @@ test("session refresh is triggered after real git or lark command execution", ()
       exitCode: 0,
       stdout: "",
       stderr: "",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldRefreshSessionAfterCommand({
+      commandLine: "cd ..",
+      kind: "execute",
+      classification: { kind: "custom", name: "cd" },
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      nextCwd: "/repo",
     }),
     true,
   );

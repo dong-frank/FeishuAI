@@ -24,7 +24,6 @@ test("classifyCommand treats every git subcommand as a git command", () => {
 });
 
 test("classifyCommand identifies custom commands", () => {
-  assert.equal(classifyCommand({ command: "init", args: [] }).kind, "custom");
   assert.equal(classifyCommand({ command: "lark", args: ["status"] }).kind, "custom");
 });
 

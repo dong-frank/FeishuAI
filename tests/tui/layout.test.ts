@@ -9,6 +9,7 @@ import {
   getSessionHeaderRows,
   HISTORY_ROW_HEIGHT,
 } from "../../src/tui/layout.js";
+import { HistoryRowLine } from "../../src/tui/components.js";
 
 test("session header rows split cwd, git, and lark status across three lines", () => {
   assert.deepEqual(
@@ -41,8 +42,8 @@ test("session header rows split cwd, git, and lark status across three lines", (
 
 test("layout history rows always fill the fixed viewport", () => {
   assert.deepEqual(
-    getLayoutHistoryRows([{ text: "Agent help", color: "cyan" }], 3),
-    [{ text: "Agent help", color: "cyan" }, { text: "" }, { text: "" }],
+    getLayoutHistoryRows([{ text: "Agent", color: "cyan" }], 3),
+    [{ text: "Agent", color: "cyan" }, { text: "" }, { text: "" }],
   );
   assert.deepEqual(
     getLayoutHistoryRows([{ text: "one" }, { text: "two" }, { text: "three" }], 2),
@@ -52,6 +53,22 @@ test("layout history rows always fill the fixed viewport", () => {
 
 test("history rows use a fixed line height inside the viewport", () => {
   assert.equal(HISTORY_ROW_HEIGHT, 1);
+});
+
+test("history row line pins command status to the right edge", () => {
+  const row = HistoryRowLine({
+    row: {
+      text: "$ git status",
+      color: "green",
+      rightText: "[✓ 42ms]",
+      rightColor: "green",
+    },
+  });
+
+  assert.equal(row.props.justifyContent, "space-between");
+  assert.equal(row.props.width, "100%");
+  assert.equal(row.props.children[1].props.text, "[✓ 42ms]");
+  assert.equal(row.props.children[1].props.color, "green");
 });
 
 test("prompt display wraps long input while preserving cursor styling segment", () => {

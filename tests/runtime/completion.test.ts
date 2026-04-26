@@ -21,6 +21,26 @@ test("getCompletion keeps trailing args after completed subcommand", () => {
   assert.equal(getCompletion("git status --short"), undefined);
 });
 
+test("getCompletion suggests custom top-level commands", () => {
+  assert.deepEqual(getCompletion("la"), {
+    completion: "lark",
+    suffix: "rk",
+  });
+  assert.deepEqual(getCompletion("ex"), {
+    completion: "exit",
+    suffix: "it",
+  });
+});
+
+test("getCompletion suggests lark init subcommand", () => {
+  assert.deepEqual(getCompletion("lark in"), {
+    completion: "lark init",
+    suffix: "it",
+  });
+  assert.equal(getCompletion("lark init"), undefined);
+  assert.equal(getCompletion("lark nope"), undefined);
+});
+
 test("getCompletion suggests a unique filesystem path after a git subcommand", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "git-helper-completion-"));
   await mkdir(join(cwd, "src"));

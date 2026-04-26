@@ -2,7 +2,6 @@
 
 import { Command } from "commander";
 
-import { createInitCommand } from "./commands/init.js";
 import { createLarkCommand } from "./commands/lark.js";
 import { renderTui } from "./tui/render.js";
 
@@ -14,7 +13,6 @@ program
   .version("0.1.0");
 
 program.addCommand(createLarkCommand());
-program.addCommand(createInitCommand());
 
 if (process.argv.length <= 2) {
   renderTui();

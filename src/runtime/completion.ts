@@ -8,13 +8,32 @@ export type CommandCompletion = {
   suffix: string;
 };
 
+const TOP_LEVEL_COMMANDS = ["exit", "lark"] as const;
+const LARK_SUBCOMMANDS = ["init"] as const;
+
 export function getCompletion(
   input: string,
   cwd: string = process.cwd(),
 ): CommandCompletion | undefined {
   const hasTrailingSpace = /\s$/.test(input);
   const parts = input.trimStart().split(/\s+/).filter(Boolean);
-  if (hasTrailingSpace || parts[0] !== "git") {
+  if (hasTrailingSpace) {
+    return undefined;
+  }
+
+  if (parts.length === 1) {
+    return getStaticCompletion(input, parts[0] ?? "", TOP_LEVEL_COMMANDS);
+  }
+
+  if (parts[0] === "lark") {
+    if (parts.length !== 2) {
+      return undefined;
+    }
+
+    return getStaticCompletion(input, parts[1] ?? "", LARK_SUBCOMMANDS);
+  }
+
+  if (parts[0] !== "git") {
     return undefined;
   }
 
@@ -31,9 +50,19 @@ export function getCompletion(
     return undefined;
   }
 
-  const matches = COMMON_GIT_SUBCOMMANDS.filter((subcommand) =>
-    subcommand.startsWith(partial),
-  );
+  return getStaticCompletion(input, partial, COMMON_GIT_SUBCOMMANDS);
+}
+
+function getStaticCompletion(
+  input: string,
+  partial: string,
+  candidates: readonly string[],
+): CommandCompletion | undefined {
+  if (!partial) {
+    return undefined;
+  }
+
+  const matches = candidates.filter((candidate) => candidate.startsWith(partial));
 
   if (matches.length !== 1) {
     return undefined;
@@ -44,8 +73,9 @@ export function getCompletion(
     return undefined;
   }
 
+  const completion = `${input.slice(0, input.length - partial.length)}${match}`;
   return {
-    completion: `git ${match}`,
+    completion,
     suffix: match.slice(partial.length),
   };
 }
