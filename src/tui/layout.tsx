@@ -8,7 +8,7 @@ import {
 } from "./constants.js";
 import type { HistoryRow } from "./history.js";
 
-export { HISTORY_ROW_WRAP_MODE } from "./components.js";
+export { HISTORY_ROW_HEIGHT } from "./components.js";
 
 type PromptLine = {
   beforeCursor: string;

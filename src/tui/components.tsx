@@ -1,10 +1,10 @@
 import React from "react";
-import { Text } from "ink";
+import { Box, Text } from "ink";
 
 import type { HistoryRow } from "./history.js";
 import type { OutputTextPart } from "./output.js";
 
-export const HISTORY_ROW_WRAP_MODE = "truncate-end";
+export const HISTORY_ROW_HEIGHT = 1;
 
 export function HistoryRowLine({ row }: { row: HistoryRow }) {
   const style = {
@@ -12,11 +12,11 @@ export function HistoryRowLine({ row }: { row: HistoryRow }) {
     ...(row.bold ? { bold: true } : {}),
   };
   return (
-    <Text {...style} wrap={HISTORY_ROW_WRAP_MODE}>
+    <Box height={HISTORY_ROW_HEIGHT} overflow="hidden" flexWrap="nowrap">
       {row.parts
         ? row.parts.map((part, index) => <OutputPartText key={index} part={part} />)
-        : row.text}
-    </Text>
+        : <Text {...style}>{row.text}</Text>}
+    </Box>
   );
 }
 
@@ -26,5 +26,5 @@ function OutputPartText({ part }: { part: OutputTextPart }) {
     ...(part.bold ? { bold: true } : {}),
   };
 
-  return <Text {...style} wrap={HISTORY_ROW_WRAP_MODE}>{part.text}</Text>;
+  return <Text {...style}>{part.text}</Text>;
 }

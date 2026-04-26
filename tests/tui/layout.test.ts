@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   getLayoutHistoryRows,
   getSessionHeaderRows,
-  HISTORY_ROW_WRAP_MODE,
+  HISTORY_ROW_HEIGHT,
 } from "../../src/tui/layout.js";
 
 test("session header rows split cwd, git, and lark status across three lines", () => {
@@ -47,6 +47,6 @@ test("layout history rows always fill the fixed viewport", () => {
   );
 });
 
-test("history rows render as single terminal lines inside the viewport", () => {
-  assert.equal(HISTORY_ROW_WRAP_MODE, "truncate-end");
+test("history rows use a fixed line height inside the viewport", () => {
+  assert.equal(HISTORY_ROW_HEIGHT, 1);
 });
