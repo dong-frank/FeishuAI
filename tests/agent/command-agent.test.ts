@@ -32,6 +32,8 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.gitStats\.successCount/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.gitStats\.failures/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.tuiSession/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /branches/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /remotes/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /header\.gitSummary/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /header\.larkSummary/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /大胆给出 suggestedCommand/);
@@ -63,8 +65,12 @@ test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", 
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /push 后/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /commit 后/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /pull、merge、rebase 后/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /context\.gitRepository/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /branch、upstream 和 dirty/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /context\.tuiSession/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /git、lark/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /branch、upstream、dirty/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /branches/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /remotes/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /webUrl/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /大胆给出 suggestedCommand/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /用户不一定会接受/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /完整、可执行的下一步命令/);

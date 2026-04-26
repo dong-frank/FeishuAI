@@ -7,6 +7,18 @@ export type GitPorcelainStatus = {
   dirty: boolean;
 };
 
+export type GitBranchInfo = {
+  local: string[];
+  remote: string[];
+};
+
+export type GitRemoteInfo = {
+  name: string;
+  fetchUrl?: string | undefined;
+  pushUrl?: string | undefined;
+  webUrl?: string | undefined;
+};
+
 export type TuiSessionGitInfo =
   | {
       isRepository: false;
@@ -18,6 +30,8 @@ export type TuiSessionGitInfo =
       head?: string | undefined;
       upstream?: string | undefined;
       status: GitPorcelainStatus;
+      branches: GitBranchInfo;
+      remotes: GitRemoteInfo[];
     };
 
 export type TuiSessionLarkInfo =
@@ -65,6 +79,8 @@ type InitializeTuiSessionOptions = {
   runLarkCommand?: LarkCommandRunner | undefined;
 };
 
+const GIT_CONTEXT_BRANCH_LIMIT = 50;
+
 export async function initializeTuiSession(
   options: InitializeTuiSessionOptions = {},
 ): Promise<TuiSessionInfo> {
@@ -86,11 +102,14 @@ export async function initializeTuiSession(
     };
   }
 
-  const [branch, head, upstream, status] = await Promise.all([
+  const [branch, head, upstream, status, localBranches, remoteBranches, remotes] = await Promise.all([
     runGitCommand(["rev-parse", "--abbrev-ref", "HEAD"], cwd),
     runGitCommand(["rev-parse", "--short", "HEAD"], cwd),
     runGitCommand(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], cwd),
     runGitCommand(["status", "--porcelain=v1"], cwd),
+    runGitCommand(["branch", "--format=%(refname:short)"], cwd),
+    runGitCommand(["branch", "-r", "--format=%(refname:short)"], cwd),
+    runGitCommand(["remote", "-v"], cwd),
   ]);
 
   const git: TuiSessionGitInfo = {
@@ -100,6 +119,11 @@ export async function initializeTuiSession(
     ...(head.exitCode === 0 ? { head: head.stdout.trim() } : {}),
     ...(upstream.exitCode === 0 ? { upstream: upstream.stdout.trim() } : {}),
     status: parseGitPorcelainStatus(status.exitCode === 0 ? status.stdout : ""),
+    branches: {
+      local: parseGitBranchList(localBranches.exitCode === 0 ? localBranches.stdout : ""),
+      remote: parseGitRemoteBranchList(remoteBranches.exitCode === 0 ? remoteBranches.stdout : ""),
+    },
+    remotes: parseGitRemoteVerbose(remotes.exitCode === 0 ? remotes.stdout : ""),
   };
 
   return {
@@ -108,6 +132,93 @@ export async function initializeTuiSession(
     git,
     lark: await larkPromise,
   };
+}
+
+function parseGitBranchList(output: string) {
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, GIT_CONTEXT_BRANCH_LIMIT);
+}
+
+function parseGitRemoteBranchList(output: string) {
+  return parseGitBranchList(output)
+    .filter((branch) => !branch.endsWith("/HEAD") && !branch.includes(" -> "))
+    .slice(0, GIT_CONTEXT_BRANCH_LIMIT);
+}
+
+function parseGitRemoteVerbose(output: string): GitRemoteInfo[] {
+  const remoteByName = new Map<string, GitRemoteInfo>();
+  const linePattern = /^(\S+)\s+(\S+)\s+\((fetch|push)\)$/;
+
+  for (const line of output.split("\n")) {
+    const match = line.trim().match(linePattern);
+    if (!match) {
+      continue;
+    }
+
+    const [, name, url, direction] = match;
+    if (!name || !url) {
+      continue;
+    }
+
+    const remote = remoteByName.get(name) ?? { name };
+    if (direction === "fetch") {
+      remote.fetchUrl = url;
+    } else {
+      remote.pushUrl = url;
+    }
+
+    const webUrl = normalizeGitRemoteWebUrl(remote.fetchUrl ?? remote.pushUrl);
+    if (webUrl) {
+      remote.webUrl = webUrl;
+    }
+    remoteByName.set(name, remote);
+  }
+
+  return [...remoteByName.values()];
+}
+
+export function normalizeGitRemoteWebUrl(url: string | undefined) {
+  if (!url) {
+    return undefined;
+  }
+
+  const trimmed = url.trim();
+  const sshMatch = trimmed.match(/^git@([^:]+):(.+)$/);
+  if (sshMatch) {
+    return formatGitWebUrl(sshMatch[1], sshMatch[2]);
+  }
+
+  const sshUrlMatch = trimmed.match(/^ssh:\/\/(?:git@)?([^/]+)\/(.+)$/);
+  if (sshUrlMatch) {
+    return formatGitWebUrl(sshUrlMatch[1], sshUrlMatch[2]);
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return undefined;
+    }
+
+    return formatGitWebUrl(parsed.host, parsed.pathname.replace(/^\/+/, ""));
+  } catch {
+    return undefined;
+  }
+}
+
+function formatGitWebUrl(host: string | undefined, path: string | undefined) {
+  if (!host || !path) {
+    return undefined;
+  }
+
+  const normalizedPath = path.replace(/\.git$/, "").replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!normalizedPath) {
+    return undefined;
+  }
+
+  return `https://${host}/${normalizedPath}`;
 }
 
 export function parseGitPorcelainStatus(output: string): GitPorcelainStatus {

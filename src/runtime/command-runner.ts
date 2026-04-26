@@ -9,6 +9,7 @@ import type {
   CommandAgent,
   CommandAgentOutput,
   CommandContext,
+  CommandTuiSessionContext,
 } from "../agent/types.js";
 import type { LarkAgent } from "../agent/types.js";
 import { classifyCommand, type CommandClassification } from "./command-registry.js";
@@ -21,8 +22,10 @@ import {
   recordGitCommandSuccess,
 } from "./git-command-stats.js";
 import {
+  formatTuiSessionGitSummary,
+  formatTuiSessionLarkSummary,
   initializeTuiSession,
-  type TuiSessionGitInfo,
+  type TuiSessionInfo,
 } from "./tui-session.js";
 
 export type ParsedCommandLine = {
@@ -281,12 +284,12 @@ export async function runCommandLine(
         })
       ) {
         afterSuccess = Promise.resolve(
-          buildGitRepositoryContext(cwd, options)
-            .then((gitRepository) =>
+          buildCommandTuiSessionContext(cwd, options)
+            .then((tuiSession) =>
               options.agent?.afterSuccess?.(
                 {
                   ...context,
-                  gitRepository,
+                  tuiSession,
                 },
                 result,
               ),
@@ -463,15 +466,30 @@ function getLarkAgent(options: RunCommandLineOptions) {
   return options.larkAgent ?? createLarkAgent();
 }
 
-async function buildGitRepositoryContext(
+async function buildCommandTuiSessionContext(
   cwd: string,
   options: RunCommandLineOptions,
-): Promise<TuiSessionGitInfo> {
+): Promise<CommandTuiSessionContext> {
   const initializeSession = options.initializeSession ?? initializeTuiSession;
   const session = await initializeSession({
     cwd,
   });
-  return session.git;
+  return formatCommandTuiSessionContext(session);
+}
+
+function formatCommandTuiSessionContext(
+  session: TuiSessionInfo,
+): CommandTuiSessionContext {
+  return {
+    cwd: session.cwd,
+    git: session.git,
+    lark: session.lark,
+    header: {
+      cwd: session.cwd,
+      gitSummary: formatTuiSessionGitSummary(session.git),
+      larkSummary: formatTuiSessionLarkSummary(session.lark),
+    },
+  };
 }
 
 async function buildCommandContext(

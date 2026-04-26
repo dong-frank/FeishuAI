@@ -1213,6 +1213,17 @@ test("beforeRun context includes current TUI session header state", async () => 
         untracked: 3,
         dirty: true,
       },
+      branches: {
+        local: ["main", "feature/agent-context"],
+        remote: ["origin/main"],
+      },
+      remotes: [
+        {
+          name: "origin",
+          fetchUrl: "https://github.com/dong/feishuAI.git",
+          webUrl: "https://github.com/dong/feishuAI",
+        },
+      ],
     },
     lark: {
       isInstalled: true as const,

@@ -32,7 +32,7 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 - context.rawCommand: 用户输入的完整命令
 - context.gitStats.successCount: 归一化后的同类 Git 命令最近连续成功次数，属于用户历史画像
 - context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，属于用户历史画像，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt；count 表示该报错已出现次数
-- context.tuiSession: 当前 TUI 顶部状态栏对应的会话快照；包含 cwd、git、lark 结构化状态，以及 header.cwd、header.gitSummary、header.larkSummary 三段顶部展示文本
+- context.tuiSession: 当前 TUI 顶部状态栏对应的会话快照；包含 cwd、git、lark 结构化状态，以及 header.cwd、header.gitSummary、header.larkSummary 三段顶部展示文本；git 里可能包含 branches.local、branches.remote 和 remotes(fetchUrl、pushUrl、webUrl)
 
 ## Task 用户不知道这条命令该如何使用，需要请求你的帮助
 
@@ -42,7 +42,7 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 - successCount 较低、为 0、缺失，或用户有近期失败时，必须调用 tldr_git_manual 工具查询通用用法，再结合输入上下文给出更详细说明，特别解释当前命令参数的作用、常见组合和安全注意点。
 如果 context.gitStats 存在，需要参考 successCount 和 failures：
 存在近期失败时，需要结合 failures 中的错误输出解释用户过去可能遇到的问题、失败原因和对应下一步命令；但 failures 始终是历史画像，不是当前事实。
-如果 context.tuiSession 存在，可以结合顶部状态栏中的 git/lark 状态给出更贴近当前环境的建议；不要编造不存在的分支、远端、登录身份或文件名。
+如果 context.tuiSession 存在，可以结合顶部状态栏中的 git/lark 状态给出更贴近当前环境的建议；git checkout、git switch 等分支相关命令可以参考 branches 中实际存在的分支；push、remote、PR 相关建议可以参考 remotes 和 webUrl；不要编造不存在的分支、远端、登录身份或文件名。
 
 ## Task 用户希望你帮助生成commit message
 
@@ -69,7 +69,7 @@ export const AFTER_SUCCESS_AGENT_SYSTEM_PROMPT = `
 - context.rawCommand: 用户输入的完整命令
 - context.gitStats.successCount: 归一化后的同类 Git 命令最近连续成功次数
 - context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt
-- context.gitRepository: 当前 Git 仓库快照，和 TUI 顶部信息一致；包含 isRepository、root、branch、head、upstream、status(staged、unstaged、untracked、dirty)
+- context.tuiSession: 当前 TUI 顶部状态栏对应的会话快照；包含 cwd、git、lark 结构化状态，以及 header.cwd、header.gitSummary、header.larkSummary 三段顶部展示文本；git 里可能包含 branches.local、branches.remote 和 remotes(fetchUrl、pushUrl、webUrl)
 - result.exitCode: 命令退出码
 - result.stdout: 命令标准输出
 - result.stderr: 命令错误输出
@@ -83,7 +83,7 @@ export const AFTER_SUCCESS_AGENT_SYSTEM_PROMPT = `
 push 后，提醒是否需要打开 PR、通知维护者或检查远端状态。
 commit 后，提醒是否需要 push、继续拆分提交或查看状态。
 pull、merge、rebase 后，提醒检查 git status，并按项目习惯运行必要测试。
-如果 context.gitRepository 存在，可以结合 branch、upstream 和 dirty 状态给出更贴近当前仓库的提醒；不要编造不存在的远端、分支或文件名。
+如果 context.tuiSession 存在，可以结合 context.tuiSession.git 的 branch、upstream、dirty 状态，branches 中实际存在的分支，以及 remotes 中的 fetchUrl、pushUrl、webUrl 给出更贴近当前环境的提醒；push 成功后如果存在可识别 webUrl，可以在 content 中给出仓库链接，方便用户继续打开 PR；不要编造不存在的远端、分支、登录身份或文件名。
 
 ## Task 用户可能需要一条可直接补全的建议命令
 

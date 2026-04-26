@@ -330,13 +330,30 @@ test("runCommandLine starts afterSuccess for key git command successes without w
           untracked: 2,
           dirty: true,
         },
+        branches: {
+          local: ["main", "feature/agent-context"],
+          remote: ["origin/main"],
+        },
+        remotes: [
+          {
+            name: "origin",
+            fetchUrl: "https://github.com/dong/feishuAI.git",
+            webUrl: "https://github.com/dong/feishuAI",
+          },
+        ],
+      },
+      lark: {
+        isInstalled: true,
+        isConnected: true,
+        identity: "user",
+        name: "Dong",
       },
     }),
     agent: {
       afterSuccess(context) {
         contexts.push({
           gitStats: context.gitStats,
-          gitRepository: context.gitRepository,
+          tuiSession: context.tuiSession,
         });
         return new Promise((resolve) => {
           releaseAfterSuccess = () =>
@@ -359,17 +376,42 @@ test("runCommandLine starts afterSuccess for key git command successes without w
         successCount: 1,
         failures: [],
       },
-      gitRepository: {
-        isRepository: true,
-        root: "/repo",
-        branch: "main",
-        head: "abc1234",
-        upstream: "origin/main",
-        status: {
-          staged: 1,
-          unstaged: 0,
-          untracked: 2,
-          dirty: true,
+      tuiSession: {
+        cwd: "/repo/worktree",
+        git: {
+          isRepository: true,
+          root: "/repo",
+          branch: "main",
+          head: "abc1234",
+          upstream: "origin/main",
+          status: {
+            staged: 1,
+            unstaged: 0,
+            untracked: 2,
+            dirty: true,
+          },
+          branches: {
+            local: ["main", "feature/agent-context"],
+            remote: ["origin/main"],
+          },
+          remotes: [
+            {
+              name: "origin",
+              fetchUrl: "https://github.com/dong/feishuAI.git",
+              webUrl: "https://github.com/dong/feishuAI",
+            },
+          ],
+        },
+        lark: {
+          isInstalled: true,
+          isConnected: true,
+          identity: "user",
+          name: "Dong",
+        },
+        header: {
+          cwd: "/repo/worktree",
+          gitSummary: "git: main abc1234 -> origin/main dirty S1 U0 ?2",
+          larkSummary: "lark: connected user Dong",
         },
       },
     },

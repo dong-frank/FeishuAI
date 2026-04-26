@@ -5,6 +5,7 @@ import {
   formatTuiSessionLarkSummary,
   formatTuiSessionGitSummary,
   initializeTuiSession,
+  normalizeGitRemoteWebUrl,
   parseGitPorcelainStatus,
 } from "../../src/runtime/tui-session.js";
 
@@ -37,6 +38,29 @@ test("initializeTuiSession records workspace, git repository, and lark status", 
           stderr: "",
         });
       }
+      if (command === "branch --format=%(refname:short)") {
+        return Promise.resolve({
+          exitCode: 0,
+          stdout: "main\nfeature/agent-context\n",
+          stderr: "",
+        });
+      }
+      if (command === "branch -r --format=%(refname:short)") {
+        return Promise.resolve({
+          exitCode: 0,
+          stdout: "origin/HEAD\norigin/main\norigin/feature/agent-context\n",
+          stderr: "",
+        });
+      }
+      if (command === "remote -v") {
+        return Promise.resolve({
+          exitCode: 0,
+          stdout:
+            "origin\tgit@github.com:dong/feishuAI.git (fetch)\n" +
+            "origin\tgit@github.com:dong/feishuAI.git (push)\n",
+          stderr: "",
+        });
+      }
 
       return Promise.resolve({ exitCode: 1, stdout: "", stderr: "unexpected command" });
     },
@@ -56,6 +80,9 @@ test("initializeTuiSession records workspace, git repository, and lark status", 
     ["rev-parse", "--short", "HEAD"],
     ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
     ["status", "--porcelain=v1"],
+    ["branch", "--format=%(refname:short)"],
+    ["branch", "-r", "--format=%(refname:short)"],
+    ["remote", "-v"],
   ]);
   assert.deepEqual(larkCalls, [["auth", "status"]]);
   assert.deepEqual(session, {
@@ -73,6 +100,18 @@ test("initializeTuiSession records workspace, git repository, and lark status", 
         untracked: 1,
         dirty: true,
       },
+      branches: {
+        local: ["main", "feature/agent-context"],
+        remote: ["origin/main", "origin/feature/agent-context"],
+      },
+      remotes: [
+        {
+          name: "origin",
+          fetchUrl: "git@github.com:dong/feishuAI.git",
+          pushUrl: "git@github.com:dong/feishuAI.git",
+          webUrl: "https://github.com/dong/feishuAI",
+        },
+      ],
     },
     lark: {
       isInstalled: true,
@@ -81,6 +120,26 @@ test("initializeTuiSession records workspace, git repository, and lark status", 
       name: "Dong",
     },
   });
+});
+
+test("normalizeGitRemoteWebUrl recognizes common Git hosting URL forms", () => {
+  assert.equal(
+    normalizeGitRemoteWebUrl("git@github.com:owner/repo.git"),
+    "https://github.com/owner/repo",
+  );
+  assert.equal(
+    normalizeGitRemoteWebUrl("https://github.com/owner/repo.git"),
+    "https://github.com/owner/repo",
+  );
+  assert.equal(
+    normalizeGitRemoteWebUrl("git@gitlab.com:group/repo.git"),
+    "https://gitlab.com/group/repo",
+  );
+  assert.equal(
+    normalizeGitRemoteWebUrl("https://gitlab.com/group/repo.git"),
+    "https://gitlab.com/group/repo",
+  );
+  assert.equal(normalizeGitRemoteWebUrl("file:///tmp/repo"), undefined);
 });
 
 test("initializeTuiSession reads current lark-cli auth status fields", async () => {
@@ -222,6 +281,17 @@ test("formatTuiSessionGitSummary keeps startup git info compact", () => {
         untracked: 3,
         dirty: true,
       },
+      branches: {
+        local: ["main"],
+        remote: ["origin/main"],
+      },
+      remotes: [
+        {
+          name: "origin",
+          fetchUrl: "https://github.com/dong/feishuAI.git",
+          webUrl: "https://github.com/dong/feishuAI",
+        },
+      ],
     }),
     "git: main abc1234 -> origin/main dirty S1 U2 ?3",
   );
