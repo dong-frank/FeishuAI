@@ -168,11 +168,8 @@ export function getStatusBarParts(
   },
 ) {
   const tip = TUI_USAGE_TIPS[(options.tipIndex ?? 0) % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
-  const right = getStatusLine({
-    ...options,
-    tipIndex: 0,
-  });
-  const agentStatus = right === DEFAULT_STATUS_TEXT ? "Agent：空闲" : right;
+  const activityStatus =
+    options.isRunning || options.isAgentWaiting || options.isAgentReviewing ? "运行中" : "空闲";
 
   return {
     left: getScrollingStatusText({
@@ -181,7 +178,7 @@ export function getStatusBarParts(
       offset: options.tipStatusScrollOffset,
     }),
     right: getScrollingStatusText({
-      text: agentStatus,
+      text: activityStatus,
       width: options.agentStatusWidth,
       offset: options.agentStatusScrollOffset,
     }),

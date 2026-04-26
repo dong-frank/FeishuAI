@@ -677,7 +677,7 @@ test("status line keeps waiting indicators outside the prompt box", () => {
   );
 });
 
-test("status bar keeps usage tips on the left and agent state on the right", () => {
+test("status bar keeps usage tips on the left and a unified activity state on the right", () => {
   assert.deepEqual(
     getStatusBarParts({
       isRunning: false,
@@ -686,7 +686,7 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
     }),
     {
       left: "按 Tab 请求 Agent 帮助",
-      right: "Agent：空闲",
+      right: "空闲",
     },
   );
   assert.deepEqual(
@@ -699,7 +699,7 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
     }),
     {
       left: "按 Tab 请求 Agent 帮助",
-      right: "正在请求帮助 git commit -...",
+      right: "运行中",
     },
   );
   assert.deepEqual(
@@ -713,12 +713,23 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
     }),
     {
       left: "按 Tab 请求 Agent 帮助",
-      right: "正在处理 lark init ...",
+      right: "运行中",
+    },
+  );
+  assert.deepEqual(
+    getStatusBarParts({
+      isRunning: true,
+      isAgentWaiting: false,
+      tipIndex: 1,
+    }),
+    {
+      left: "按 Tab 请求 Agent 帮助",
+      right: "运行中",
     },
   );
 });
 
-test("agent status uses a bounded viewport and scrolls long text with ellipsis", () => {
+test("status text uses a bounded viewport and scrolls long text with ellipsis", () => {
   assert.equal(DEFAULT_AGENT_STATUS_WIDTH, 28);
   assert.equal(getAgentStatusWidth(undefined), DEFAULT_AGENT_STATUS_WIDTH);
   assert.deepEqual(getStatusPaneWidths(undefined), { left: 28, right: 28 });
@@ -726,32 +737,32 @@ test("agent status uses a bounded viewport and scrolls long text with ellipsis",
   assert.deepEqual(getStatusPaneWidths(120), { left: 54, right: 54 });
   assert.equal(getAgentStatusWidth(40), 14);
   assert.equal(getAgentStatusWidth(120), 54);
-  assert.equal(getTerminalTextWidth("Agent：空闲"), 11);
+  assert.equal(getTerminalTextWidth("空闲"), 4);
   assert.equal(getTerminalTextWidth("按 Tab 请求 Agent 帮助"), 22);
 
   assert.equal(
     getScrollingStatusText({
-      text: "Agent：空闲",
+      text: "空闲",
       width: 24,
       offset: 10,
     }),
-    "Agent：空闲",
+    "空闲",
   );
   assert.equal(
     getScrollingStatusText({
-      text: "Agent：正在请求帮助 git commit --amend --no-edit --verbose ...",
+      text: "正在请求帮助 git commit --amend --no-edit --verbose ...",
       width: 24,
       offset: 0,
     }),
-    "Agent：正在请求帮助 g...",
+    "正在请求帮助 git comm...",
   );
   assert.equal(
     getScrollingStatusText({
-      text: "Agent：正在请求帮助 git commit --amend --no-edit --verbose ...",
+      text: "正在请求帮助 git commit --amend --no-edit --verbose ...",
       width: 24,
       offset: 10,
     }),
-    "...在请求帮助 git com...",
+    "...助 git commit --am...",
   );
   assert.deepEqual(
     getStatusBarParts({
@@ -766,7 +777,7 @@ test("agent status uses a bounded viewport and scrolls long text with ellipsis",
     }),
     {
       left: "...nter 执...",
-      right: "...助 git commit --am...",
+      right: "运行中",
     },
   );
 });
