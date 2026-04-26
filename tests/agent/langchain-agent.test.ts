@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   createLangChainAgent,
   createLangChainChatModel,
+  extractLangChainAgentMetadata,
   getLangChainAgentOutputText,
   resolveLangChainModelName,
   shouldTraceLangChainAgent,
@@ -130,5 +131,96 @@ test("getLangChainAgentOutputText prefers structured responses", () => {
       messages: [{ content: "fallback text" }],
     }),
     '{"content":"检查状态","suggestedCommand":"git status --short"}',
+  );
+});
+
+test("extractLangChainAgentMetadata reads duration and token usage", () => {
+  assert.deepEqual(
+    extractLangChainAgentMetadata(
+      {
+        messages: [
+          {
+            content: "hello",
+            usage_metadata: {
+              input_tokens: 12,
+              output_tokens: 8,
+              total_tokens: 20,
+            },
+          },
+        ],
+      },
+      1234,
+    ),
+    {
+      durationMs: 1234,
+      tokenUsage: {
+        totalTokens: 20,
+      },
+    },
+  );
+});
+
+test("extractLangChainAgentMetadata supports OpenAI tokenUsage metadata", () => {
+  assert.deepEqual(
+    extractLangChainAgentMetadata(
+      {
+        messages: [
+          {
+            content: "hello",
+            response_metadata: {
+              tokenUsage: {
+                promptTokens: 10,
+                completionTokens: 5,
+                totalTokens: 15,
+              },
+            },
+          },
+        ],
+      },
+      42,
+    ),
+    {
+      durationMs: 42,
+      tokenUsage: {
+        totalTokens: 15,
+      },
+    },
+  );
+});
+
+test("extractLangChainAgentMetadata sums token usage across agent turns", () => {
+  assert.deepEqual(
+    extractLangChainAgentMetadata(
+      {
+        messages: [
+          {
+            content: "tool call",
+            usage_metadata: {
+              input_tokens: 100,
+              output_tokens: 20,
+              total_tokens: 120,
+            },
+          },
+          {
+            content: "tool result",
+          },
+          {
+            content: "final",
+            usage_metadata: {
+              input_tokens: 80,
+              output_tokens: 30,
+              total_tokens: 110,
+            },
+          },
+        ],
+      },
+      2000,
+    ),
+    {
+      durationMs: 2000,
+      tokenUsage: {
+        totalTokens: 230,
+      },
+    },
   );
 });

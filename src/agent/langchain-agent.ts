@@ -3,6 +3,8 @@ import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, type ResponseFormat, type TypedToolStrategy } from "langchain";
 import { traceable } from "langsmith/traceable";
 
+import type { AgentRunMetadata, AgentTokenUsage } from "./types.js";
+
 export type LangChainChatModelConfig = {
   apiKey?: string;
   baseURL?: string;
@@ -27,9 +29,15 @@ export type LangChainAgent = {
   tools: StructuredToolInterface[];
   responseFormat?: LangChainResponseFormat | undefined;
   invoke: (input: string) => Promise<string>;
+  invokeWithMetadata: (input: string) => Promise<LangChainAgentInvokeResult>;
 };
 
 export type LangChainResponseFormat = ResponseFormat | TypedToolStrategy<unknown>;
+
+export type LangChainAgentInvokeResult = {
+  content: string;
+  metadata: AgentRunMetadata;
+};
 
 export function createLangChainChatModel(config: LangChainChatModelConfig = {}) {
   const disableThinking = config.disableThinking ?? true;
@@ -74,12 +82,21 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
   });
   const name = options.name ?? "LangChain Agent";
-  const invoke = async (input: string) => {
+  const invokeWithMetadata = async (input: string) => {
+    const startedAt = Date.now();
     const result = await agent.invoke({
       messages: [{ role: "user", content: input }],
     });
+    const durationMs = Date.now() - startedAt;
 
-    return getLangChainAgentOutputText(result);
+    return {
+      content: getLangChainAgentOutputText(result),
+      metadata: extractLangChainAgentMetadata(result, durationMs),
+    };
+  };
+  const invoke = async (input: string) => {
+    const result = await invokeWithMetadata(input);
+    return result.content;
   };
 
   return {
@@ -92,6 +109,12 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
           run_type: "chain",
         })
       : invoke,
+    invokeWithMetadata: shouldTraceLangChainAgent(process.env)
+      ? traceable(invokeWithMetadata, {
+          name,
+          run_type: "chain",
+        })
+      : invokeWithMetadata,
   };
 }
 
@@ -114,6 +137,92 @@ export function getLangChainAgentOutputText(result: unknown): string {
   }
 
   return stringifyContent(lastMessage.content);
+}
+
+export function extractLangChainAgentMetadata(
+  result: unknown,
+  durationMs: number,
+): AgentRunMetadata {
+  const tokenUsage = extractLangChainTokenUsage(result);
+  return {
+    durationMs: Math.max(0, Math.round(durationMs)),
+    ...(tokenUsage ? { tokenUsage } : {}),
+  };
+}
+
+function extractLangChainTokenUsage(result: unknown): AgentTokenUsage | undefined {
+  const messages = isRecord(result) && Array.isArray(result.messages)
+    ? result.messages
+    : [];
+  return messages
+    .filter(isRecord)
+    .map(readMessageTokenUsage)
+    .filter((usage): usage is AgentTokenUsage => Boolean(usage))
+    .reduce<AgentTokenUsage | undefined>(sumTokenUsage, undefined);
+}
+
+function readMessageTokenUsage(message: Record<string, unknown>): AgentTokenUsage | undefined {
+  return (
+    readUsageMetadata(message.usage_metadata) ??
+    readOpenAiTokenUsage(getNested(message, ["response_metadata", "tokenUsage"])) ??
+    readOpenAiUsage(getNested(message, ["response_metadata", "usage"])) ??
+    readOpenAiUsage(getNested(message, ["response_metadata", "token_usage"])) ??
+    readOpenAiUsage(message.token_usage)
+  );
+}
+
+function sumTokenUsage(
+  total: AgentTokenUsage | undefined,
+  next: AgentTokenUsage,
+): AgentTokenUsage {
+  if (!total) {
+    return next;
+  }
+
+  return {
+    totalTokens: total.totalTokens + next.totalTokens,
+  };
+}
+
+function readUsageMetadata(value: unknown): AgentTokenUsage | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return compactTokenUsage(readNumber(value.total_tokens));
+}
+
+function readOpenAiTokenUsage(value: unknown): AgentTokenUsage | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return compactTokenUsage(readNumber(value.totalTokens));
+}
+
+function readOpenAiUsage(value: unknown): AgentTokenUsage | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return compactTokenUsage(readNumber(value.total_tokens));
+}
+
+function compactTokenUsage(totalTokens: number | undefined): AgentTokenUsage | undefined {
+  return typeof totalTokens === "number" ? { totalTokens } : undefined;
+}
+
+function getNested(value: Record<string, unknown>, path: string[]): unknown {
+  return path.reduce<unknown>((current, key) => {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    return current[key];
+  }, value);
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function stringifyContent(content: unknown): string {

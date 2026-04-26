@@ -1,3 +1,4 @@
+import type { AgentRunMetadata, AgentTokenUsage } from "../agent/types.js";
 import type { CommandRunOutput } from "../runtime/command-runner.js";
 import {
   DEFAULT_HISTORY_VIEWPORT_HEIGHT,
@@ -142,6 +143,8 @@ function getHistoryEntryRows(
         text: "Agent",
         color: "cyan",
         bold: true,
+        rightText: formatAgentMetadata(entry.result.agentMetadata),
+        rightColor: "cyan",
       },
       ...splitPlainTextRows(getRenderedOutputText(output), { color: "cyan" }, wrapWidth),
       { text: "" },
@@ -213,6 +216,24 @@ export function formatCommandDuration(durationMs: number) {
   const minutes = Math.floor(safeDurationMs / 60_000);
   const seconds = Math.round((safeDurationMs % 60_000) / 1000);
   return `${minutes}m${seconds}s`;
+}
+
+function formatAgentMetadata(metadata: AgentRunMetadata | undefined) {
+  if (!metadata) {
+    return undefined;
+  }
+
+  const parts = [formatCommandDuration(metadata.durationMs)];
+  const tokenCount = getAgentTokenCount(metadata.tokenUsage);
+  if (typeof tokenCount === "number") {
+    parts.push(`${tokenCount} tok`);
+  }
+
+  return `[${parts.join(" · ")}]`;
+}
+
+function getAgentTokenCount(tokenUsage: AgentTokenUsage | undefined) {
+  return tokenUsage?.totalTokens;
 }
 
 function attachCommandStatus(

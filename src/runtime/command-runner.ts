@@ -4,7 +4,12 @@ import { resolve } from "node:path";
 import { Writable } from "node:stream";
 
 import { createLarkAgent } from "../agent/lark-agent.js";
-import type { CommandAgent, CommandAgentOutput, CommandContext } from "../agent/types.js";
+import type {
+  AgentRunMetadata,
+  CommandAgent,
+  CommandAgentOutput,
+  CommandContext,
+} from "../agent/types.js";
 import type { LarkAgent } from "../agent/types.js";
 import { classifyCommand, type CommandClassification } from "./command-registry.js";
 import { executeCommand } from "./command-executor.js";
@@ -47,6 +52,7 @@ export type CommandRunOutput =
   | (BaseCommandRunOutput & {
       kind: "help";
       help: string;
+      agentMetadata?: AgentRunMetadata;
     });
 
 export type RunCommandLineOptions = {

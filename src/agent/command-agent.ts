@@ -4,7 +4,7 @@ import { tool, type StructuredToolInterface } from "@langchain/core/tools";
 import { providerStrategy } from "langchain";
 import { z } from "zod";
 
-import type { CommandAgent, CommandAgentOutput } from "./types.js";
+import type { CommandAgent, CommandAgentOutput, AgentRunMetadata } from "./types.js";
 import { createLangChainAgent, createLangChainChatModel } from "./langchain-agent.js";
 import { readTldrPage } from "../integrations/tldr.js";
 
@@ -35,6 +35,8 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 
 用户不知道这条命令该如何使用，需要请求你的帮助。
 请给出该命令对应的参数，和使用方法。
+你可以根据当前输入、用户历史画像和顶部状态栏大胆给出 suggestedCommand，用户不一定会接受；它只是 TUI 里的高优先级补全候选。
+suggestedCommand 不只用于 commit message 场景。只要有一个合理、完整、可执行的下一步命令，就可以给出；如果当前信息不足或建议可能危险，才输出空字符串。
 如果是 Git 命令，优先使用 tldr_git_manual 工具查询通用用法，再结合输入上下文回答。
 如果 context.command 是 git 且 context.args 的第一项是 commit，优先考虑生成 commit message。需要判断当前已暂存变更时，必须调用 git_commit_context 工具获取 Git 信息；不要要求初始 context 提供 diff、status 或 recent commits。
 生成 commit message 时，content 输出生成的 commit message 或一条极短说明；suggestedCommand 输出完整提交命令，例如 git commit -m "feat: add structured agent output"。不要执行 git commit，不要要求用户执行命令。只基于 stagedDiff 生成；如果 stagedDiff 为空，提示用户先 git add 需要提交的内容，不要基于未暂存内容生成提交信息；如果 recentCommits 存在，尽量贴近其中的语言、粒度和前缀风格。
@@ -274,6 +276,13 @@ export function parseCommandAgentOutput(output: string): CommandAgentOutput | un
   return { content: trimmed };
 }
 
+function withAgentMetadata(
+  output: CommandAgentOutput | undefined,
+  metadata: AgentRunMetadata,
+): CommandAgentOutput | undefined {
+  return output ? { ...output, metadata } : undefined;
+}
+
 export function createCommandAgent(): CommandAgent {
   const model = createLangChainChatModel({ modelRole: "command" });
   const helpAgent = createLangChainAgent({
@@ -298,17 +307,20 @@ export function createCommandAgent(): CommandAgent {
 
   return {
     async beforeRun(context) {
-      return parseCommandAgentOutput(await helpAgent.invoke(JSON.stringify({ context })));
+      const result = await helpAgent.invokeWithMetadata(JSON.stringify({ context }));
+      return withAgentMetadata(parseCommandAgentOutput(result.content), result.metadata);
     },
     async afterSuccess(context, result) {
-      return parseCommandAgentOutput(
-        await afterSuccessAgent.invoke(JSON.stringify({ context, result })),
+      const agentResult = await afterSuccessAgent.invokeWithMetadata(
+        JSON.stringify({ context, result }),
       );
+      return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },
     async afterFail(context, result) {
-      return parseCommandAgentOutput(
-        await afterFailAgent.invoke(JSON.stringify({ context, result })),
+      const agentResult = await afterFailAgent.invokeWithMetadata(
+        JSON.stringify({ context, result }),
       );
+      return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },
   };
 }

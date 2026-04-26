@@ -812,6 +812,28 @@ test("help output is rendered in a banner instead of normal history text", () =>
     }),
     true,
   );
+  const rows = getHistoryRows([
+    {
+      type: "output",
+      result: {
+        commandLine: "git commit",
+        kind: "help",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        help: "feat: add agent metrics",
+        agentMetadata: {
+          durationMs: 1234,
+          tokenUsage: {
+            totalTokens: 456,
+          },
+        },
+      },
+    },
+  ]);
+  const agentTitle = rows.find((row) => row.text === "Agent");
+  assert.equal(agentTitle?.rightText, "[1.2s · 456 tok]");
+  assert.equal(agentTitle?.rightColor, "cyan");
   assert.equal(
     isHelpOutput({
       commandLine: "git status",

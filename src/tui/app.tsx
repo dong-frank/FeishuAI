@@ -317,6 +317,7 @@ export function App() {
           stdout: "",
           stderr: "",
           help: message.content,
+          ...(message.metadata ? { agentMetadata: message.metadata } : {}),
         },
       };
       setHistory((current) => [...current, entry].slice(-20));
@@ -360,6 +361,7 @@ export function App() {
           stdout: "",
           stderr: "",
           help: output.content,
+          ...(output.metadata ? { agentMetadata: output.metadata } : {}),
         },
       };
       setHistory((current) => [...current, entry].slice(-20));
@@ -400,6 +402,7 @@ export function App() {
           stdout: "",
           stderr: "",
           help: output.content,
+          ...(output.metadata ? { agentMetadata: output.metadata } : {}),
         },
       };
       setHistory((current) => [...current, entry].slice(-20));
@@ -575,6 +578,7 @@ function normalizeAgentOutput(
         ...(output.suggestedCommand?.trim()
           ? { suggestedCommand: output.suggestedCommand.trim() }
           : {}),
+        ...(output.metadata ? { metadata: output.metadata } : {}),
       }
     : undefined;
 }

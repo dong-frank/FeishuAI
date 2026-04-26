@@ -34,6 +34,8 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.tuiSession/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /header\.gitSummary/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /header\.larkSummary/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /大胆给出 suggestedCommand/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /用户不一定会接受/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git commit/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git_commit_context/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git commit -m/);

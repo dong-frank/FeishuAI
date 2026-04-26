@@ -43,9 +43,19 @@ export type CommandResult = {
   stderr: string;
 };
 
+export type AgentTokenUsage = {
+  totalTokens: number;
+};
+
+export type AgentRunMetadata = {
+  durationMs: number;
+  tokenUsage?: AgentTokenUsage;
+};
+
 export type CommandAgentOutput = {
   content: string;
   suggestedCommand?: string;
+  metadata?: AgentRunMetadata;
 };
 
 export type CommandAgent = {
