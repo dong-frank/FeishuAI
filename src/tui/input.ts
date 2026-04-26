@@ -27,6 +27,26 @@ export type EditableInput = {
   cursorIndex: number;
 };
 
+export type CommandHistoryNavigationState = {
+  commands: string[];
+  currentInput: string;
+  currentIndex: number | undefined;
+  draftInput: string;
+};
+
+export type CommandHistoryNavigationAction = "previous" | "next";
+
+export type TuiMouseWheelAction = "wheelUp" | "wheelDown";
+
+export type TuiMouseInputAction =
+  | {
+      kind: "wheel";
+      action: TuiMouseWheelAction;
+    }
+  | {
+      kind: "ignored";
+    };
+
 export type EditableInputAction =
   | "left"
   | "right"
@@ -93,4 +113,96 @@ export function getNextEditableInput(
     input: `${state.input.slice(0, cursorIndex)}${action.text}${state.input.slice(cursorIndex)}`,
     cursorIndex: cursorIndex + action.text.length,
   };
+}
+
+export function getNextCommandHistoryInput(
+  state: CommandHistoryNavigationState,
+  action: CommandHistoryNavigationAction,
+): {
+  input: string;
+  cursorIndex: number;
+  historyIndex: number | undefined;
+  draftInput: string;
+} {
+  const commands = state.commands.filter((command) => command.trim());
+  if (commands.length === 0) {
+    return {
+      input: state.currentInput,
+      cursorIndex: state.currentInput.length,
+      historyIndex: undefined,
+      draftInput: state.draftInput,
+    };
+  }
+
+  const draftInput = state.currentIndex === undefined ? state.currentInput : state.draftInput;
+
+  if (action === "previous") {
+    const historyIndex =
+      state.currentIndex === undefined
+        ? commands.length - 1
+        : Math.max(0, state.currentIndex - 1);
+    const input = commands[historyIndex] ?? "";
+
+    return {
+      input,
+      cursorIndex: input.length,
+      historyIndex,
+      draftInput,
+    };
+  }
+
+  if (state.currentIndex === undefined) {
+    return {
+      input: state.currentInput,
+      cursorIndex: state.currentInput.length,
+      historyIndex: undefined,
+      draftInput,
+    };
+  }
+
+  const historyIndex = state.currentIndex + 1;
+  if (historyIndex >= commands.length) {
+    return {
+      input: draftInput,
+      cursorIndex: draftInput.length,
+      historyIndex: undefined,
+      draftInput,
+    };
+  }
+
+  const input = commands[historyIndex] ?? "";
+  return {
+    input,
+    cursorIndex: input.length,
+    historyIndex,
+    draftInput,
+  };
+}
+
+export function getTuiMouseWheelAction(input: string): TuiMouseWheelAction | undefined {
+  const mouseAction = getTuiMouseInputAction(input);
+  return mouseAction?.kind === "wheel" ? mouseAction.action : undefined;
+}
+
+export function getTuiMouseInputAction(input: string): TuiMouseInputAction | undefined {
+  const match = /^\u001b?\[<(\d+);\d+;\d+[Mm]$/.exec(input);
+  if (!match) {
+    return undefined;
+  }
+
+  const buttonCode = Number(match[1]);
+  const wheelButton = buttonCode & 0b11;
+  if (buttonCode < 64) {
+    return { kind: "ignored" };
+  }
+
+  if (wheelButton === 0) {
+    return { kind: "wheel", action: "wheelUp" };
+  }
+
+  if (wheelButton === 1) {
+    return { kind: "wheel", action: "wheelDown" };
+  }
+
+  return { kind: "ignored" };
 }

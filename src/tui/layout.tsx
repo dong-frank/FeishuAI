@@ -1,12 +1,16 @@
-import React from "react";
+import React, { memo, useEffect, useState } from "react";
 import { Box, Text } from "ink";
 
 import { HistoryRowLine } from "./components.js";
 import {
   COMPLETION_GHOST_STYLE,
   CURSOR_STYLE,
+  TUI_STATUS_SCROLL_INTERVAL_MS,
+  TUI_USAGE_TIP_INTERVAL_MS,
+  TUI_USAGE_TIPS,
 } from "./constants.js";
 import type { HistoryRow } from "./history.js";
+import { getStatusBarParts, type AgentKind } from "./status.js";
 
 export { HISTORY_ROW_HEIGHT } from "./components.js";
 
@@ -31,10 +35,19 @@ type AppLayoutProps = {
     left: number;
     right: number;
   };
-  statusBar: {
-    left: string;
-    right: string;
-  };
+  statusState: StatusState;
+  viewportRows?: number | undefined;
+};
+
+type StatusState = {
+  isRunning: boolean;
+  isAgentWaiting: boolean;
+  isCommitMessageGenerating: boolean;
+  isAgentReviewing: boolean;
+  agentKind?: AgentKind | undefined;
+  agentCommand?: string | undefined;
+  isBeforeRunPending: boolean;
+  pendingCommand?: string | undefined;
 };
 
 type SessionHeaderRowsInput = {
@@ -88,23 +101,23 @@ export function AppLayout({
   visibleHistoryRows,
   promptLine,
   statusPaneWidths,
-  statusBar,
+  statusState,
+  viewportRows,
 }: AppLayoutProps) {
   const headerRows = getSessionHeaderRows({ sessionHeader, isRunning });
   const layoutHistoryRows = getLayoutHistoryRows(
     visibleHistoryRows,
     historyViewportHeight,
   );
-
   return (
     <Box
       flexDirection="column"
       overflow="hidden"
       paddingX={1}
-      paddingY={1}
+      {...(viewportRows ? { height: viewportRows } : {})}
     >
-      <Box borderStyle="double" borderColor="cyan" flexDirection="column" paddingX={1}>
-        <Box borderStyle="single" flexDirection="column" paddingX={1} marginBottom={1}>
+      <Box flexDirection="column">
+        <Box borderStyle="single" flexDirection="column" paddingX={1}>
           <Box justifyContent="space-between">
             <Box>
               <Text>cwd: {headerRows[0].text}</Text>
@@ -125,17 +138,12 @@ export function AppLayout({
           </Box>
         </Box>
 
-        <Box
-          flexDirection="column"
+        <HistoryPanel
+          rows={layoutHistoryRows}
           height={historyViewportHeight}
-          overflowY="hidden"
-        >
-          {layoutHistoryRows.map((row, index) => (
-            <HistoryRowLine key={index} row={row} />
-          ))}
-        </Box>
+        />
 
-        <Box borderStyle="single" borderColor="green" paddingX={1} marginTop={1}>
+        <Box borderStyle="single" borderColor="green" paddingX={1}>
           <Text color="green">$ </Text>
           <Text>{promptLine.beforeCursor}</Text>
           <Text {...CURSOR_STYLE}>{promptLine.cursor}</Text>
@@ -145,17 +153,96 @@ export function AppLayout({
           ) : null}
         </Box>
 
-        <Box borderStyle="single" borderColor="gray" paddingX={1}>
-          <Box width={statusPaneWidths.left}>
-            <Text color="gray">{statusBar.left}</Text>
-          </Box>
-          {statusBar.right ? (
-            <Box width={statusPaneWidths.right} justifyContent="flex-end">
-              <Text color="yellow">{statusBar.right}</Text>
-            </Box>
-          ) : null}
-        </Box>
+        <StatusBar statusState={statusState} statusPaneWidths={statusPaneWidths} />
       </Box>
+    </Box>
+  );
+}
+
+const HistoryPanel = memo(function HistoryPanel({
+  rows,
+  height,
+}: {
+  rows: HistoryRow[];
+  height: number;
+}) {
+  return (
+    <Box borderStyle="single" flexDirection="column" height={height + 2} overflowY="hidden">
+      {rows.map((row, index) => (
+        <HistoryRowLine key={index} row={row} />
+      ))}
+    </Box>
+  );
+});
+
+function StatusBar({
+  statusState,
+  statusPaneWidths,
+}: {
+  statusState: StatusState;
+  statusPaneWidths: AppLayoutProps["statusPaneWidths"];
+}) {
+  const [tipIndex, setTipIndex] = useState(0);
+  const [tipStatusScrollOffset, setTipStatusScrollOffset] = useState(0);
+  const [agentStatusScrollOffset, setAgentStatusScrollOffset] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTipIndex((current) => (current + 1) % TUI_USAGE_TIPS.length);
+    }, TUI_USAGE_TIP_INTERVAL_MS);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    setTipStatusScrollOffset(0);
+  }, [tipIndex]);
+
+  useEffect(() => {
+    setAgentStatusScrollOffset(0);
+  }, [
+    statusState.isRunning,
+    statusState.isAgentWaiting,
+    statusState.isCommitMessageGenerating,
+    statusState.isAgentReviewing,
+    statusState.agentKind,
+    statusState.agentCommand,
+    statusState.isBeforeRunPending,
+    statusState.pendingCommand,
+  ]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTipStatusScrollOffset((current) => current + 1);
+      setAgentStatusScrollOffset((current) => current + 1);
+    }, TUI_STATUS_SCROLL_INTERVAL_MS);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
+  const statusBar = getStatusBarParts({
+    ...statusState,
+    tipIndex,
+    tipStatusWidth: statusPaneWidths.left,
+    tipStatusScrollOffset,
+    agentStatusWidth: statusPaneWidths.right,
+    agentStatusScrollOffset,
+  });
+
+  return (
+    <Box borderStyle="single" borderColor="gray" paddingX={1}>
+      <Box width={statusPaneWidths.left}>
+        <Text color="gray">{statusBar.left}</Text>
+      </Box>
+      {statusBar.right ? (
+        <Box width={statusPaneWidths.right} justifyContent="flex-end">
+          <Text color="yellow">{statusBar.right}</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }

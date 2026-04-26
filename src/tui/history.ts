@@ -40,7 +40,7 @@ export type HistoryRow = {
   bold?: boolean | undefined;
 };
 
-export type HistoryScrollAction = "lineUp" | "lineDown" | "pageUp" | "pageDown";
+export type HistoryScrollAction = "pageUp" | "pageDown" | "wheelUp" | "wheelDown";
 
 export function getHistoryViewportHeight(rows: number | undefined) {
   if (!rows) {
@@ -74,10 +74,10 @@ export function getNextHistoryScrollOffset(
   const maxOffset = Math.max(0, totalRows - viewportRows);
   const pageSize = Math.max(1, viewportRows);
   const deltaByAction: Record<HistoryScrollAction, number> = {
-    lineUp: 1,
-    lineDown: -1,
     pageUp: pageSize,
     pageDown: -pageSize,
+    wheelUp: Math.min(3, pageSize),
+    wheelDown: -Math.min(3, pageSize),
   };
   const nextOffset = currentOffset + deltaByAction[action];
   return Math.min(maxOffset, Math.max(0, nextOffset));

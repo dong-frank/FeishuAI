@@ -9,7 +9,8 @@ export const TUI_USAGE_TIPS = [
   "按 Enter 执行命令",
   "按 Tab 补全命令或文件路径",
   "按 Ctrl+C 退出",
-  "按 Up/Down 或 PageUp/PageDown 滚动历史",
+  "按 Up/Down 切换命令历史",
+  "按 PageUp/PageDown 滚动输出历史",
   "完整 Git 命令停顿 5 秒后会请求 Agent 帮助",
   "输入 git commit -m 并停顿 2 秒可生成 commit message",
   "执行 lark init 命令将连接飞书"
@@ -19,8 +20,8 @@ export const WELCOME_TITLE = "Welcome to git-helper TUI";
 export const WELCOME_SUBTITLE = "Type a command, or type exit to quit.";
 export const INPUT_HISTORY_MARGIN_BOTTOM = 1;
 export const DEFAULT_HISTORY_VIEWPORT_HEIGHT = 14;
-export const MIN_HISTORY_VIEWPORT_HEIGHT = 1;
-export const RESERVED_TUI_CHROME_ROWS = 15;
+export const MIN_HISTORY_VIEWPORT_HEIGHT = 0;
+export const RESERVED_TUI_CHROME_ROWS = 13;
 
 export const COMPLETION_GHOST_STYLE = {
   color: "black",

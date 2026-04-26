@@ -15,7 +15,10 @@ import {
   TUI_USAGE_TIPS,
   getAgentStatusWidth,
   getNextEditableInput,
+  getNextCommandHistoryInput,
   getOutputSections,
+  getTuiMouseInputAction,
+  getTuiMouseWheelAction,
   getPromptLineParts,
   getHistoryViewportHeight,
   getHistoryRows,
@@ -58,11 +61,12 @@ test("completion ghost style is visually distinct from ordinary gray text", () =
   });
 });
 
-test("usage tips are recorded in one place for status rotation", () => {
+test("usage tips are recorded in one place for the status bar", () => {
   assert.ok(TUI_USAGE_TIPS.includes("按 Enter 执行命令"));
   assert.ok(TUI_USAGE_TIPS.includes("输入 git commit -m 并停顿 2 秒可生成 commit message"));
   assert.ok(TUI_USAGE_TIPS.includes("完整 Git 命令停顿 5 秒后会请求 Agent 帮助"));
-  assert.ok(TUI_USAGE_TIPS.includes("按 Up/Down 或 PageUp/PageDown 滚动历史"));
+  assert.ok(TUI_USAGE_TIPS.includes("按 Up/Down 切换命令历史"));
+  assert.ok(TUI_USAGE_TIPS.includes("按 PageUp/PageDown 滚动输出历史"));
 });
 
 test("welcome copy is split into prominent banner text", () => {
@@ -132,8 +136,10 @@ test("history viewport keeps only the most recent entries under the fixed header
     getVisibleHistoryRows(entries, 5).map((row) => row.text),
     ["", "$ git status 10", "", "$ git status 11", ""],
   );
-  assert.equal(getHistoryViewportHeight(24), 9);
-  assert.equal(getHistoryViewportHeight(10), 1);
+  assert.equal(getHistoryViewportHeight(24), 11);
+  assert.equal(getHistoryViewportHeight(10), 0);
+  assert.equal(getHistoryViewportHeight(13), 0);
+  assert.equal(getHistoryViewportHeight(14), 1);
   assert.equal(getHistoryViewportHeight(undefined), 14);
 });
 
@@ -205,11 +211,28 @@ test("history viewport supports scrolling through older rows", () => {
     getVisibleHistoryRows(history, 4, 4).map((row) => row.text),
     ["$ git status 4", "", "$ git status 5", ""],
   );
-  assert.equal(getNextHistoryScrollOffset(0, "lineUp", 16, 4), 1);
-  assert.equal(getNextHistoryScrollOffset(1, "lineDown", 16, 4), 0);
   assert.equal(getNextHistoryScrollOffset(0, "pageUp", 16, 4), 4);
   assert.equal(getNextHistoryScrollOffset(4, "pageDown", 16, 4), 0);
   assert.equal(getNextHistoryScrollOffset(40, "pageUp", 16, 4), 12);
+  assert.equal(getNextHistoryScrollOffset(0, "wheelUp", 16, 4), 3);
+  assert.equal(getNextHistoryScrollOffset(3, "wheelDown", 16, 4), 0);
+});
+
+test("mouse wheel input maps SGR mouse events to history scroll actions", () => {
+  assert.equal(getTuiMouseWheelAction("\u001b[<64;10;20M"), "wheelUp");
+  assert.equal(getTuiMouseWheelAction("[<65;10;20M"), "wheelDown");
+  assert.equal(getTuiMouseWheelAction("\u001b[A"), undefined);
+  assert.deepEqual(getTuiMouseInputAction("\u001b[<64;10;20M"), {
+    kind: "wheel",
+    action: "wheelUp",
+  });
+  assert.deepEqual(getTuiMouseInputAction("[<0;32;20M"), {
+    kind: "ignored",
+  });
+  assert.deepEqual(getTuiMouseInputAction("[<0;32;20m"), {
+    kind: "ignored",
+  });
+  assert.equal(getTuiMouseInputAction("\u001b[A"), undefined);
 });
 
 test("session refresh is triggered after real git or lark command execution", () => {
@@ -331,6 +354,76 @@ test("editable input inserts and deletes at the cursor", () => {
     {
       input: "git status",
       cursorIndex: 4,
+    },
+  );
+});
+
+test("command history navigation walks submitted commands and restores the draft", () => {
+  const commands = ["git status", "git diff", "git log --oneline"];
+
+  const previous = getNextCommandHistoryInput(
+    {
+      commands,
+      currentInput: "git sta",
+      currentIndex: undefined,
+      draftInput: "",
+    },
+    "previous",
+  );
+  assert.deepEqual(previous, {
+    input: "git log --oneline",
+    cursorIndex: 17,
+    historyIndex: 2,
+    draftInput: "git sta",
+  });
+
+  const older = getNextCommandHistoryInput(
+    {
+      commands,
+      currentInput: previous.input,
+      currentIndex: previous.historyIndex,
+      draftInput: previous.draftInput,
+    },
+    "previous",
+  );
+  assert.deepEqual(older, {
+    input: "git diff",
+    cursorIndex: 8,
+    historyIndex: 1,
+    draftInput: "git sta",
+  });
+
+  const newer = getNextCommandHistoryInput(
+    {
+      commands,
+      currentInput: older.input,
+      currentIndex: older.historyIndex,
+      draftInput: older.draftInput,
+    },
+    "next",
+  );
+  assert.deepEqual(newer, {
+    input: "git log --oneline",
+    cursorIndex: 17,
+    historyIndex: 2,
+    draftInput: "git sta",
+  });
+
+  assert.deepEqual(
+    getNextCommandHistoryInput(
+      {
+        commands,
+        currentInput: newer.input,
+        currentIndex: newer.historyIndex,
+        draftInput: newer.draftInput,
+      },
+      "next",
+    ),
+    {
+      input: "git sta",
+      cursorIndex: 7,
+      historyIndex: undefined,
+      draftInput: "git sta",
     },
   );
 });

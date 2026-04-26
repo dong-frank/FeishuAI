@@ -24,9 +24,6 @@ import { AppLayout } from "./layout.js";
 import {
   BEFORE_RUN_IDLE_MS,
   COMMIT_MESSAGE_IDLE_MS,
-  TUI_STATUS_SCROLL_INTERVAL_MS,
-  TUI_USAGE_TIP_INTERVAL_MS,
-  TUI_USAGE_TIPS,
 } from "./constants.js";
 import {
   getHistoryRows,
@@ -36,7 +33,17 @@ import {
   type HistoryEntry,
   type HistoryScrollAction,
 } from "./history.js";
-import { getNextEditableInput, getPromptLineParts } from "./input.js";
+import {
+  getNextCommandHistoryInput,
+  getNextEditableInput,
+  getPromptLineParts,
+  getTuiMouseInputAction,
+  getTuiMouseWheelAction,
+} from "./input.js";
+import {
+  DISABLE_MOUSE_WHEEL_SEQUENCE,
+  ENABLE_MOUSE_WHEEL_SEQUENCE,
+} from "./render.js";
 import {
   buildBeforeRunContext,
   getSessionHeaderParts,
@@ -45,7 +52,7 @@ import {
   shouldScheduleCommitMessageGeneration,
   shouldTriggerBeforeRunForContext,
 } from "./runtime.js";
-import { getStatusBarParts, getStatusPaneWidths, type AgentKind } from "./status.js";
+import { getStatusPaneWidths, type AgentKind } from "./status.js";
 
 export * from "./constants.js";
 export * from "./history.js";
@@ -72,9 +79,8 @@ export function App() {
   const lastBeforeRunCommand = useRef<string | undefined>(undefined);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
-  const [usageTipIndex, setUsageTipIndex] = useState(0);
-  const [tipStatusScrollOffset, setTipStatusScrollOffset] = useState(0);
-  const [agentStatusScrollOffset, setAgentStatusScrollOffset] = useState(0);
+  const [commandHistoryIndex, setCommandHistoryIndex] = useState<number | undefined>();
+  const [commandHistoryDraft, setCommandHistoryDraft] = useState("");
   const completion = getCompletion(input);
   const promptLine = getPromptLineParts({
     input,
@@ -82,7 +88,7 @@ export function App() {
     completionSuffix: completion?.suffix,
   });
   const statusPaneWidths = getStatusPaneWidths(stdout.columns);
-  const statusBar = getStatusBarParts({
+  const statusState = {
     isRunning,
     isAgentWaiting,
     isCommitMessageGenerating,
@@ -91,15 +97,13 @@ export function App() {
     agentCommand: agentStatusCommand,
     isBeforeRunPending: Boolean(pendingBeforeRunCommand),
     pendingCommand: pendingBeforeRunCommand,
-    tipIndex: usageTipIndex,
-    tipStatusWidth: statusPaneWidths.left,
-    tipStatusScrollOffset,
-    agentStatusWidth: statusPaneWidths.right,
-    agentStatusScrollOffset,
-  });
+  };
   const sessionHeader = getSessionHeaderParts(session);
   const historyViewportHeight = getHistoryViewportHeight(stdout.rows);
   const historyRows = getHistoryRows(history);
+  const commandHistory = history
+    .filter((entry): entry is Extract<HistoryEntry, { type: "input" }> => entry.type === "input")
+    .map((entry) => entry.text);
   const historyRowLimit = historyViewportHeight;
   const visibleHistoryRows = getVisibleHistoryRows(
     history,
@@ -117,41 +121,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setUsageTipIndex((current) => (current + 1) % TUI_USAGE_TIPS.length);
-    }, TUI_USAGE_TIP_INTERVAL_MS);
+    if (!stdout.isTTY) {
+      return;
+    }
+
+    stdout.write(ENABLE_MOUSE_WHEEL_SEQUENCE);
 
     return () => {
-      clearInterval(interval);
+      stdout.write(DISABLE_MOUSE_WHEEL_SEQUENCE);
     };
-  }, []);
-
-  useEffect(() => {
-    setTipStatusScrollOffset(0);
-  }, [usageTipIndex]);
-
-  useEffect(() => {
-    setAgentStatusScrollOffset(0);
-  }, [
-    isRunning,
-    isAgentWaiting,
-    isCommitMessageGenerating,
-    isAgentReviewing,
-    activeAgentKind,
-    agentStatusCommand,
-    pendingBeforeRunCommand,
-  ]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTipStatusScrollOffset((current) => current + 1);
-      setAgentStatusScrollOffset((current) => current + 1);
-    }, TUI_STATUS_SCROLL_INTERVAL_MS);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
+  }, [stdout]);
 
   async function refreshSession(isCancelled: () => boolean = () => false) {
     try {
@@ -227,6 +206,14 @@ export function App() {
   }, [completion?.suffix, input, isRunning]);
 
   useInput((character, key) => {
+    const mouseAction = getTuiMouseInputAction(character);
+    if (mouseAction) {
+      if (mouseAction.kind === "wheel") {
+        scrollHistory(mouseAction.action);
+      }
+      return;
+    }
+
     if (key.ctrl && character === "c") {
       exit();
       return;
@@ -242,17 +229,17 @@ export function App() {
       return;
     }
 
+    if (isRunning) {
+      return;
+    }
+
     if (key.upArrow) {
-      scrollHistory("lineUp");
+      navigateCommandHistory("previous");
       return;
     }
 
     if (key.downArrow) {
-      scrollHistory("lineDown");
-      return;
-    }
-
-    if (isRunning) {
+      navigateCommandHistory("next");
       return;
     }
 
@@ -268,6 +255,7 @@ export function App() {
       );
       setInput(next.input);
       setCursorIndex(next.cursorIndex);
+      resetCommandHistoryNavigation();
       return;
     }
 
@@ -287,6 +275,7 @@ export function App() {
       const next = getNextEditableInput({ input, cursorIndex }, "backspace");
       setInput(next.input);
       setCursorIndex(next.cursorIndex);
+      resetCommandHistoryNavigation();
       return;
     }
 
@@ -294,6 +283,7 @@ export function App() {
       const next = getNextEditableInput({ input, cursorIndex }, "delete");
       setInput(next.input);
       setCursorIndex(next.cursorIndex);
+      resetCommandHistoryNavigation();
       return;
     }
 
@@ -304,8 +294,30 @@ export function App() {
       );
       setInput(next.input);
       setCursorIndex(next.cursorIndex);
+      resetCommandHistoryNavigation();
     }
   });
+
+  function resetCommandHistoryNavigation() {
+    setCommandHistoryIndex(undefined);
+    setCommandHistoryDraft("");
+  }
+
+  function navigateCommandHistory(action: "previous" | "next") {
+    const next = getNextCommandHistoryInput(
+      {
+        commands: commandHistory,
+        currentInput: input,
+        currentIndex: commandHistoryIndex,
+        draftInput: commandHistoryDraft,
+      },
+      action,
+    );
+    setInput(next.input);
+    setCursorIndex(next.cursorIndex);
+    setCommandHistoryIndex(next.historyIndex);
+    setCommandHistoryDraft(next.draftInput);
+  }
 
   async function triggerBeforeRun(context: CommandContext) {
     setIsAgentWaiting(true);
@@ -442,6 +454,7 @@ export function App() {
 
     setInput("");
     setCursorIndex(0);
+    resetCommandHistoryNavigation();
     setHistory((current) => [...current, { type: "input", text: commandLine }]);
     setHistoryScrollOffset(0);
 
@@ -552,7 +565,8 @@ export function App() {
       visibleHistoryRows={visibleHistoryRows}
       promptLine={promptLine}
       statusPaneWidths={statusPaneWidths}
-      statusBar={statusBar}
+      statusState={statusState}
+      viewportRows={stdout.rows}
     />
   );
 }

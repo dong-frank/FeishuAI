@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  AppLayout,
   getLayoutHistoryRows,
   getSessionHeaderRows,
   HISTORY_ROW_HEIGHT,
@@ -49,4 +50,79 @@ test("layout history rows always fill the fixed viewport", () => {
 
 test("history rows use a fixed line height inside the viewport", () => {
   assert.equal(HISTORY_ROW_HEIGHT, 1);
+});
+
+test("history output keeps boundary lines without spacer rows around it", () => {
+  const layout = AppLayout({
+    sessionHeader: {
+      cwd: "/repo",
+      gitSummary: "git: main abc1234 clean",
+      larkSummary: "lark: connected user Dong",
+    },
+    isRunning: false,
+    historyViewportHeight: 2,
+    visibleHistoryRows: [{ text: "first" }, { text: "second" }],
+    promptLine: {
+      beforeCursor: "",
+      cursor: " ",
+      afterCursor: "",
+      completionSuffix: "",
+    },
+    statusPaneWidths: {
+      left: 20,
+      right: 20,
+    },
+    statusState: {
+      isRunning: false,
+      isAgentWaiting: false,
+      isCommitMessageGenerating: false,
+      isAgentReviewing: false,
+      isBeforeRunPending: false,
+    },
+    viewportRows: 15,
+  });
+
+  const root = layout.props.children;
+  const header = root.props.children[0];
+  const historyPanel = root.props.children[1];
+  const prompt = root.props.children[2];
+
+  assert.equal(root.props.borderStyle, undefined);
+  assert.equal(header.props.marginBottom, undefined);
+  assert.equal(historyPanel.props.height, 2);
+  assert.equal(prompt.props.marginTop, undefined);
+});
+
+test("layout pins fixed chrome to the terminal height", () => {
+  const layout = AppLayout({
+    sessionHeader: {
+      cwd: "/repo",
+      gitSummary: "git: main abc1234 clean",
+      larkSummary: "lark: connected user Dong",
+    },
+    isRunning: false,
+    historyViewportHeight: 0,
+    visibleHistoryRows: [],
+    promptLine: {
+      beforeCursor: "",
+      cursor: " ",
+      afterCursor: "",
+      completionSuffix: "",
+    },
+    statusPaneWidths: {
+      left: 20,
+      right: 20,
+    },
+    statusState: {
+      isRunning: false,
+      isAgentWaiting: false,
+      isCommitMessageGenerating: false,
+      isAgentReviewing: false,
+      isBeforeRunPending: false,
+    },
+    viewportRows: 15,
+  });
+
+  assert.equal(layout.props.height, 15);
+  assert.equal(layout.props.paddingY, undefined);
 });
