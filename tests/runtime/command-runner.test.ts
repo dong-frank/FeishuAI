@@ -322,7 +322,11 @@ test("runCommandLine starts afterSuccess for key git command successes without w
           gitRepository: context.gitRepository,
         });
         return new Promise((resolve) => {
-          releaseAfterSuccess = () => resolve("pushed. consider opening a PR.");
+          releaseAfterSuccess = () =>
+            resolve({
+              content: "pushed. consider opening a PR.",
+              suggestedCommand: "gh pr create",
+            });
         });
       },
     },
@@ -355,7 +359,10 @@ test("runCommandLine starts afterSuccess for key git command successes without w
   ]);
 
   releaseAfterSuccess?.();
-  assert.equal(await result.afterSuccess, "pushed. consider opening a PR.");
+  assert.deepEqual(await result.afterSuccess, {
+    content: "pushed. consider opening a PR.",
+    suggestedCommand: "gh pr create",
+  });
 });
 
 test("runCommandLine triggers afterSuccess even after repeated key command successes", async () => {
@@ -426,7 +433,10 @@ test("runCommandLine triggers afterFail for command-not-found failures", async (
     agent: {
       afterFail(context, commandResult) {
         events.push({ context, commandResult });
-        return "检查命令是否安装，或确认命令名是否输入正确。";
+        return {
+          content: "检查命令是否安装，或确认命令名是否输入正确。",
+          suggestedCommand: "which aaa",
+        };
       },
     },
   });
@@ -436,7 +446,10 @@ test("runCommandLine triggers afterFail for command-not-found failures", async (
   assert.equal(result.stdout, "");
   assert.equal(result.stderr, "command not found: aaa\n");
   assert.ok(result.afterFail);
-  assert.equal(await result.afterFail, "检查命令是否安装，或确认命令名是否输入正确。");
+  assert.deepEqual(await result.afterFail, {
+    content: "检查命令是否安装，或确认命令名是否输入正确。",
+    suggestedCommand: "which aaa",
+  });
   assert.deepEqual(events, [
     {
       context: {

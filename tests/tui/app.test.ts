@@ -12,6 +12,7 @@ import {
   TUI_USAGE_TIPS,
   getAgentStatusWidth,
   getNextEditableInput,
+  getAgentSuggestedCompletion,
   getNextRightArrowInput,
   getNextCommandHistoryInput,
   getOutputSections,
@@ -481,6 +482,47 @@ test("right arrow accepts completion before moving the cursor", () => {
     {
       input: "git status",
       cursorIndex: 5,
+    },
+  );
+});
+
+test("agent suggested completion is available only when current input is its prefix", () => {
+  assert.deepEqual(
+    getAgentSuggestedCompletion({
+      input: "git commit -m",
+      suggestedCommand: 'git commit -m "feat: add structured output"',
+    }),
+    {
+      completion: 'git commit -m "feat: add structured output"',
+      suffix: ' "feat: add structured output"',
+    },
+  );
+  assert.equal(
+    getAgentSuggestedCompletion({
+      input: "git status",
+      suggestedCommand: 'git commit -m "feat: add structured output"',
+    }),
+    undefined,
+  );
+});
+
+test("right arrow prefers agent suggested completion over local completion", () => {
+  assert.deepEqual(
+    getNextRightArrowInput({
+      input: "git sta",
+      cursorIndex: 7,
+      completion: {
+        completion: "git status",
+        suffix: "tus",
+      },
+      agentCompletion: {
+        completion: "git stash",
+        suffix: "sh",
+      },
+    }),
+    {
+      input: "git stash",
+      cursorIndex: 9,
     },
   );
 });

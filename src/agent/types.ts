@@ -36,19 +36,26 @@ export type CommitMessageContext = {
   recentCommits?: string[];
 };
 
+export type CommandAgentOutput = {
+  content: string;
+  suggestedCommand?: string;
+};
+
 export type CommandAgent = {
-  beforeRun?: (context: CommandContext) => string | void | Promise<string | void>;
+  beforeRun?: (
+    context: CommandContext,
+  ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
   afterSuccess?: (
     context: CommandContext,
     result: CommandResult,
-  ) => string | void | Promise<string | void>;
+  ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
   afterFail?: (
     context: CommandContext,
     result: CommandResult,
-  ) => string | void | Promise<string | void>;
+  ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
   generateCommitMessage?: (
     context: CommitMessageContext,
-  ) => string | Promise<string>;
+  ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
 };
 
 export type LarkAuthContext = {

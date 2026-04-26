@@ -124,17 +124,39 @@ export function getNextRightArrowInput({
   input,
   cursorIndex,
   completion,
+  agentCompletion,
 }: EditableInput & {
   completion?: CompletionCandidate | undefined;
+  agentCompletion?: CompletionCandidate | undefined;
 }): EditableInput {
-  if (completion) {
+  const acceptedCompletion = agentCompletion ?? completion;
+  if (acceptedCompletion) {
     return {
-      input: completion.completion,
-      cursorIndex: completion.completion.length,
+      input: acceptedCompletion.completion,
+      cursorIndex: acceptedCompletion.completion.length,
     };
   }
 
   return getNextEditableInput({ input, cursorIndex }, "right");
+}
+
+export function getAgentSuggestedCompletion({
+  input,
+  suggestedCommand,
+}: {
+  input: string;
+  suggestedCommand?: string | undefined;
+}): CompletionCandidate | undefined {
+  const normalizedInput = input.trim();
+  const normalizedCommand = suggestedCommand?.trim();
+  if (!normalizedCommand || !normalizedCommand.startsWith(normalizedInput)) {
+    return undefined;
+  }
+
+  return {
+    completion: normalizedCommand,
+    suffix: normalizedCommand.slice(normalizedInput.length),
+  };
 }
 
 export function getNextCommandHistoryInput(

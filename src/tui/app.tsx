@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useApp, useInput, useStdout } from "ink";
 
-import type { CommandContext } from "../agent/types.js";
+import type { CommandAgentOutput, CommandContext } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
 import { createLarkAgent } from "../agent/lark-agent.js";
 import { classifyCommand } from "../runtime/command-registry.js";
 import {
   buildCommitMessageContext,
-  quoteCommitMessageForShell,
 } from "../runtime/commit-message-context.js";
 import { getCompletion } from "../runtime/completion.js";
 import {
@@ -34,6 +33,7 @@ import {
   getNextCommandHistoryInput,
   getNextEditableInput,
   getNextRightArrowInput,
+  getAgentSuggestedCompletion,
   getPromptLineParts,
   getTuiMouseInputAction,
   getTuiMouseWheelAction,
@@ -73,16 +73,22 @@ export function App() {
   const [isAgentReviewing, setIsAgentReviewing] = useState(false);
   const [activeAgentKind, setActiveAgentKind] = useState<AgentKind | undefined>();
   const [agentStatusCommand, setAgentStatusCommand] = useState<string | undefined>();
+  const [agentSuggestedCommand, setAgentSuggestedCommand] = useState<string | undefined>();
   const lastTabAgentInput = useRef<string | undefined>(undefined);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number | undefined>();
   const [commandHistoryDraft, setCommandHistoryDraft] = useState("");
   const completion = getCompletion(input, currentCwd);
+  const agentCompletion = getAgentSuggestedCompletion({
+    input,
+    suggestedCommand: agentSuggestedCommand,
+  });
+  const visibleCompletion = agentCompletion ?? completion;
   const promptLine = getPromptLineParts({
     input,
     cursorIndex,
-    completionSuffix: completion?.suffix,
+    completionSuffix: visibleCompletion?.suffix,
   });
   const statusPaneWidths = getStatusPaneWidths(stdout.columns);
   const statusState = {
@@ -199,9 +205,10 @@ export function App() {
     }
 
     if (key.rightArrow) {
-      const next = getNextRightArrowInput({ input, cursorIndex, completion });
+      const next = getNextRightArrowInput({ input, cursorIndex, completion, agentCompletion });
       if (next.input !== input) {
         lastTabAgentInput.current = undefined;
+        setAgentSuggestedCommand(undefined);
         resetCommandHistoryNavigation();
       }
       setInput(next.input);
@@ -314,6 +321,7 @@ export function App() {
       if (!message) {
         return;
       }
+      setAgentSuggestedCommand(message.suggestedCommand);
 
       const parsed = parseCommandLine(context.rawCommand);
       const classification = parsed ? classifyCommand(parsed) : undefined;
@@ -326,7 +334,7 @@ export function App() {
           exitCode: 0,
           stdout: "",
           stderr: "",
-          help: message,
+          help: message.content,
         },
       };
       setHistory((current) => [...current, entry].slice(-20));
@@ -357,15 +365,12 @@ export function App() {
         return;
       }
 
-      const message = await createCommandAgent().generateCommitMessage?.(context);
-      if (isCancelled() || !message) {
+      const output = await createCommandAgent().generateCommitMessage?.(context);
+      if (isCancelled() || !output) {
         return;
       }
 
-      const normalizedMessage = message.trim().replace(/^["']|["']$/g, "");
-      const nextInput = `${commandLine} ${quoteCommitMessageForShell(normalizedMessage)}`;
-      setInput(nextInput);
-      setCursorIndex(nextInput.length);
+      setAgentSuggestedCommand(output.suggestedCommand);
       const entry: HistoryEntry = {
         type: "output",
         result: {
@@ -375,7 +380,7 @@ export function App() {
           exitCode: 0,
           stdout: "",
           stderr: "",
-          help: normalizedMessage,
+          help: output.content,
         },
       };
       setHistory((current) => [...current, entry].slice(-20));
@@ -396,7 +401,7 @@ export function App() {
   async function triggerAfterSuccessReview(
     result: CommandRunOutput & {
       kind: "execute";
-      afterSuccess: Promise<string | void>;
+      afterSuccess: Promise<CommandAgentOutput | string | void>;
       afterSuccessAgentKind?: "command" | "lark";
     },
   ) {
@@ -404,10 +409,11 @@ export function App() {
     setActiveAgentKind(result.afterSuccessAgentKind ?? "command");
     setAgentStatusCommand(result.commandLine);
     try {
-      const message = await result.afterSuccess;
-      if (!message) {
+      const output = normalizeAgentOutput(await result.afterSuccess);
+      if (!output) {
         return;
       }
+      setAgentSuggestedCommand(output.suggestedCommand);
 
       const entry: HistoryEntry = {
         type: "output",
@@ -418,7 +424,7 @@ export function App() {
           exitCode: 0,
           stdout: "",
           stderr: "",
-          help: message,
+          help: output.content,
         },
       };
       setHistory((current) => [...current, entry].slice(-20));
@@ -435,7 +441,7 @@ export function App() {
   async function triggerAfterFailReview(
     result: CommandRunOutput & {
       kind: "execute";
-      afterFail: Promise<string | void>;
+      afterFail: Promise<CommandAgentOutput | void>;
       afterFailAgentKind?: "command";
     },
   ) {
@@ -443,10 +449,11 @@ export function App() {
     setActiveAgentKind(result.afterFailAgentKind ?? "command");
     setAgentStatusCommand(result.commandLine);
     try {
-      const message = await result.afterFail;
-      if (!message) {
+      const output = normalizeAgentOutput(await result.afterFail);
+      if (!output) {
         return;
       }
+      setAgentSuggestedCommand(output.suggestedCommand);
 
       const entry: HistoryEntry = {
         type: "output",
@@ -457,7 +464,7 @@ export function App() {
           exitCode: 0,
           stdout: "",
           stderr: "",
-          help: message,
+          help: output.content,
         },
       };
       setHistory((current) => [...current, entry].slice(-20));
@@ -477,6 +484,7 @@ export function App() {
       return;
     }
 
+    setAgentSuggestedCommand(undefined);
     setInput("");
     setCursorIndex(0);
     lastTabAgentInput.current = undefined;
@@ -598,7 +606,7 @@ function hasAfterSuccessReview(
   result: CommandRunOutput,
 ): result is CommandRunOutput & {
   kind: "execute";
-  afterSuccess: Promise<string | void>;
+  afterSuccess: Promise<CommandAgentOutput | string | void>;
   afterSuccessAgentKind?: "command" | "lark";
 } {
   return result.kind === "execute" && Boolean(result.afterSuccess);
@@ -608,8 +616,30 @@ function hasAfterFailReview(
   result: CommandRunOutput,
 ): result is CommandRunOutput & {
   kind: "execute";
-  afterFail: Promise<string | void>;
+  afterFail: Promise<CommandAgentOutput | string | void>;
   afterFailAgentKind?: "command";
 } {
   return result.kind === "execute" && Boolean(result.afterFail);
+}
+
+function normalizeAgentOutput(
+  output: CommandAgentOutput | string | void,
+): CommandAgentOutput | undefined {
+  if (!output) {
+    return undefined;
+  }
+
+  if (typeof output === "string") {
+    const content = output.trim();
+    return content ? { content } : undefined;
+  }
+
+  return output.content.trim()
+    ? {
+        content: output.content.trim(),
+        ...(output.suggestedCommand?.trim()
+          ? { suggestedCommand: output.suggestedCommand.trim() }
+          : {}),
+      }
+    : undefined;
 }

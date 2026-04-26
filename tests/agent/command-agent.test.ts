@@ -7,6 +7,7 @@ import {
   COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT,
   COMMAND_AGENT_TOOLS,
   HELP_AGENT_SYSTEM_PROMPT,
+  parseCommandAgentOutput,
 } from "../../src/agent/command-agent.js";
 
 test("COMMAND_AGENT_TOOLS includes the tldr manual tool", () => {
@@ -46,7 +47,8 @@ test("AFTER_FAIL_AGENT_SYSTEM_PROMPT only describes failure behavior", () => {
 
 test("COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT only describes commit message generation", () => {
   assert.match(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /commit message 生成 Agent/);
-  assert.match(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /只输出一条 commit message/);
+  assert.match(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /suggestedCommand/);
+  assert.match(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /git commit -m/);
   assert.match(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /不要执行 git commit/);
   assert.match(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /优先基于 stagedDiff/);
   assert.doesNotMatch(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /afterSuccess/);
@@ -62,5 +64,49 @@ test("all phase prompts keep terminal-friendly plain text output", () => {
   ]) {
     assert.match(prompt, /输出要适合终端阅读/);
     assert.match(prompt, /不要使用 Markdown 标题、表格、代码围栏、链接语法/);
+    assert.match(prompt, /content/);
+    assert.match(prompt, /suggestedCommand/);
   }
+});
+
+test("parseCommandAgentOutput parses structured JSON output", () => {
+  assert.deepEqual(
+    parseCommandAgentOutput(
+      '{"content":"执行 git status 查看状态","suggestedCommand":"git status --short"}',
+    ),
+    {
+      content: "执行 git status 查看状态",
+      suggestedCommand: "git status --short",
+    },
+  );
+});
+
+test("parseCommandAgentOutput falls back to plain text content", () => {
+  assert.deepEqual(parseCommandAgentOutput("执行 git status 查看状态"), {
+    content: "执行 git status 查看状态",
+  });
+});
+
+test("parseCommandAgentOutput trims output and ignores blank suggested command", () => {
+  assert.deepEqual(
+    parseCommandAgentOutput('  {"content":"  msg  ","suggestedCommand":"   "}  '),
+    {
+      content: "msg",
+    },
+  );
+});
+
+test("parseCommandAgentOutput validates structured JSON shape before accepting it", () => {
+  assert.deepEqual(
+    parseCommandAgentOutput(
+      '{"content":"msg","suggestedCommand":"git status","extra":"ignored?"}',
+    ),
+    {
+      content:
+        '{"content":"msg","suggestedCommand":"git status","extra":"ignored?"}',
+    },
+  );
+  assert.deepEqual(parseCommandAgentOutput('{"content":123,"suggestedCommand":"git status"}'), {
+    content: '{"content":123,"suggestedCommand":"git status"}',
+  });
 });

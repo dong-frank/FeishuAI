@@ -1,7 +1,8 @@
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
+import { providerStrategy } from "langchain";
 import { z } from "zod";
 
-import type { CommandAgent } from "./types.js";
+import type { CommandAgent, CommandAgentOutput } from "./types.js";
 import { createLangChainAgent } from "./langchain-agent.js";
 import { readTldrPage } from "../integrations/tldr.js";
 
@@ -12,6 +13,9 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 - 不要编造不存在的团队规范、飞书文档或命令结果。
 - 如果需要引用上下文，只基于输入 JSON 中实际存在的信息。
 - 输出要适合终端阅读：使用纯文本、短段落、短行和简单缩进；不要使用 Markdown 标题、表格、代码围栏、链接语法、复杂列表或终端控制字符。
+- 只能输出一个 JSON 对象，不要输出 JSON 之外的任何文字。
+- JSON 必须包含 content 和 suggestedCommand 字段；content 是展示给用户的终端文本。
+- suggestedCommand 必须是一条完整命令，不是命令后缀。如果没有明确可执行建议，输出空字符串。
 `.trim();
 
 export const HELP_AGENT_SYSTEM_PROMPT = `
@@ -97,7 +101,8 @@ export const COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT = `
 
 用户希望你根据当前 Git 变更生成一条 commit message。
 
-只输出一条 commit message，不要输出解释、备选项或额外说明。
+content 输出生成的 commit message 或一条极短说明。
+suggestedCommand 输出完整提交命令，例如 git commit -m "feat: add structured agent output"。
 不要执行 git commit，不要要求用户执行命令。
 优先基于 stagedDiff 生成；如果 stagedDiff 为空，再参考 unstagedDiff 和 status。
 如果 recentCommits 存在，尽量贴近其中的语言、粒度和前缀风格。
@@ -121,37 +126,90 @@ export const COMMAND_AGENT_TOOLS: StructuredToolInterface[] = [
   ),
 ];
 
+export const COMMAND_AGENT_OUTPUT_SCHEMA = z
+  .object({
+    content: z.string(),
+    suggestedCommand: z.string().optional(),
+  })
+  .strict();
+
+const COMMAND_AGENT_RESPONSE_FORMAT = providerStrategy({
+  schema: z
+    .object({
+      content: z.string(),
+      suggestedCommand: z.string(),
+    })
+    .strict(),
+  strict: true,
+});
+
+export function parseCommandAgentOutput(output: string): CommandAgentOutput | undefined {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const validated = COMMAND_AGENT_OUTPUT_SCHEMA.safeParse(parsed);
+    if (validated.success) {
+      const content = validated.data.content.trim();
+      const suggestedCommand = validated.data.suggestedCommand?.trim() ?? "";
+      if (!content) {
+        return suggestedCommand ? { content: suggestedCommand, suggestedCommand } : undefined;
+      }
+
+      return {
+        content,
+        ...(suggestedCommand ? { suggestedCommand } : {}),
+      };
+    }
+  } catch {
+    // Fall through to legacy plain-text compatibility.
+  }
+
+  return { content: trimmed };
+}
+
 export function createCommandAgent(): CommandAgent {
   const helpAgent = createLangChainAgent({
     name: "Command Help Agent",
     systemPrompt: HELP_AGENT_SYSTEM_PROMPT,
     tools: COMMAND_AGENT_TOOLS,
+    responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
   const afterSuccessAgent = createLangChainAgent({
     name: "Command After Success Agent",
     systemPrompt: AFTER_SUCCESS_AGENT_SYSTEM_PROMPT,
+    responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
   const afterFailAgent = createLangChainAgent({
     name: "Command After Fail Agent",
     systemPrompt: AFTER_FAIL_AGENT_SYSTEM_PROMPT,
+    responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
   const commitMessageAgent = createLangChainAgent({
     name: "Commit Message Agent",
     systemPrompt: COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT,
+    responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
 
   return {
     async beforeRun(context) {
-      return helpAgent.invoke(JSON.stringify({ context }));
+      return parseCommandAgentOutput(await helpAgent.invoke(JSON.stringify({ context })));
     },
     async afterSuccess(context, result) {
-      return afterSuccessAgent.invoke(JSON.stringify({ context, result }));
+      return parseCommandAgentOutput(
+        await afterSuccessAgent.invoke(JSON.stringify({ context, result })),
+      );
     },
     async afterFail(context, result) {
-      return afterFailAgent.invoke(JSON.stringify({ context, result }));
+      return parseCommandAgentOutput(
+        await afterFailAgent.invoke(JSON.stringify({ context, result })),
+      );
     },
     async generateCommitMessage(context) {
-      return commitMessageAgent.invoke(JSON.stringify({ context }));
+      return parseCommandAgentOutput(await commitMessageAgent.invoke(JSON.stringify({ context })));
     },
   };
 }

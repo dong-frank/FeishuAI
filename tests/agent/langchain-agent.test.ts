@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   createLangChainAgent,
   createLangChainChatModel,
+  getLangChainAgentOutputText,
   shouldTraceLangChainAgent,
 } from "../../src/agent/langchain-agent.js";
 
@@ -95,4 +96,17 @@ test("createLangChainAgent executes tool calls through LangChain createAgent", a
 
   assert.equal(calledWith, "git push");
   assert.match(output, /manual for git push/);
+});
+
+test("getLangChainAgentOutputText prefers structured responses", () => {
+  assert.equal(
+    getLangChainAgentOutputText({
+      structuredResponse: {
+        content: "检查状态",
+        suggestedCommand: "git status --short",
+      },
+      messages: [{ content: "fallback text" }],
+    }),
+    '{"content":"检查状态","suggestedCommand":"git status --short"}',
+  );
 });

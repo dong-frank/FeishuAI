@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { Writable } from "node:stream";
 
 import { createLarkAgent } from "../agent/lark-agent.js";
-import type { CommandAgent, CommandContext } from "../agent/types.js";
+import type { CommandAgent, CommandAgentOutput, CommandContext } from "../agent/types.js";
 import type { LarkAgent } from "../agent/types.js";
 import { classifyCommand, type CommandClassification } from "./command-registry.js";
 import { executeCommand } from "./command-executor.js";
@@ -39,9 +39,9 @@ type BaseCommandRunOutput = {
 export type CommandRunOutput =
   | (BaseCommandRunOutput & {
     kind: "execute";
-    afterSuccess?: Promise<string | void>;
+    afterSuccess?: Promise<CommandAgentOutput | string | void>;
     afterSuccessAgentKind?: "command" | "lark";
-    afterFail?: Promise<string | void>;
+    afterFail?: Promise<CommandAgentOutput | void>;
     afterFailAgentKind?: "command";
   })
   | (BaseCommandRunOutput & {
@@ -255,8 +255,8 @@ export async function runCommandLine(
     stdout: stdout.output(),
     stderr: stderr.output(),
   };
-  let afterSuccess: Promise<string | void> | undefined;
-  let afterFail: Promise<string | void> | undefined;
+  let afterSuccess: Promise<CommandAgentOutput | string | void> | undefined;
+  let afterFail: Promise<CommandAgentOutput | void> | undefined;
   const statsCwd = options.statsCwd ?? cwd;
   if (classification.kind === "git") {
     if (exitCode === 0) {
