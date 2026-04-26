@@ -132,6 +132,75 @@ test("runCommandLine does not call askForHelp for non-git help requests", async 
   assert.deepEqual(events, []);
 });
 
+test("runCommandLine reports command output chunks before completion", async () => {
+  const chunks: Array<{ stream: "stdout" | "stderr"; text: string }> = [];
+
+  const result = await runCommandLine("lark-cli config init --new", {
+    onOutput(chunk) {
+      chunks.push(chunk);
+    },
+    executeCommand: async (_command, _args, options) => {
+      options.stdout?.write("qr line\n");
+      options.stderr?.write("open link\n");
+      return 0;
+    },
+  });
+
+  assert.deepEqual(chunks, [
+    { stream: "stdout", text: "qr line\n" },
+    { stream: "stderr", text: "open link\n" },
+  ]);
+  assert.equal(result.stdout, "qr line\n");
+  assert.equal(result.stderr, "open link\n");
+});
+
+test("runCommandLine starts lark init authorization agent without waiting", async () => {
+  const events: unknown[] = [];
+  let releaseAuthorize: (() => void) | undefined;
+  const result = await runCommandLine("lark init", {
+    larkAgent: {
+      authorize(context) {
+        events.push(context);
+        return new Promise((resolve) => {
+          releaseAuthorize = () => resolve("auth phase ready");
+        });
+      },
+    },
+    executeCommand: async () => {
+      throw new Error("external command should not run");
+    },
+  });
+
+  assert.equal(result.kind, "execute");
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, "Lark authorization agent started in background.\n");
+  assert.equal(result.stderr, "");
+  assert.ok(result.afterSuccess);
+  assert.equal(result.afterSuccessAgentKind, "lark");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, [
+    {
+      cwd: process.cwd(),
+      intent: "init",
+    },
+  ]);
+  releaseAuthorize?.();
+  assert.equal(await result.afterSuccess, "auth phase ready");
+});
+
+test("runCommandLine reports unsupported lark custom commands without spawning", async () => {
+  const result = await runCommandLine("lark nope", {
+    executeCommand: async () => {
+      throw new Error("external command should not run");
+    },
+  });
+
+  assert.equal(result.kind, "execute");
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /Unsupported lark command: nope/);
+});
+
 test("runCommandLine records successful git command counts", async () => {
   const statsCwd = await createTempCwd();
 

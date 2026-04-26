@@ -309,6 +309,24 @@ test("status line keeps waiting indicators outside the prompt box", () => {
   assert.equal(
     getStatusLine({
       isRunning: false,
+      isAgentWaiting: true,
+      agentKind: "command",
+      agentCommand: "git status",
+    }),
+    "Command Agent：正在请求帮助 git status ...",
+  );
+  assert.equal(
+    getStatusLine({
+      isRunning: false,
+      isAgentWaiting: true,
+      agentKind: "lark",
+      agentCommand: "lark init",
+    }),
+    "Lark Agent：正在处理 lark init ...",
+  );
+  assert.equal(
+    getStatusLine({
+      isRunning: false,
       isAgentWaiting: false,
       isBeforeRunPending: true,
       pendingCommand: "git status",
@@ -319,27 +337,30 @@ test("status line keeps waiting indicators outside the prompt box", () => {
     getStatusLine({
       isRunning: true,
       isAgentWaiting: true,
+      agentKind: "command",
       agentCommand: "git status",
     }),
-    "Agent：正在请求帮助 git status ...",
+    "Command Agent：正在请求帮助 git status ...",
   );
   assert.equal(
     getStatusLine({
       isRunning: false,
       isAgentWaiting: false,
       isCommitMessageGenerating: true,
+      agentKind: "command",
       agentCommand: "git commit -m",
     }),
-    "Agent：正在生成提交信息 git commit -m ...",
+    "Command Agent：正在生成提交信息 git commit -m ...",
   );
   assert.equal(
     getStatusLine({
       isRunning: false,
       isAgentWaiting: false,
       isAgentReviewing: true,
+      agentKind: "command",
       agentCommand: "git push",
     }),
-    "Agent：正在检查 git push ...",
+    "Command Agent：正在检查 git push ...",
   );
 });
 
@@ -360,12 +381,27 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
       isRunning: false,
       isAgentWaiting: false,
       isCommitMessageGenerating: true,
+      agentKind: "command",
       agentCommand: "git commit -m",
       tipIndex: 1,
     }),
     {
       left: "按 Tab 补全命令或文件路径",
-      right: "Agent：正在生成提交信息 g...",
+      right: "Command Agent：正在生成提...",
+    },
+  );
+  assert.deepEqual(
+    getStatusBarParts({
+      isRunning: false,
+      isAgentWaiting: true,
+      agentKind: "lark",
+      agentCommand: "lark init",
+      tipIndex: 1,
+      agentStatusWidth: 28,
+    }),
+    {
+      left: "按 Tab 补全命令或文件路径",
+      right: "Lark Agent：正在处理 lark...",
     },
   );
 });
@@ -409,6 +445,7 @@ test("agent status uses a bounded viewport and scrolls long text with ellipsis",
     getStatusBarParts({
       isRunning: false,
       isAgentWaiting: true,
+      agentKind: "command",
       agentCommand: "git commit --amend --no-edit --verbose",
       tipStatusWidth: 14,
       tipStatusScrollOffset: 4,
@@ -417,7 +454,7 @@ test("agent status uses a bounded viewport and scrolls long text with ellipsis",
     }),
     {
       left: "...nter 执...",
-      right: "...在请求帮助 git com...",
+      right: "...ent：正在请求帮助 ...",
     },
   );
 });

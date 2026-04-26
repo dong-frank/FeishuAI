@@ -12,6 +12,7 @@ export const TUI_USAGE_TIPS = [
   "按 Up/Down 或 PageUp/PageDown 滚动历史",
   "完整 Git 命令停顿 5 秒后会请求 Agent 帮助",
   "输入 git commit -m 并停顿 2 秒可生成 commit message",
+  "执行 lark init 命令将连接飞书"
 ] as const;
 export const DEFAULT_STATUS_TEXT = TUI_USAGE_TIPS[0];
 export const WELCOME_TITLE = "Welcome to git-helper TUI";

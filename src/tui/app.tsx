@@ -3,6 +3,7 @@ import { useApp, useInput, useStdout } from "ink";
 
 import type { CommandContext } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
+import { createLarkAgent } from "../agent/lark-agent.js";
 import { classifyCommand } from "../runtime/command-registry.js";
 import {
   buildCommitMessageContext,
@@ -12,6 +13,7 @@ import { getCompletion } from "../runtime/completion.js";
 import {
   parseCommandLine,
   runCommandLine,
+  type CommandOutputChunk,
   type CommandRunOutput,
 } from "../runtime/command-runner.js";
 import {
@@ -43,7 +45,7 @@ import {
   shouldScheduleCommitMessageGeneration,
   shouldTriggerBeforeRunForContext,
 } from "./runtime.js";
-import { getStatusBarParts, getStatusPaneWidths } from "./status.js";
+import { getStatusBarParts, getStatusPaneWidths, type AgentKind } from "./status.js";
 
 export * from "./constants.js";
 export * from "./history.js";
@@ -62,6 +64,7 @@ export function App() {
   const [isAgentWaiting, setIsAgentWaiting] = useState(false);
   const [isCommitMessageGenerating, setIsCommitMessageGenerating] = useState(false);
   const [isAgentReviewing, setIsAgentReviewing] = useState(false);
+  const [activeAgentKind, setActiveAgentKind] = useState<AgentKind | undefined>();
   const [agentStatusCommand, setAgentStatusCommand] = useState<string | undefined>();
   const [pendingBeforeRunCommand, setPendingBeforeRunCommand] = useState<
     string | undefined
@@ -84,6 +87,7 @@ export function App() {
     isAgentWaiting,
     isCommitMessageGenerating,
     isAgentReviewing,
+    agentKind: activeAgentKind,
     agentCommand: agentStatusCommand,
     isBeforeRunPending: Boolean(pendingBeforeRunCommand),
     pendingCommand: pendingBeforeRunCommand,
@@ -133,6 +137,7 @@ export function App() {
     isAgentWaiting,
     isCommitMessageGenerating,
     isAgentReviewing,
+    activeAgentKind,
     agentStatusCommand,
     pendingBeforeRunCommand,
   ]);
@@ -227,10 +232,6 @@ export function App() {
       return;
     }
 
-    if (isRunning) {
-      return;
-    }
-
     if (key.pageUp) {
       scrollHistory("pageUp");
       return;
@@ -248,6 +249,10 @@ export function App() {
 
     if (key.downArrow) {
       scrollHistory("lineDown");
+      return;
+    }
+
+    if (isRunning) {
       return;
     }
 
@@ -304,6 +309,7 @@ export function App() {
 
   async function triggerBeforeRun(context: CommandContext) {
     setIsAgentWaiting(true);
+    setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
     try {
       const message = await createCommandAgent().beforeRun?.(context);
@@ -332,6 +338,7 @@ export function App() {
       setHistory((current) => [...current, entry].slice(-20));
     } finally {
       setIsAgentWaiting(false);
+      setActiveAgentKind(undefined);
       setAgentStatusCommand(undefined);
     }
   }
@@ -342,6 +349,7 @@ export function App() {
   ) {
     setIsAgentWaiting(true);
     setIsCommitMessageGenerating(true);
+    setActiveAgentKind("command");
     setAgentStatusCommand(commandLine);
     try {
       const context = await buildCommitMessageContext();
@@ -380,14 +388,20 @@ export function App() {
     } finally {
       setIsCommitMessageGenerating(false);
       setIsAgentWaiting(false);
+      setActiveAgentKind(undefined);
       setAgentStatusCommand(undefined);
     }
   }
 
   async function triggerAfterSuccessReview(
-    result: CommandRunOutput & { kind: "execute"; afterSuccess: Promise<string | void> },
+    result: CommandRunOutput & {
+      kind: "execute";
+      afterSuccess: Promise<string | void>;
+      afterSuccessAgentKind?: "command" | "lark";
+    },
   ) {
     setIsAgentReviewing(true);
+    setActiveAgentKind(result.afterSuccessAgentKind ?? "command");
     setAgentStatusCommand(result.commandLine);
     try {
       const message = await result.afterSuccess;
@@ -413,6 +427,7 @@ export function App() {
       // afterSuccess is advisory and should never disturb command output.
     } finally {
       setIsAgentReviewing(false);
+      setActiveAgentKind(undefined);
       setAgentStatusCommand(undefined);
     }
   }
@@ -438,14 +453,62 @@ export function App() {
     const isHelpRequest = Boolean(parsed?.helpRequested);
     if (isHelpRequest && parsed) {
       setIsAgentWaiting(true);
+      setActiveAgentKind("command");
       setAgentStatusCommand([parsed.command, ...parsed.args].join(" "));
     }
+    const classification = parsed ? classifyCommand(parsed) : undefined;
+    let liveStdout = "";
+    let liveStderr = "";
+    let hasLiveOutput = false;
+
+    function updateLiveOutput(chunk: CommandOutputChunk) {
+      if (chunk.stream === "stdout") {
+        liveStdout += chunk.text;
+      } else {
+        liveStderr += chunk.text;
+      }
+
+      const shouldReplaceLiveEntry = hasLiveOutput;
+      hasLiveOutput = true;
+      const entry: HistoryEntry = {
+        type: "output",
+        result: {
+          commandLine,
+          kind: "execute",
+          ...(classification ? { classification } : {}),
+          exitCode: 0,
+          stdout: liveStdout,
+          stderr: liveStderr,
+        },
+      };
+      setHistory((current) => {
+        const lastEntry = current.at(-1);
+        const canReplace =
+          shouldReplaceLiveEntry &&
+          lastEntry?.type === "output" &&
+          lastEntry.result.commandLine === commandLine;
+        return [...(canReplace ? current.slice(0, -1) : current), entry].slice(-20);
+      });
+      setHistoryScrollOffset(0);
+    }
+
     try {
       const result = await runCommandLine(commandLine, {
         agent: createCommandAgent(),
+        larkAgent: createLarkAgent({
+          onLarkCliOutput: updateLiveOutput,
+        }),
+        onOutput: updateLiveOutput,
       });
       const entry: HistoryEntry = { type: "output", result };
-      setHistory((current) => [...current, entry].slice(-20));
+      setHistory((current) => {
+        const lastEntry = current.at(-1);
+        const canReplace =
+          hasLiveOutput &&
+          lastEntry?.type === "output" &&
+          lastEntry.result.commandLine === commandLine;
+        return [...(canReplace ? current.slice(0, -1) : current), entry].slice(-20);
+      });
       setHistoryScrollOffset(0);
       if (shouldRefreshSessionAfterCommand(result)) {
         void refreshSession();
@@ -462,6 +525,7 @@ export function App() {
       setIsRunning(false);
       if (isHelpRequest) {
         setIsAgentWaiting(false);
+        setActiveAgentKind(undefined);
         setAgentStatusCommand(undefined);
       }
     }
@@ -491,6 +555,7 @@ function hasAfterSuccessReview(
 ): result is CommandRunOutput & {
   kind: "execute";
   afterSuccess: Promise<string | void>;
+  afterSuccessAgentKind?: "command" | "lark";
 } {
   return result.kind === "execute" && Boolean(result.afterSuccess);
 }

@@ -5,11 +5,26 @@ import {
   TUI_USAGE_TIPS,
 } from "./constants.js";
 
+export type AgentKind = "command" | "lark";
+
+function getAgentLabel(agentKind: AgentKind | undefined) {
+  if (agentKind === "lark") {
+    return "Lark Agent";
+  }
+
+  if (agentKind === "command") {
+    return "Command Agent";
+  }
+
+  return "Agent";
+}
+
 export function getStatusLine({
   isRunning,
   isAgentWaiting,
   isCommitMessageGenerating = false,
   isAgentReviewing = false,
+  agentKind,
   agentCommand,
   isBeforeRunPending = false,
   pendingCommand,
@@ -19,21 +34,32 @@ export function getStatusLine({
   isAgentWaiting: boolean;
   isCommitMessageGenerating?: boolean | undefined;
   isAgentReviewing?: boolean | undefined;
+  agentKind?: AgentKind | undefined;
   agentCommand?: string | undefined;
   isBeforeRunPending?: boolean | undefined;
   pendingCommand?: string | undefined;
   tipIndex?: number | undefined;
 }) {
+  const agentLabel = getAgentLabel(agentKind);
+
   if (isCommitMessageGenerating) {
-    return `Agent：正在生成提交信息 ${agentCommand ?? "git commit -m"} ...`;
+    return `${agentLabel}：正在生成提交信息 ${agentCommand ?? "git commit -m"} ...`;
   }
 
   if (isAgentWaiting) {
-    return `Agent：正在请求帮助 ${agentCommand ?? "command"} ...`;
+    if (agentKind === "lark") {
+      return `${agentLabel}：正在处理 ${agentCommand ?? "lark"} ...`;
+    }
+
+    return `${agentLabel}：正在请求帮助 ${agentCommand ?? "command"} ...`;
   }
 
   if (isAgentReviewing) {
-    return `Agent：正在检查 ${agentCommand ?? "command"} ...`;
+    if (agentKind === "lark") {
+      return `${agentLabel}：正在处理 ${agentCommand ?? "lark"} ...`;
+    }
+
+    return `${agentLabel}：正在检查 ${agentCommand ?? "command"} ...`;
   }
 
   if (isRunning) {

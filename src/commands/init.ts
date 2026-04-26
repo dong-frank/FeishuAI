@@ -2,7 +2,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
 
-import { searchLarkDocs } from "../integrations/lark-cli.js";
+import { runLarkCli } from "../integrations/lark-cli.js";
 
 export type LarkDocCandidate = {
   title: string;
@@ -16,7 +16,16 @@ export function createInitCommand(): Command {
     .description("Initialize git-helper and select an organization Git guide")
     .action(async () => {
       try {
-        const result = await searchLarkDocs("git");
+        const result = await runLarkCli([
+          "docs",
+          "+search",
+          "--query",
+          "git",
+          "--page-size",
+          "10",
+          "--format",
+          "json",
+        ]);
         if (result.stderr) {
           process.stderr.write(result.stderr);
         }

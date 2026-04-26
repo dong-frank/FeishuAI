@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   createLangChainAgent,
   createLangChainChatModel,
+  shouldTraceLangChainAgent,
 } from "../../src/agent/langchain-agent.js";
 
 test("createLangChainChatModel reads model configuration", () => {
@@ -41,6 +42,11 @@ test("createLangChainChatModel can override thinking kwargs", () => {
   });
 
   assert.deepEqual(model.modelKwargs.thinking, { type: "enabled" });
+});
+
+test("shouldTraceLangChainAgent disables tracing in test environment", () => {
+  assert.equal(shouldTraceLangChainAgent({ NODE_ENV: "test" }), false);
+  assert.equal(shouldTraceLangChainAgent({ NODE_ENV: "development" }), true);
 });
 
 test("createLangChainAgent accepts a system prompt and tools", () => {

@@ -51,3 +51,29 @@ export type CommandAgent = {
     context: CommitMessageContext,
   ) => string | Promise<string>;
 };
+
+export type LarkAuthContext = {
+  cwd: string;
+  intent?: string;
+};
+
+export type LarkDocSearchContext = {
+  cwd: string;
+  query: string;
+  command?: string;
+  rawCommand?: string;
+  result?: CommandResult;
+};
+
+export type LarkMessageContext = {
+  cwd: string;
+  recipient?: string;
+  message: string;
+  summary?: string;
+};
+
+export type LarkAgent = {
+  authorize: (context: LarkAuthContext) => Promise<string>;
+  searchDocs: (context: LarkDocSearchContext) => Promise<string>;
+  sendMessage: (context: LarkMessageContext) => Promise<string>;
+};

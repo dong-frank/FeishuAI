@@ -10,7 +10,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node --env-file .env dist/index.js",
-    "test": "node --env-file .env --import tsx --test tests/**/*.test.ts"
+    "test": "NODE_ENV=test LANGSMITH_TRACING=false LANGCHAIN_TRACING_V2=false node --env-file .env --import tsx --test tests/**/*.test.ts"
   },
   "repository": {
     "type": "git",

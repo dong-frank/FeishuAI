@@ -1,6 +1,8 @@
 import { Writable } from "node:stream";
 
+import { createLarkAgent } from "../agent/lark-agent.js";
 import type { CommandAgent, CommandContext } from "../agent/types.js";
+import type { LarkAgent } from "../agent/types.js";
 import { classifyCommand, type CommandClassification } from "./command-registry.js";
 import { executeCommand } from "./command-executor.js";
 import {
@@ -32,9 +34,10 @@ type BaseCommandRunOutput = {
 
 export type CommandRunOutput =
   | (BaseCommandRunOutput & {
-      kind: "execute";
-      afterSuccess?: Promise<string | void>;
-    })
+    kind: "execute";
+    afterSuccess?: Promise<string | void>;
+    afterSuccessAgentKind?: "command" | "lark";
+  })
   | (BaseCommandRunOutput & {
       kind: "help";
       help: string;
@@ -42,9 +45,16 @@ export type CommandRunOutput =
 
 export type RunCommandLineOptions = {
   agent?: CommandAgent;
+  larkAgent?: Pick<LarkAgent, "authorize">;
   statsCwd?: string;
   executeCommand?: typeof executeCommand;
   initializeSession?: typeof initializeTuiSession;
+  onOutput?: (chunk: CommandOutputChunk) => void;
+};
+
+export type CommandOutputChunk = {
+  stream: "stdout" | "stderr";
+  text: string;
 };
 
 export const AFTER_SUCCESS_KEY_GIT_SUBCOMMANDS = [
@@ -210,8 +220,12 @@ export async function runCommandLine(
     };
   }
 
-  const stdout = createCaptureStream();
-  const stderr = createCaptureStream();
+  const stdout = createCaptureStream((text) => {
+    options.onOutput?.({ stream: "stdout", text });
+  });
+  const stderr = createCaptureStream((text) => {
+    options.onOutput?.({ stream: "stderr", text });
+  });
   const classification = classifyCommand(parsed);
   if (parsed.helpRequested) {
     const help =
@@ -230,6 +244,10 @@ export async function runCommandLine(
       stdout: "",
       stderr: "",
     };
+  }
+
+  if (classification.kind === "custom" && classification.name === "lark") {
+    return runLarkCustomCommand(commandLine, parsed, classification, options);
   }
 
   const runCommand = options.executeCommand ?? executeCommand;
@@ -284,7 +302,60 @@ export async function runCommandLine(
     stdout: result.stdout,
     stderr: result.stderr,
     ...(afterSuccess ? { afterSuccess } : {}),
+    ...(afterSuccess ? { afterSuccessAgentKind: "command" as const } : {}),
   };
+}
+
+async function runLarkCustomCommand(
+  commandLine: string,
+  parsed: ParsedCommandLine,
+  classification: CommandClassification,
+  options: RunCommandLineOptions,
+): Promise<CommandRunOutput> {
+  const subcommand = parsed.args[0];
+
+  if (subcommand !== "init") {
+    return {
+      commandLine,
+      kind: "execute",
+      classification,
+      exitCode: 1,
+      stdout: "",
+      stderr: `Unsupported lark command: ${subcommand ?? ""}\n`,
+    };
+  }
+
+  try {
+    const afterSuccess = getLarkAgent(options).authorize({
+      cwd: process.cwd(),
+      intent: "init",
+    });
+
+    return {
+      commandLine,
+      kind: "execute",
+      classification,
+      exitCode: 0,
+      stdout: "Lark authorization agent started in background.\n",
+      stderr: "",
+      afterSuccess,
+      afterSuccessAgentKind: "lark",
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      commandLine,
+      kind: "execute",
+      classification,
+      exitCode: 1,
+      stdout: "",
+      stderr: `${message}\n`,
+    };
+  }
+}
+
+function getLarkAgent(options: RunCommandLineOptions) {
+  return options.larkAgent ?? createLarkAgent();
 }
 
 async function buildGitRepositoryContext(
@@ -316,11 +387,13 @@ async function buildCommandContext(
   };
 }
 
-function createCaptureStream() {
+function createCaptureStream(onWrite?: (text: string) => void) {
   let output = "";
   const stream = new Writable({
     write(chunk, _encoding, callback) {
-      output += chunk.toString();
+      const text = chunk.toString();
+      output += text;
+      onWrite?.(text);
       callback();
     },
   });

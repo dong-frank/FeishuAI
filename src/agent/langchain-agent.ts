@@ -51,24 +51,28 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     systemPrompt: options.systemPrompt,
   });
   const name = options.name ?? "LangChain Agent";
+  const invoke = async (input: string) => {
+    const result = await agent.invoke({
+      messages: [{ role: "user", content: input }],
+    });
+
+    return getLastMessageText(result);
+  };
 
   return {
     systemPrompt: options.systemPrompt,
     tools,
-    invoke: traceable(
-      async (input: string) => {
-        const result = await agent.invoke({
-          messages: [{ role: "user", content: input }],
-        });
-
-        return getLastMessageText(result);
-      },
-      {
-        name,
-        run_type: "chain",
-      },
-    ),
+    invoke: shouldTraceLangChainAgent(process.env)
+      ? traceable(invoke, {
+          name,
+          run_type: "chain",
+        })
+      : invoke,
   };
+}
+
+export function shouldTraceLangChainAgent(env: NodeJS.ProcessEnv) {
+  return env.NODE_ENV !== "test";
 }
 
 function getLastMessageText(result: unknown): string {
