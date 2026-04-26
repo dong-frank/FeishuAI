@@ -10,7 +10,7 @@ import {
   TUI_USAGE_TIPS,
 } from "./constants.js";
 import type { HistoryRow } from "./history.js";
-import { getStatusBarParts, type AgentKind } from "./status.js";
+import { getStatusBarParts, getTerminalTextWidth, type AgentKind } from "./status.js";
 
 export { HISTORY_ROW_HEIGHT } from "./components.js";
 
@@ -19,6 +19,11 @@ type PromptLine = {
   cursor: string;
   afterCursor: string;
   completionSuffix: string;
+};
+
+type PromptDisplaySegment = {
+  kind: "prompt" | "input" | "cursor" | "completion";
+  text: string;
 };
 
 type AppLayoutProps = {
@@ -31,6 +36,7 @@ type AppLayoutProps = {
   historyViewportHeight: number;
   visibleHistoryRows: HistoryRow[];
   promptLine: PromptLine;
+  promptViewportWidth?: number | undefined;
   statusPaneWidths: {
     left: number;
     right: number;
@@ -46,8 +52,6 @@ type StatusState = {
   isAgentReviewing: boolean;
   agentKind?: AgentKind | undefined;
   agentCommand?: string | undefined;
-  isBeforeRunPending: boolean;
-  pendingCommand?: string | undefined;
 };
 
 type SessionHeaderRowsInput = {
@@ -100,6 +104,7 @@ export function AppLayout({
   historyViewportHeight,
   visibleHistoryRows,
   promptLine,
+  promptViewportWidth,
   statusPaneWidths,
   statusState,
   viewportRows,
@@ -143,15 +148,7 @@ export function AppLayout({
           height={historyViewportHeight}
         />
 
-        <Box borderStyle="single" borderColor="green" paddingX={1}>
-          <Text color="green">$ </Text>
-          <Text>{promptLine.beforeCursor}</Text>
-          <Text {...CURSOR_STYLE}>{promptLine.cursor}</Text>
-          <Text>{promptLine.afterCursor}</Text>
-          {promptLine.completionSuffix ? (
-            <Text {...COMPLETION_GHOST_STYLE}>{promptLine.completionSuffix}</Text>
-          ) : null}
-        </Box>
+        <PromptPanel promptLine={promptLine} width={promptViewportWidth} />
 
         <StatusBar statusState={statusState} statusPaneWidths={statusPaneWidths} />
       </Box>
@@ -174,6 +171,43 @@ const HistoryPanel = memo(function HistoryPanel({
     </Box>
   );
 });
+
+function PromptPanel({
+  promptLine,
+  width,
+}: {
+  promptLine: PromptLine;
+  width?: number | undefined;
+}) {
+  const rows = getPromptDisplayRows(promptLine, width);
+  return (
+    <Box borderStyle="single" borderColor="green" flexDirection="column" paddingX={1}>
+      {rows.map((row, rowIndex) => (
+        <Box key={rowIndex}>
+          {row.map((segment, segmentIndex) => (
+            <PromptSegmentText key={segmentIndex} segment={segment} />
+          ))}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+function PromptSegmentText({ segment }: { segment: PromptDisplaySegment }) {
+  if (segment.kind === "prompt") {
+    return <Text color="green">{segment.text}</Text>;
+  }
+
+  if (segment.kind === "cursor") {
+    return <Text {...CURSOR_STYLE}>{segment.text}</Text>;
+  }
+
+  if (segment.kind === "completion") {
+    return <Text {...COMPLETION_GHOST_STYLE}>{segment.text}</Text>;
+  }
+
+  return <Text>{segment.text}</Text>;
+}
 
 function StatusBar({
   statusState,
@@ -209,8 +243,6 @@ function StatusBar({
     statusState.isAgentReviewing,
     statusState.agentKind,
     statusState.agentCommand,
-    statusState.isBeforeRunPending,
-    statusState.pendingCommand,
   ]);
 
   useEffect(() => {
@@ -245,6 +277,63 @@ function StatusBar({
       ) : null}
     </Box>
   );
+}
+
+export function getPromptViewportWidth(columns: number | undefined) {
+  if (!columns) {
+    return undefined;
+  }
+
+  return Math.max(8, columns - 6);
+}
+
+export function getPromptDisplayRows(
+  promptLine: PromptLine,
+  width?: number | undefined,
+): PromptDisplaySegment[][] {
+  const allSegments: PromptDisplaySegment[] = [
+    { kind: "prompt", text: "$ " },
+    { kind: "input", text: promptLine.beforeCursor },
+    { kind: "cursor", text: promptLine.cursor },
+    { kind: "input", text: promptLine.afterCursor },
+    { kind: "completion", text: promptLine.completionSuffix },
+  ];
+  const segments = allSegments.filter((segment) => segment.text.length > 0);
+
+  if (!width || width <= 0) {
+    return [segments];
+  }
+
+  const rows: PromptDisplaySegment[][] = [[]];
+  let currentWidth = 0;
+
+  for (const segment of segments) {
+    for (const character of Array.from(segment.text)) {
+      const characterWidth = getTerminalTextWidth(character);
+      if (rows[rows.length - 1]!.length > 0 && currentWidth + characterWidth > width) {
+        rows.push([]);
+        currentWidth = 0;
+      }
+
+      pushPromptSegment(rows[rows.length - 1]!, {
+        kind: segment.kind,
+        text: character,
+      });
+      currentWidth += characterWidth;
+    }
+  }
+
+  return rows;
+}
+
+function pushPromptSegment(row: PromptDisplaySegment[], segment: PromptDisplaySegment) {
+  const previous = row[row.length - 1];
+  if (previous?.kind === segment.kind) {
+    previous.text += segment.text;
+    return;
+  }
+
+  row.push(segment);
 }
 
 export function getLayoutHistoryRows(

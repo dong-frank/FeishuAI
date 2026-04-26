@@ -5,9 +5,6 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
-  BEFORE_RUN_IDLE_MS,
-  BEFORE_RUN_SUCCESS_SKIP_THRESHOLD,
-  COMMIT_MESSAGE_IDLE_MS,
   buildBeforeRunContext,
   COMPLETION_GHOST_STYLE,
   CURSOR_STYLE,
@@ -15,6 +12,7 @@ import {
   TUI_USAGE_TIPS,
   getAgentStatusWidth,
   getNextEditableInput,
+  getNextRightArrowInput,
   getNextCommandHistoryInput,
   getOutputSections,
   getTuiMouseInputAction,
@@ -36,12 +34,12 @@ import {
   isHelpOutput,
   getOutputTextParts,
   parseAnsiTextParts,
-  shouldScheduleCommitMessageGeneration,
+  shouldTriggerCommitMessageGenerationOnTab,
   shouldRefreshSessionAfterCommand,
+  shouldIgnoreTabAgentTrigger,
   shouldShowClassificationLine,
   sanitizeTuiText,
-  shouldScheduleBeforeRun,
-  shouldTriggerBeforeRunForContext,
+  shouldTriggerBeforeRunOnTab,
   WELCOME_SUBTITLE,
   WELCOME_TITLE,
 } from "../../src/tui/app.js";
@@ -63,8 +61,8 @@ test("completion ghost style is visually distinct from ordinary gray text", () =
 
 test("usage tips are recorded in one place for the status bar", () => {
   assert.ok(TUI_USAGE_TIPS.includes("按 Enter 执行命令"));
-  assert.ok(TUI_USAGE_TIPS.includes("输入 git commit -m 并停顿 2 秒可生成 commit message"));
-  assert.ok(TUI_USAGE_TIPS.includes("完整 Git 命令停顿 5 秒后会请求 Agent 帮助"));
+  assert.ok(TUI_USAGE_TIPS.includes("按 Tab 请求 Agent 帮助"));
+  assert.ok(TUI_USAGE_TIPS.includes("按 Right 接受命令或文件补全"));
   assert.ok(TUI_USAGE_TIPS.includes("按 Up/Down 切换命令历史"));
   assert.ok(TUI_USAGE_TIPS.includes("按 PageUp/PageDown 滚动输出历史"));
 });
@@ -89,6 +87,23 @@ test("welcome copy scrolls as part of the history rows", () => {
     "$ git status 2",
     "",
     "$ git status 3",
+    "",
+  ]);
+});
+
+test("long command input history wraps before viewport clipping", () => {
+  const command =
+    'git commit -m "feat: 新增命令历史切换与鼠标滚轮滚动支持，优化TUI布局与终端交互体验"';
+
+  const rows = getHistoryRows([{ type: "input", text: command }], 24).map(
+    (row) => row.text,
+  );
+
+  assert.deepEqual(rows.slice(3), [
+    '$ git commit -m "feat: ',
+    "新增命令历史切换与鼠标滚",
+    "轮滚动支持，优化TUI布局",
+    '与终端交互体验"',
     "",
   ]);
 });
@@ -195,6 +210,28 @@ test("agent command output is visually distinct from user input commands", () =>
 
   const agentOutputRow = rows.find((row) => row.text === "ready");
   assert.equal(agentOutputRow?.parts?.[0]?.color, "magenta");
+});
+
+test("failed command history colors the submitted command red", () => {
+  const rows = getHistoryRows([
+    { type: "input", text: "aaa" },
+    {
+      type: "output",
+      result: {
+        commandLine: "aaa",
+        kind: "execute",
+        exitCode: 127,
+        stdout: "",
+        stderr: "command not found: aaa\n",
+      },
+    },
+  ]);
+
+  const failedCommandRow = rows.find((row) => row.text === "$ aaa");
+  assert.equal(failedCommandRow?.color, "red");
+
+  const stderrRow = rows.find((row) => row.text === "command not found: aaa");
+  assert.equal(stderrRow?.parts?.[0]?.color, undefined);
 });
 
 test("history viewport supports scrolling through older rows", () => {
@@ -334,6 +371,34 @@ test("editable input handles left and right cursor movement", () => {
   });
 });
 
+test("right arrow accepts completion before moving the cursor", () => {
+  assert.deepEqual(
+    getNextRightArrowInput({
+      input: "git sta",
+      cursorIndex: 7,
+      completion: {
+        completion: "git status",
+        suffix: "tus",
+      },
+    }),
+    {
+      input: "git status",
+      cursorIndex: 10,
+    },
+  );
+  assert.deepEqual(
+    getNextRightArrowInput({
+      input: "git status",
+      cursorIndex: 4,
+      completion: undefined,
+    }),
+    {
+      input: "git status",
+      cursorIndex: 5,
+    },
+  );
+});
+
 test("editable input inserts and deletes at the cursor", () => {
   assert.deepEqual(
     getNextEditableInput({ input: "git status", cursorIndex: 4 }, { type: "insert", text: "x" }),
@@ -439,7 +504,7 @@ test("status line keeps waiting indicators outside the prompt box", () => {
   );
   assert.equal(
     getStatusLine({ isRunning: false, isAgentWaiting: false, tipIndex: 1 }),
-    "按 Tab 补全命令或文件路径",
+    "按 Tab 请求 Agent 帮助",
   );
   assert.equal(
     getStatusLine({ isRunning: true, isAgentWaiting: false }),
@@ -462,15 +527,6 @@ test("status line keeps waiting indicators outside the prompt box", () => {
       agentCommand: "lark init",
     }),
     "Lark Agent：正在处理 lark init ...",
-  );
-  assert.equal(
-    getStatusLine({
-      isRunning: false,
-      isAgentWaiting: false,
-      isBeforeRunPending: true,
-      pendingCommand: "git status",
-    }),
-    "Agent：等待触发 git status",
   );
   assert.equal(
     getStatusLine({
@@ -511,7 +567,7 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
       tipIndex: 1,
     }),
     {
-      left: "按 Tab 补全命令或文件路径",
+      left: "按 Tab 请求 Agent 帮助",
       right: "Agent：空闲",
     },
   );
@@ -525,7 +581,7 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
       tipIndex: 1,
     }),
     {
-      left: "按 Tab 补全命令或文件路径",
+      left: "按 Tab 请求 Agent 帮助",
       right: "Command Agent：正在生成提...",
     },
   );
@@ -539,7 +595,7 @@ test("status bar keeps usage tips on the left and agent state on the right", () 
       agentStatusWidth: 28,
     }),
     {
-      left: "按 Tab 补全命令或文件路径",
+      left: "按 Tab 请求 Agent 帮助",
       right: "Lark Agent：正在处理 lark...",
     },
   );
@@ -554,7 +610,7 @@ test("agent status uses a bounded viewport and scrolls long text with ellipsis",
   assert.equal(getAgentStatusWidth(40), 14);
   assert.equal(getAgentStatusWidth(120), 54);
   assert.equal(getTerminalTextWidth("Agent：空闲"), 11);
-  assert.equal(getTerminalTextWidth("按 Tab 补全命令或文件路径"), 25);
+  assert.equal(getTerminalTextWidth("按 Tab 请求 Agent 帮助"), 22);
 
   assert.equal(
     getScrollingStatusText({
@@ -689,14 +745,9 @@ test("output text parts preserve ANSI colors for Ink rendering", () => {
   );
 });
 
-test("beforeRun waits for five idle seconds", () => {
-  assert.equal(BEFORE_RUN_IDLE_MS, 5000);
-  assert.equal(BEFORE_RUN_SUCCESS_SKIP_THRESHOLD, 3);
-});
-
-test("beforeRun schedules only for complete idle commands", () => {
+test("beforeRun triggers only for complete Tab-requested git commands", () => {
   assert.equal(
-    shouldScheduleBeforeRun({
+    shouldTriggerBeforeRunOnTab({
       input: "git status",
       completionSuffix: undefined,
       isRunning: false,
@@ -704,31 +755,31 @@ test("beforeRun schedules only for complete idle commands", () => {
     true,
   );
   assert.equal(
-    shouldScheduleBeforeRun({
+    shouldTriggerBeforeRunOnTab({
       input: "git sta",
       completionSuffix: "tus",
       isRunning: false,
     }),
-    false,
+    true,
   );
   assert.equal(
-    shouldScheduleBeforeRun({
+    shouldTriggerBeforeRunOnTab({
       input: "git pu",
       completionSuffix: undefined,
       isRunning: false,
     }),
-    false,
+    true,
   );
   assert.equal(
-    shouldScheduleBeforeRun({
+    shouldTriggerBeforeRunOnTab({
       input: "git status ?",
       completionSuffix: undefined,
       isRunning: false,
     }),
-    false,
+    true,
   );
   assert.equal(
-    shouldScheduleBeforeRun({
+    shouldTriggerBeforeRunOnTab({
       input: "git status",
       completionSuffix: undefined,
       isRunning: true,
@@ -736,7 +787,7 @@ test("beforeRun schedules only for complete idle commands", () => {
     false,
   );
   assert.equal(
-    shouldScheduleBeforeRun({
+    shouldTriggerBeforeRunOnTab({
       input: "node -v",
       completionSuffix: undefined,
       isRunning: false,
@@ -745,10 +796,9 @@ test("beforeRun schedules only for complete idle commands", () => {
   );
 });
 
-test("commit message generation schedules only for idle git commit -m", () => {
-  assert.equal(COMMIT_MESSAGE_IDLE_MS, 2000);
+test("commit message generation triggers only for explicit Tab on git commit -m", () => {
   assert.equal(
-    shouldScheduleCommitMessageGeneration({
+    shouldTriggerCommitMessageGenerationOnTab({
       input: "git commit -m",
       completionSuffix: undefined,
       isRunning: false,
@@ -756,7 +806,7 @@ test("commit message generation schedules only for idle git commit -m", () => {
     true,
   );
   assert.equal(
-    shouldScheduleCommitMessageGeneration({
+    shouldTriggerCommitMessageGenerationOnTab({
       input: "git commit -m \"message\"",
       completionSuffix: undefined,
       isRunning: false,
@@ -764,7 +814,7 @@ test("commit message generation schedules only for idle git commit -m", () => {
     false,
   );
   assert.equal(
-    shouldScheduleCommitMessageGeneration({
+    shouldTriggerCommitMessageGenerationOnTab({
       input: 'git commit -m "',
       completionSuffix: undefined,
       isRunning: false,
@@ -772,7 +822,7 @@ test("commit message generation schedules only for idle git commit -m", () => {
     false,
   );
   assert.equal(
-    shouldScheduleCommitMessageGeneration({
+    shouldTriggerCommitMessageGenerationOnTab({
       input: "git commit",
       completionSuffix: undefined,
       isRunning: false,
@@ -780,41 +830,47 @@ test("commit message generation schedules only for idle git commit -m", () => {
     false,
   );
   assert.equal(
-    shouldScheduleCommitMessageGeneration({
+    shouldTriggerCommitMessageGenerationOnTab({
       input: "git commit -m",
       completionSuffix: "essage",
       isRunning: false,
     }),
-    false,
+    true,
   );
 });
 
-test("beforeRun skips idle help after enough successful runs", () => {
+test("repeated Tab agent triggers are ignored until input changes", () => {
   assert.equal(
-    shouldTriggerBeforeRunForContext({
-      cwd: "/repo",
-      command: "git",
-      args: ["status"],
-      rawCommand: "git status",
-      gitStats: {
-        successCount: 2,
-        failures: [],
-      },
+    shouldIgnoreTabAgentTrigger({
+      input: "git status",
+      lastTriggeredInput: undefined,
+      isAgentBusy: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldIgnoreTabAgentTrigger({
+      input: "git status",
+      lastTriggeredInput: "git status",
+      isAgentBusy: false,
     }),
     true,
   );
   assert.equal(
-    shouldTriggerBeforeRunForContext({
-      cwd: "/repo",
-      command: "git",
-      args: ["status"],
-      rawCommand: "git status",
-      gitStats: {
-        successCount: 3,
-        failures: [],
-      },
+    shouldIgnoreTabAgentTrigger({
+      input: "git status --short",
+      lastTriggeredInput: "git status",
+      isAgentBusy: false,
     }),
     false,
+  );
+  assert.equal(
+    shouldIgnoreTabAgentTrigger({
+      input: "git status",
+      lastTriggeredInput: undefined,
+      isAgentBusy: true,
+    }),
+    true,
   );
 });
 

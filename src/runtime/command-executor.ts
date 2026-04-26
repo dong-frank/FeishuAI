@@ -44,7 +44,15 @@ export async function executeCommand(
   });
 
   return new Promise((resolve, reject) => {
-    child.on("error", reject);
+    child.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        stderr.write(`command not found: ${command}\n`);
+        resolve(127);
+        return;
+      }
+
+      reject(error);
+    });
     child.on("close", (code) => {
       resolve(code ?? 1);
     });

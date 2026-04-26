@@ -2,7 +2,6 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { CommandResult } from "../agent/types.js";
-import { SUPPORTED_GIT_SUBCOMMANDS } from "./command-registry.js";
 
 export type GitCommandFailure = {
   count: number;
@@ -30,8 +29,6 @@ export const MAX_GIT_COMMAND_FAILURES = 3;
 export const GIT_HELPER_STATE_DIR = ".git-helper";
 export const GIT_COMMAND_STATS_FILE = "command-stats.json";
 
-const SUPPORTED_GIT_SUBCOMMAND_SET = new Set<string>(SUPPORTED_GIT_SUBCOMMANDS);
-
 export function normalizeGitCommand(commandLine: string): string | undefined {
   const normalized = commandLine.trim().replace(/\s+/g, " ").replace(/\s+\?$/, "");
   const [command, subcommand] = normalized.split(" ");
@@ -41,10 +38,6 @@ export function normalizeGitCommand(commandLine: string): string | undefined {
 
   if (!subcommand) {
     return "git help";
-  }
-
-  if (!SUPPORTED_GIT_SUBCOMMAND_SET.has(subcommand)) {
-    return undefined;
   }
 
   return `git ${subcommand}`;

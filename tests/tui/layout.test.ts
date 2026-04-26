@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   AppLayout,
   getLayoutHistoryRows,
+  getPromptDisplayRows,
+  getPromptViewportWidth,
   getSessionHeaderRows,
   HISTORY_ROW_HEIGHT,
 } from "../../src/tui/layout.js";
@@ -52,6 +54,33 @@ test("history rows use a fixed line height inside the viewport", () => {
   assert.equal(HISTORY_ROW_HEIGHT, 1);
 });
 
+test("prompt display wraps long input while preserving cursor styling segment", () => {
+  assert.equal(getPromptViewportWidth(30), 24);
+
+  const rows = getPromptDisplayRows(
+    {
+      beforeCursor: 'git commit -m "feat: 新增',
+      cursor: "命",
+      afterCursor: '令历史"',
+      completionSuffix: "",
+    },
+    20,
+  );
+
+  assert.deepEqual(
+    rows.map((row) => row.map((segment) => segment.text).join("")),
+    ['$ git commit -m "fea', 't: 新增命令历史"'],
+  );
+  assert.deepEqual(
+    rows[1],
+    [
+      { kind: "input", text: "t: 新增" },
+      { kind: "cursor", text: "命" },
+      { kind: "input", text: '令历史"' },
+    ],
+  );
+});
+
 test("history output keeps boundary lines without spacer rows around it", () => {
   const layout = AppLayout({
     sessionHeader: {
@@ -77,7 +106,6 @@ test("history output keeps boundary lines without spacer rows around it", () => 
       isAgentWaiting: false,
       isCommitMessageGenerating: false,
       isAgentReviewing: false,
-      isBeforeRunPending: false,
     },
     viewportRows: 15,
   });
@@ -118,7 +146,6 @@ test("layout pins fixed chrome to the terminal height", () => {
       isAgentWaiting: false,
       isCommitMessageGenerating: false,
       isAgentReviewing: false,
-      isBeforeRunPending: false,
     },
     viewportRows: 15,
   });

@@ -7,11 +7,8 @@ import {
   formatTuiSessionGitSummary,
   type TuiSessionInfo,
 } from "../runtime/tui-session.js";
-import { BEFORE_RUN_SUCCESS_SKIP_THRESHOLD } from "./constants.js";
-
-export function shouldScheduleBeforeRun({
+export function shouldTriggerBeforeRunOnTab({
   input,
-  completionSuffix,
   isRunning,
 }: {
   input: string;
@@ -22,17 +19,14 @@ export function shouldScheduleBeforeRun({
   const classification = parsed ? classifyCommand(parsed) : undefined;
   return Boolean(
     parsed &&
-      !parsed.helpRequested &&
-      !completionSuffix &&
       !isRunning &&
       classification?.kind === "git" &&
       input.trim().length > 0,
   );
 }
 
-export function shouldScheduleCommitMessageGeneration({
+export function shouldTriggerCommitMessageGenerationOnTab({
   input,
-  completionSuffix,
   isRunning,
 }: {
   input: string;
@@ -43,7 +37,6 @@ export function shouldScheduleCommitMessageGeneration({
   return Boolean(
     parsed &&
       !parsed.hasUnclosedQuote &&
-      !completionSuffix &&
       !isRunning &&
       parsed.command === "git" &&
       parsed.args.length === 2 &&
@@ -58,7 +51,7 @@ export function buildBeforeRunContext(
 ): Promise<CommandContext | undefined> {
   const parsed = parseCommandLine(input);
   const classification = parsed ? classifyCommand(parsed) : undefined;
-  if (!parsed || parsed.helpRequested || classification?.kind !== "git") {
+  if (!parsed || classification?.kind !== "git") {
     return Promise.resolve(undefined);
   }
 
@@ -75,10 +68,17 @@ export function buildBeforeRunContext(
   }));
 }
 
-export function shouldTriggerBeforeRunForContext(context: CommandContext) {
-  return (
-    (context.gitStats?.successCount ?? 0) < BEFORE_RUN_SUCCESS_SKIP_THRESHOLD
-  );
+export function shouldIgnoreTabAgentTrigger({
+  input,
+  lastTriggeredInput,
+  isAgentBusy,
+}: {
+  input: string;
+  lastTriggeredInput?: string | undefined;
+  isAgentBusy: boolean;
+}) {
+  const commandLine = input.trim();
+  return Boolean(isAgentBusy || (commandLine && commandLine === lastTriggeredInput));
 }
 
 export function getSessionHeaderParts(session: TuiSessionInfo | undefined) {

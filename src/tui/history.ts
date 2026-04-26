@@ -14,6 +14,7 @@ import {
   isHelpOutput,
   type OutputTextPart,
 } from "./output.js";
+import { getTerminalTextWidth } from "./status.js";
 
 type HistoryColor = NonNullable<OutputTextPart["color"]>;
 type OutputSource = "user" | "agent";
@@ -50,16 +51,25 @@ export function getHistoryViewportHeight(rows: number | undefined) {
   return Math.max(MIN_HISTORY_VIEWPORT_HEIGHT, rows - RESERVED_TUI_CHROME_ROWS);
 }
 
+export function getHistoryViewportWidth(columns: number | undefined) {
+  if (!columns) {
+    return undefined;
+  }
+
+  return Math.max(8, columns - 4);
+}
+
 export function getVisibleHistoryRows(
   history: HistoryEntry[],
   rowLimit: number,
   scrollOffset: number = 0,
+  wrapWidth?: number | undefined,
 ) {
   if (rowLimit <= 0) {
     return [];
   }
 
-  const rows = getHistoryRows(history);
+  const rows = getHistoryRows(history, wrapWidth);
   const safeOffset = Math.min(Math.max(scrollOffset, 0), Math.max(0, rows.length - rowLimit));
   const end = rows.length - safeOffset;
   return rows.slice(Math.max(0, end - rowLimit), end);
@@ -83,7 +93,10 @@ export function getNextHistoryScrollOffset(
   return Math.min(maxOffset, Math.max(0, nextOffset));
 }
 
-export function getHistoryRows(history: HistoryEntry[]): HistoryRow[] {
+export function getHistoryRows(
+  history: HistoryEntry[],
+  wrapWidth?: number | undefined,
+): HistoryRow[] {
   return [
     {
       text: WELCOME_TITLE,
@@ -95,23 +108,27 @@ export function getHistoryRows(history: HistoryEntry[]): HistoryRow[] {
       color: "gray",
     },
     { text: "" },
-    ...history.flatMap((entry) => getHistoryEntryRows(entry)),
+    ...history.flatMap((entry, index) =>
+      getHistoryEntryRows(entry, wrapWidth, history[index + 1]),
+    ),
   ];
 }
 
-function getHistoryEntryRows(entry: HistoryEntry): HistoryRow[] {
+function getHistoryEntryRows(
+  entry: HistoryEntry,
+  wrapWidth?: number | undefined,
+  nextEntry?: HistoryEntry | undefined,
+): HistoryRow[] {
   if (entry.type === "input") {
+    const color = isFailedOutputForCommand(nextEntry, entry.text) ? "red" : "green";
     return [
-      {
-        text: `$ ${entry.text}`,
-        color: "green",
-      },
+      ...splitPlainTextRows(`$ ${entry.text}`, { color }, wrapWidth),
       ...Array.from({ length: INPUT_HISTORY_MARGIN_BOTTOM }, () => ({ text: "" })),
     ];
   }
 
   if (entry.type === "system") {
-    return splitPlainTextRows(entry.text, { color: "gray" });
+    return splitPlainTextRows(entry.text, { color: "gray" }, wrapWidth);
   }
 
   if (isHelpOutput(entry.result)) {
@@ -122,7 +139,7 @@ function getHistoryEntryRows(entry: HistoryEntry): HistoryRow[] {
         color: "cyan",
         bold: true,
       },
-      ...splitPlainTextRows(getRenderedOutputText(output), { color: "cyan" }),
+      ...splitPlainTextRows(getRenderedOutputText(output), { color: "cyan" }, wrapWidth),
       { text: "" },
     ];
   }
@@ -155,14 +172,57 @@ function getHistoryEntryRows(entry: HistoryEntry): HistoryRow[] {
   ];
 }
 
+function isFailedOutputForCommand(
+  entry: HistoryEntry | undefined,
+  commandLine: string,
+) {
+  return (
+    entry?.type === "output" &&
+    entry.result.commandLine === commandLine &&
+    entry.result.exitCode !== 0
+  );
+}
+
 function splitPlainTextRows(
   text: string,
   style: Pick<HistoryRow, "color" | "bold"> = {},
+  wrapWidth?: number | undefined,
 ): HistoryRow[] {
-  return text.split("\n").map((line) => ({
-    text: line,
-    ...style,
-  }));
+  return text
+    .split("\n")
+    .flatMap((line) => splitTerminalTextByWidth(line, wrapWidth))
+    .map((line) => ({
+      text: line,
+      ...style,
+    }));
+}
+
+function splitTerminalTextByWidth(
+  text: string,
+  wrapWidth: number | undefined,
+): string[] {
+  if (!wrapWidth || wrapWidth <= 0 || getTerminalTextWidth(text) <= wrapWidth) {
+    return [text];
+  }
+
+  const rows: string[] = [];
+  let current = "";
+  let currentWidth = 0;
+
+  for (const character of Array.from(text)) {
+    const characterWidth = getTerminalTextWidth(character);
+    if (current && currentWidth + characterWidth > wrapWidth) {
+      rows.push(current);
+      current = "";
+      currentWidth = 0;
+    }
+
+    current += character;
+    currentWidth += characterWidth;
+  }
+
+  rows.push(current);
+  return rows;
 }
 
 function getStyledOutputTextParts(

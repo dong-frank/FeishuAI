@@ -18,12 +18,13 @@ async function createTempCwd() {
   return mkdtemp(join(tmpdir(), "git-helper-stats-"));
 }
 
-test("normalizeGitCommand stores supported git commands by subcommand only", () => {
+test("normalizeGitCommand stores git commands by subcommand only", () => {
   assert.equal(normalizeGitCommand("  git   status   ?  "), "git status");
   assert.equal(normalizeGitCommand("git status --short"), "git status");
   assert.equal(normalizeGitCommand("git commit -m test"), "git commit");
+  assert.equal(normalizeGitCommand("git worktree list"), "git worktree");
+  assert.equal(normalizeGitCommand("git daemon --verbose"), "git daemon");
   assert.equal(normalizeGitCommand("git"), "git help");
-  assert.equal(normalizeGitCommand("git daemon"), undefined);
   assert.equal(normalizeGitCommand("node -v"), undefined);
 });
 

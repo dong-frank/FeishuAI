@@ -37,7 +37,6 @@ export type CommitMessageContext = {
 };
 
 export type CommandAgent = {
-  askForHelp?: (context: CommandContext) => string | Promise<string>;
   beforeRun?: (context: CommandContext) => string | void | Promise<string | void>;
   afterSuccess?: (
     context: CommandContext,
@@ -46,7 +45,7 @@ export type CommandAgent = {
   afterFail?: (
     context: CommandContext,
     result: CommandResult,
-  ) => void | Promise<void>;
+  ) => string | void | Promise<string | void>;
   generateCommitMessage?: (
     context: CommitMessageContext,
   ) => string | Promise<string>;

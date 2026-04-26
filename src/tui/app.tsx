@@ -20,14 +20,11 @@ import {
   initializeTuiSession,
   type TuiSessionInfo,
 } from "../runtime/tui-session.js";
-import { AppLayout } from "./layout.js";
-import {
-  BEFORE_RUN_IDLE_MS,
-  COMMIT_MESSAGE_IDLE_MS,
-} from "./constants.js";
+import { AppLayout, getPromptViewportWidth } from "./layout.js";
 import {
   getHistoryRows,
   getHistoryViewportHeight,
+  getHistoryViewportWidth,
   getNextHistoryScrollOffset,
   getVisibleHistoryRows,
   type HistoryEntry,
@@ -36,6 +33,7 @@ import {
 import {
   getNextCommandHistoryInput,
   getNextEditableInput,
+  getNextRightArrowInput,
   getPromptLineParts,
   getTuiMouseInputAction,
   getTuiMouseWheelAction,
@@ -43,14 +41,15 @@ import {
 import {
   DISABLE_MOUSE_WHEEL_SEQUENCE,
   ENABLE_MOUSE_WHEEL_SEQUENCE,
+  shouldEnableMouseWheelReporting,
 } from "./render.js";
 import {
   buildBeforeRunContext,
   getSessionHeaderParts,
   shouldRefreshSessionAfterCommand,
-  shouldScheduleBeforeRun,
-  shouldScheduleCommitMessageGeneration,
-  shouldTriggerBeforeRunForContext,
+  shouldIgnoreTabAgentTrigger,
+  shouldTriggerBeforeRunOnTab,
+  shouldTriggerCommitMessageGenerationOnTab,
 } from "./runtime.js";
 import { getStatusPaneWidths, type AgentKind } from "./status.js";
 
@@ -73,10 +72,7 @@ export function App() {
   const [isAgentReviewing, setIsAgentReviewing] = useState(false);
   const [activeAgentKind, setActiveAgentKind] = useState<AgentKind | undefined>();
   const [agentStatusCommand, setAgentStatusCommand] = useState<string | undefined>();
-  const [pendingBeforeRunCommand, setPendingBeforeRunCommand] = useState<
-    string | undefined
-  >();
-  const lastBeforeRunCommand = useRef<string | undefined>(undefined);
+  const lastTabAgentInput = useRef<string | undefined>(undefined);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number | undefined>();
@@ -95,12 +91,12 @@ export function App() {
     isAgentReviewing,
     agentKind: activeAgentKind,
     agentCommand: agentStatusCommand,
-    isBeforeRunPending: Boolean(pendingBeforeRunCommand),
-    pendingCommand: pendingBeforeRunCommand,
   };
   const sessionHeader = getSessionHeaderParts(session);
   const historyViewportHeight = getHistoryViewportHeight(stdout.rows);
-  const historyRows = getHistoryRows(history);
+  const historyViewportWidth = getHistoryViewportWidth(stdout.columns);
+  const promptViewportWidth = getPromptViewportWidth(stdout.columns);
+  const historyRows = getHistoryRows(history, historyViewportWidth);
   const commandHistory = history
     .filter((entry): entry is Extract<HistoryEntry, { type: "input" }> => entry.type === "input")
     .map((entry) => entry.text);
@@ -109,6 +105,7 @@ export function App() {
     history,
     historyRowLimit,
     historyScrollOffset,
+    historyViewportWidth,
   );
 
   useEffect(() => {
@@ -121,7 +118,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!stdout.isTTY) {
+    if (!stdout.isTTY || !shouldEnableMouseWheelReporting()) {
       return;
     }
 
@@ -142,68 +139,6 @@ export function App() {
       // Session information is auxiliary; command interaction should keep working.
     }
   }
-
-  useEffect(() => {
-    if (
-      shouldScheduleCommitMessageGeneration({
-        input,
-        completionSuffix: completion?.suffix,
-        isRunning,
-      })
-    ) {
-      let cancelled = false;
-      const commandLine = input.trim();
-      setPendingBeforeRunCommand(commandLine);
-      const timeout = setTimeout(() => {
-        setPendingBeforeRunCommand(undefined);
-        void triggerCommitMessageGeneration(commandLine, () => cancelled);
-      }, COMMIT_MESSAGE_IDLE_MS);
-
-      return () => {
-        cancelled = true;
-        clearTimeout(timeout);
-        setPendingBeforeRunCommand(undefined);
-      };
-    }
-
-    if (
-      !shouldScheduleBeforeRun({
-        input,
-        completionSuffix: completion?.suffix,
-        isRunning,
-      })
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    void buildBeforeRunContext(input).then((context) => {
-      if (
-        cancelled ||
-        !context ||
-        !shouldTriggerBeforeRunForContext(context) ||
-        lastBeforeRunCommand.current === context.rawCommand
-      ) {
-        return;
-      }
-
-      setPendingBeforeRunCommand(context.rawCommand);
-      timeout = setTimeout(() => {
-        setPendingBeforeRunCommand(undefined);
-        lastBeforeRunCommand.current = context.rawCommand;
-        void triggerBeforeRun(context);
-      }, BEFORE_RUN_IDLE_MS);
-    });
-
-    return () => {
-      cancelled = true;
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-      setPendingBeforeRunCommand(undefined);
-    };
-  }, [completion?.suffix, input, isRunning]);
 
   useInput((character, key) => {
     const mouseAction = getTuiMouseInputAction(character);
@@ -248,14 +183,8 @@ export function App() {
       return;
     }
 
-    if (key.tab && completion) {
-      const next = getNextEditableInput(
-        { input, cursorIndex },
-        { type: "replace", text: completion.completion },
-      );
-      setInput(next.input);
-      setCursorIndex(next.cursorIndex);
-      resetCommandHistoryNavigation();
+    if (key.tab) {
+      void triggerTabAgent();
       return;
     }
 
@@ -266,7 +195,12 @@ export function App() {
     }
 
     if (key.rightArrow) {
-      const next = getNextEditableInput({ input, cursorIndex }, "right");
+      const next = getNextRightArrowInput({ input, cursorIndex, completion });
+      if (next.input !== input) {
+        lastTabAgentInput.current = undefined;
+        resetCommandHistoryNavigation();
+      }
+      setInput(next.input);
       setCursorIndex(next.cursorIndex);
       return;
     }
@@ -275,6 +209,7 @@ export function App() {
       const next = getNextEditableInput({ input, cursorIndex }, "backspace");
       setInput(next.input);
       setCursorIndex(next.cursorIndex);
+      lastTabAgentInput.current = undefined;
       resetCommandHistoryNavigation();
       return;
     }
@@ -283,6 +218,7 @@ export function App() {
       const next = getNextEditableInput({ input, cursorIndex }, "delete");
       setInput(next.input);
       setCursorIndex(next.cursorIndex);
+      lastTabAgentInput.current = undefined;
       resetCommandHistoryNavigation();
       return;
     }
@@ -294,6 +230,7 @@ export function App() {
       );
       setInput(next.input);
       setCursorIndex(next.cursorIndex);
+      lastTabAgentInput.current = undefined;
       resetCommandHistoryNavigation();
     }
   });
@@ -315,8 +252,53 @@ export function App() {
     );
     setInput(next.input);
     setCursorIndex(next.cursorIndex);
+    lastTabAgentInput.current = undefined;
     setCommandHistoryIndex(next.historyIndex);
     setCommandHistoryDraft(next.draftInput);
+  }
+
+  async function triggerTabAgent() {
+    const commandLine = input.trim();
+    if (
+      !commandLine ||
+      shouldIgnoreTabAgentTrigger({
+        input: commandLine,
+        lastTriggeredInput: lastTabAgentInput.current,
+        isAgentBusy: isAgentWaiting || isCommitMessageGenerating || isAgentReviewing,
+      })
+    ) {
+      return;
+    }
+
+    if (
+      shouldTriggerCommitMessageGenerationOnTab({
+        input: commandLine,
+        completionSuffix: completion?.suffix,
+        isRunning,
+      })
+    ) {
+      lastTabAgentInput.current = commandLine;
+      await triggerCommitMessageGeneration(commandLine);
+      return;
+    }
+
+    if (
+      !shouldTriggerBeforeRunOnTab({
+        input: commandLine,
+        completionSuffix: completion?.suffix,
+        isRunning,
+      })
+    ) {
+      return;
+    }
+
+    const context = await buildBeforeRunContext(commandLine);
+    if (!context) {
+      return;
+    }
+
+    lastTabAgentInput.current = context.rawCommand;
+    await triggerBeforeRun(context);
   }
 
   async function triggerBeforeRun(context: CommandContext) {
@@ -446,6 +428,45 @@ export function App() {
     }
   }
 
+  async function triggerAfterFailReview(
+    result: CommandRunOutput & {
+      kind: "execute";
+      afterFail: Promise<string | void>;
+      afterFailAgentKind?: "command";
+    },
+  ) {
+    setIsAgentReviewing(true);
+    setActiveAgentKind(result.afterFailAgentKind ?? "command");
+    setAgentStatusCommand(result.commandLine);
+    try {
+      const message = await result.afterFail;
+      if (!message) {
+        return;
+      }
+
+      const entry: HistoryEntry = {
+        type: "output",
+        result: {
+          commandLine: result.commandLine,
+          kind: "help",
+          ...(result.classification ? { classification: result.classification } : {}),
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          help: message,
+        },
+      };
+      setHistory((current) => [...current, entry].slice(-20));
+      setHistoryScrollOffset(0);
+    } catch {
+      // afterFail is advisory and should never disturb command output.
+    } finally {
+      setIsAgentReviewing(false);
+      setActiveAgentKind(undefined);
+      setAgentStatusCommand(undefined);
+    }
+  }
+
   async function submitInput() {
     const commandLine = input.trim();
     if (!commandLine) {
@@ -454,6 +475,7 @@ export function App() {
 
     setInput("");
     setCursorIndex(0);
+    lastTabAgentInput.current = undefined;
     resetCommandHistoryNavigation();
     setHistory((current) => [...current, { type: "input", text: commandLine }]);
     setHistoryScrollOffset(0);
@@ -465,12 +487,6 @@ export function App() {
 
     setIsRunning(true);
     const parsed = parseCommandLine(commandLine);
-    const isHelpRequest = Boolean(parsed?.helpRequested);
-    if (isHelpRequest && parsed) {
-      setIsAgentWaiting(true);
-      setActiveAgentKind("command");
-      setAgentStatusCommand([parsed.command, ...parsed.args].join(" "));
-    }
     const classification = parsed ? classifyCommand(parsed) : undefined;
     let liveStdout = "";
     let liveStderr = "";
@@ -536,6 +552,9 @@ export function App() {
       if (hasAfterSuccessReview(result)) {
         void triggerAfterSuccessReview(result);
       }
+      if (hasAfterFailReview(result)) {
+        void triggerAfterFailReview(result);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const entry: HistoryEntry = { type: "system", text: message };
@@ -543,11 +562,6 @@ export function App() {
       setHistoryScrollOffset(0);
     } finally {
       setIsRunning(false);
-      if (isHelpRequest) {
-        setIsAgentWaiting(false);
-        setActiveAgentKind(undefined);
-        setAgentStatusCommand(undefined);
-      }
     }
   }
 
@@ -564,6 +578,7 @@ export function App() {
       historyViewportHeight={historyViewportHeight}
       visibleHistoryRows={visibleHistoryRows}
       promptLine={promptLine}
+      promptViewportWidth={promptViewportWidth}
       statusPaneWidths={statusPaneWidths}
       statusState={statusState}
       viewportRows={stdout.rows}
@@ -579,4 +594,14 @@ function hasAfterSuccessReview(
   afterSuccessAgentKind?: "command" | "lark";
 } {
   return result.kind === "execute" && Boolean(result.afterSuccess);
+}
+
+function hasAfterFailReview(
+  result: CommandRunOutput,
+): result is CommandRunOutput & {
+  kind: "execute";
+  afterFail: Promise<string | void>;
+  afterFailAgentKind?: "command";
+} {
+  return result.kind === "execute" && Boolean(result.afterFail);
 }

@@ -3,15 +3,23 @@ import test from "node:test";
 
 import { classifyCommand } from "../../src/runtime/command-registry.js";
 
-test("classifyCommand identifies supported git commands", () => {
+test("classifyCommand identifies git commands", () => {
   assert.equal(classifyCommand({ command: "git", args: ["status"] }).kind, "git");
   assert.equal(classifyCommand({ command: "git", args: ["push"] }).kind, "git");
 });
 
-test("classifyCommand identifies unsupported git subcommands as other", () => {
+test("classifyCommand treats every git subcommand as a git command", () => {
   assert.deepEqual(classifyCommand({ command: "git", args: ["daemon"] }), {
-    kind: "other",
-    reason: "Unsupported git subcommand: daemon",
+    kind: "git",
+    subcommand: "daemon",
+  });
+  assert.deepEqual(classifyCommand({ command: "git", args: ["worktree", "list"] }), {
+    kind: "git",
+    subcommand: "worktree",
+  });
+  assert.deepEqual(classifyCommand({ command: "git", args: ["--version"] }), {
+    kind: "git",
+    subcommand: "--version",
   });
 });
 

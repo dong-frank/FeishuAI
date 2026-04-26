@@ -16,7 +16,7 @@ export type CommandClassification =
       reason: string;
     };
 
-export const SUPPORTED_GIT_SUBCOMMANDS = [
+export const COMMON_GIT_SUBCOMMANDS = [
   "add",
   "branch",
   "checkout",
@@ -34,8 +34,6 @@ export const SUPPORTED_GIT_SUBCOMMANDS = [
   "switch",
 ] as const;
 
-const SUPPORTED_GIT_SUBCOMMAND_SET = new Set(SUPPORTED_GIT_SUBCOMMANDS);
-
 const SUPPORTED_CUSTOM_COMMANDS = new Set(["init", "lark", "help", "exit", "quit"]);
 
 export function classifyCommand(parsed: ParsedCommandLine): CommandClassification {
@@ -48,16 +46,9 @@ export function classifyCommand(parsed: ParsedCommandLine): CommandClassificatio
       };
     }
 
-    if (SUPPORTED_GIT_SUBCOMMAND_SET.has(subcommand as (typeof SUPPORTED_GIT_SUBCOMMANDS)[number])) {
-      return {
-        kind: "git",
-        subcommand,
-      };
-    }
-
     return {
-      kind: "other",
-      reason: `Unsupported git subcommand: ${subcommand}`,
+      kind: "git",
+      subcommand,
     };
   }
 

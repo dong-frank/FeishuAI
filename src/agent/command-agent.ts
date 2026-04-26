@@ -141,9 +141,6 @@ export function createCommandAgent(): CommandAgent {
   });
 
   return {
-    async askForHelp(context) {
-      return helpAgent.invoke(JSON.stringify({ context }));
-    },
     async beforeRun(context) {
       return helpAgent.invoke(JSON.stringify({ context }));
     },
@@ -151,7 +148,7 @@ export function createCommandAgent(): CommandAgent {
       return afterSuccessAgent.invoke(JSON.stringify({ context, result }));
     },
     async afterFail(context, result) {
-      await afterFailAgent.invoke(JSON.stringify({ context, result }));
+      return afterFailAgent.invoke(JSON.stringify({ context, result }));
     },
     async generateCommitMessage(context) {
       return commitMessageAgent.invoke(JSON.stringify({ context }));

@@ -7,7 +7,7 @@
 `git-helper` 希望解决三个核心场景：
 
 1. **命令使用帮助**
-   用户输入类似 `git status ?`、`git push ?` 时，Agent 不实际执行命令，而是根据命令内容查询通用 Git 手册和团队规范，返回简短、可执行的使用说明。
+   用户输入完整命令后按 `Tab` 时，Agent 不实际执行命令，而是根据命令内容查询通用 Git 手册和团队规范，返回简短、可执行的使用说明。
 
 2. **Git 报错诊断**
    用户执行 Git 命令失败后，Agent 获取命令、退出码、stdout、stderr，并结合飞书知识库中的团队经验，返回原因解释和修复步骤。
@@ -23,11 +23,11 @@
 
 - CLI 名称设为 `git-helper`。
 - 无参数启动时进入 TUI，形成类似 Git Bash 的交互入口。
-- runtime 层完成命令解析、命令分类和帮助请求识别。
-- 支持的 Git 命令、自定义命令和其他命令已经有明确分类。
-- 支持 Git 子命令 Tab 补全，例如输入 `git sta` 可补全到 `git status`。
-- 命令末尾加 `?` 时进入 `askForHelp` 流程，不执行原命令。
-- Agent 侧定义了 `askForHelp`、`beforeRun`、`afterSuccess`、`afterFail` 四个阶段接口。
+- runtime 层完成命令解析、命令分类和命令执行流程。
+- 所有 `git` 子命令都会按 Git 命令分类，并交给真实 Git 执行与报错。
+- 支持 Git 子命令和文件路径 ghost 补全，例如输入 `git sta` 后可按 Right 接受到 `git status`。
+- 按 `Tab` 时进入 `beforeRun` 流程，不执行原命令。
+- Agent 侧定义了 `beforeRun`、`afterSuccess`、`afterFail` 三个命令阶段接口。
 - LangChain agent 已改为官方 `createAgent` 模式，工具调用由 LangChain 编排。
 - 已接入第一个工具 `tldr_git_manual`，用于查询 tldr 中的 Git 命令快速手册。
 - 已封装基础 `lark-cli` 能力，包括 status、setup、login、docs search 等入口。
@@ -36,7 +36,7 @@
 暂未完成：
 
 - 飞书知识库 API 尚未接入 Agent 的真实检索流程。
-- `beforeRun`、`afterSuccess`、`afterFail` 暂时只保留接口，没有接入主执行链路。
+- `beforeRun`、`afterSuccess`、`afterFail` 已接入 TUI 主执行链路。
 - PR 总结和飞书通知维护者还处于产品规划阶段。
 - TUI 目前是基础交互形态，后续还需要增强输出渲染、流式反馈和状态展示。
 
@@ -78,12 +78,11 @@ weekly-report/    周期记录文档
 
 Agent 介入命令生命周期的位置用 phase 表达：
 
-- `askForHelp`：用户在命令末尾输入 `?`，请求命令帮助。
-- `beforeRun`：命令执行前，可用于风险提示、规范检查。
+- `beforeRun`：用户按 `Tab` 主动请求命令帮助、风险提示或规范检查。
 - `afterSuccess`：命令执行成功后，可用于总结、通知、下一步建议。
 - `afterFail`：命令执行失败后，可用于报错诊断和修复建议。
 
-当前只实际接入了 `askForHelp`。
+当前 TUI 已接入 `beforeRun`、`afterSuccess`、`afterFail`。
 
 ### Tools
 
@@ -120,8 +119,10 @@ npm run dev
 在 TUI 中请求命令帮助：
 
 ```bash
-git status ?
-git push ?
+git status
+# 按 Tab
+git push origin main
+# 按 Tab
 ```
 
 飞书 CLI 相关命令：
@@ -157,7 +158,7 @@ npm run build
 ## 迭代路线
 
 1. **第一阶段：TUI + runtime 主干**
-   完成命令输入、命令分类、执行流程、帮助请求、Tab 补全、Agent phase 接口。
+   完成命令输入、命令分类、执行流程、Tab 主动请求 Agent、Right 接受补全、Agent phase 接口。
 
 2. **第二阶段：通用 Git 手册能力**
    接入 tldr / git help，让 Agent 能稳定回答 Git 命令基础用法。

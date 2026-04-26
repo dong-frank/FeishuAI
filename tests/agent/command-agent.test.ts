@@ -39,6 +39,7 @@ test("AFTER_FAIL_AGENT_SYSTEM_PROMPT only describes failure behavior", () => {
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /失败后辅助 Agent/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.exitCode/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.stderr/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /排查方向或下一步命令/);
   assert.doesNotMatch(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /afterSuccess/);
   assert.doesNotMatch(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /generateCommitMessage/);
 });
@@ -49,7 +50,7 @@ test("COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT only describes commit message generatio
   assert.match(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /不要执行 git commit/);
   assert.match(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /优先基于 stagedDiff/);
   assert.doesNotMatch(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /afterSuccess/);
-  assert.doesNotMatch(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /askForHelp/);
+  assert.doesNotMatch(COMMIT_MESSAGE_AGENT_SYSTEM_PROMPT, /beforeRun/);
 });
 
 test("all phase prompts keep terminal-friendly plain text output", () => {

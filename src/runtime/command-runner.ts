@@ -20,7 +20,6 @@ import {
 export type ParsedCommandLine = {
   command: string;
   args: string[];
-  helpRequested?: boolean;
   hasUnclosedQuote?: boolean;
 };
 
@@ -37,6 +36,8 @@ export type CommandRunOutput =
     kind: "execute";
     afterSuccess?: Promise<string | void>;
     afterSuccessAgentKind?: "command" | "lark";
+    afterFail?: Promise<string | void>;
+    afterFailAgentKind?: "command";
   })
   | (BaseCommandRunOutput & {
       kind: "help";
@@ -103,11 +104,6 @@ export async function getGitCommandSuccessStats(cwd: string = process.cwd()) {
 
 export function parseCommandLine(commandLine: string): ParsedCommandLine | undefined {
   const parts = splitCommandLine(commandLine);
-  const helpRequested = parts.at(-1) === "?";
-  if (helpRequested) {
-    parts.pop();
-  }
-
   const command = parts[0];
   if (!command) {
     return undefined;
@@ -116,7 +112,6 @@ export function parseCommandLine(commandLine: string): ParsedCommandLine | undef
   return {
     command,
     args: parts.slice(1),
-    ...(helpRequested ? { helpRequested } : {}),
     ...(hasUnclosedQuote(commandLine) ? { hasUnclosedQuote: true } : {}),
   };
 }
@@ -227,25 +222,6 @@ export async function runCommandLine(
     options.onOutput?.({ stream: "stderr", text });
   });
   const classification = classifyCommand(parsed);
-  if (parsed.helpRequested) {
-    const help =
-      classification.kind === "git"
-        ? await options.agent?.askForHelp?.(
-            await buildCommandContext(parsed, options.statsCwd ?? process.cwd()),
-          )
-        : undefined;
-
-    return {
-      commandLine,
-      kind: "help",
-      classification,
-      exitCode: 0,
-      help: help ?? "",
-      stdout: "",
-      stderr: "",
-    };
-  }
-
   if (classification.kind === "custom" && classification.name === "lark") {
     return runLarkCustomCommand(commandLine, parsed, classification, options);
   }
@@ -262,6 +238,7 @@ export async function runCommandLine(
     stderr: stderr.output(),
   };
   let afterSuccess: Promise<string | void> | undefined;
+  let afterFail: Promise<string | void> | undefined;
   if (classification.kind === "git") {
     if (exitCode === 0) {
       await recordGitCommandSuccess(options.statsCwd ?? process.cwd(), rawCommand);
@@ -293,6 +270,13 @@ export async function runCommandLine(
       await recordGitCommandFailure(options.statsCwd ?? process.cwd(), rawCommand, result);
     }
   }
+  if (exitCode !== 0 && options.agent?.afterFail) {
+    afterFail = Promise.resolve(
+      buildCommandContext(parsed, options.statsCwd ?? process.cwd()).then((context) =>
+        options.agent?.afterFail?.(context, result),
+      ),
+    );
+  }
 
   return {
     commandLine,
@@ -303,6 +287,8 @@ export async function runCommandLine(
     stderr: result.stderr,
     ...(afterSuccess ? { afterSuccess } : {}),
     ...(afterSuccess ? { afterSuccessAgentKind: "command" as const } : {}),
+    ...(afterFail ? { afterFail } : {}),
+    ...(afterFail ? { afterFailAgentKind: "command" as const } : {}),
   };
 }
 

@@ -57,11 +57,10 @@ test("parseCommandLine returns undefined for blank input", () => {
   assert.equal(parseCommandLine("   "), undefined);
 });
 
-test("parseCommandLine marks trailing question mark as help request", () => {
+test("parseCommandLine treats trailing question mark as an ordinary argument", () => {
   assert.deepEqual(parseCommandLine("git push ?"), {
     command: "git",
-    args: ["push"],
-    helpRequested: true,
+    args: ["push", "?"],
   });
   assert.deepEqual(parseCommandLine('git commit -m "why ?"'), {
     command: "git",
@@ -69,67 +68,19 @@ test("parseCommandLine marks trailing question mark as help request", () => {
   });
 });
 
-test("runCommandLine calls askForHelp only for git help requests", async () => {
-  const statsCwd = await createTempCwd();
-  await recordGitCommandSuccess(statsCwd, "git status", new Date("2026-04-25T12:00:00.000Z"));
-  await recordGitCommandFailure(
-    statsCwd,
-    "git status --bad",
-    {
-      exitCode: 129,
-      stdout: "",
-      stderr: "unknown option",
-    },
-    new Date("2026-04-25T12:05:00.000Z"),
-  );
-  const events: unknown[] = [];
+test("runCommandLine executes commands with question mark arguments normally", async () => {
+  const calls: unknown[] = [];
 
   const result = await runCommandLine("git status ?", {
-    statsCwd,
-    agent: {
-      askForHelp(context) {
-        events.push(context.gitStats);
-        return "use git status";
-      },
+    executeCommand: async (command, args) => {
+      calls.push({ command, args });
+      return 0;
     },
   });
 
+  assert.equal(result.kind, "execute");
   assert.equal(result.exitCode, 0);
-  assert.equal(result.kind, "help");
-  assert.equal(result.help, "use git status");
-  assert.equal(result.stdout, "");
-  assert.equal(result.stderr, "");
-  assert.deepEqual(events, [
-    {
-      successCount: 0,
-      failures: [
-        {
-          count: 1,
-          exitCode: 129,
-          stdout: "",
-          stderr: "unknown option",
-          occurredAt: "2026-04-25T12:05:00.000Z",
-        },
-      ],
-    },
-  ]);
-});
-
-test("runCommandLine does not call askForHelp for non-git help requests", async () => {
-  const events: string[] = [];
-
-  const result = await runCommandLine("node -e process.exit(9) ?", {
-    agent: {
-      askForHelp(context) {
-        events.push(`help:${context.rawCommand}`);
-        return "use node --help";
-      },
-    },
-  });
-
-  assert.equal(result.kind, "help");
-  assert.equal(result.help, "");
-  assert.deepEqual(events, []);
+  assert.deepEqual(calls, [{ command: "git", args: ["status", "?"] }]);
 });
 
 test("runCommandLine reports command output chunks before completion", async () => {
@@ -384,4 +335,47 @@ test("runCommandLine skips afterSuccess for non-key successes and failures", asy
   assert.equal(failedResult.kind, "execute");
   assert.equal(failedResult.afterSuccess, undefined);
   assert.deepEqual(events, []);
+});
+
+test("runCommandLine triggers afterFail for command-not-found failures", async () => {
+  const events: unknown[] = [];
+
+  const result = await runCommandLine("aaa", {
+    executeCommand: async (_command, _args, options) => {
+      options.stderr?.write("command not found: aaa\n");
+      return 127;
+    },
+    agent: {
+      afterFail(context, commandResult) {
+        events.push({ context, commandResult });
+        return "检查命令是否安装，或确认命令名是否输入正确。";
+      },
+    },
+  });
+
+  assert.equal(result.kind, "execute");
+  assert.equal(result.exitCode, 127);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "command not found: aaa\n");
+  assert.ok(result.afterFail);
+  assert.equal(await result.afterFail, "检查命令是否安装，或确认命令名是否输入正确。");
+  assert.deepEqual(events, [
+    {
+      context: {
+        cwd: process.cwd(),
+        command: "aaa",
+        args: [],
+        rawCommand: "aaa",
+        gitStats: {
+          successCount: 0,
+          failures: [],
+        },
+      },
+      commandResult: {
+        exitCode: 127,
+        stdout: "",
+        stderr: "command not found: aaa\n",
+      },
+    },
+  ]);
 });

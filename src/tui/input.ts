@@ -27,6 +27,11 @@ export type EditableInput = {
   cursorIndex: number;
 };
 
+export type CompletionCandidate = {
+  completion: string;
+  suffix: string;
+};
+
 export type CommandHistoryNavigationState = {
   commands: string[];
   currentInput: string;
@@ -113,6 +118,23 @@ export function getNextEditableInput(
     input: `${state.input.slice(0, cursorIndex)}${action.text}${state.input.slice(cursorIndex)}`,
     cursorIndex: cursorIndex + action.text.length,
   };
+}
+
+export function getNextRightArrowInput({
+  input,
+  cursorIndex,
+  completion,
+}: EditableInput & {
+  completion?: CompletionCandidate | undefined;
+}): EditableInput {
+  if (completion) {
+    return {
+      input: completion.completion,
+      cursorIndex: completion.completion.length,
+    };
+  }
+
+  return getNextEditableInput({ input, cursorIndex }, "right");
 }
 
 export function getNextCommandHistoryInput(

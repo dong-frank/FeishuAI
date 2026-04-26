@@ -59,3 +59,18 @@ test("executeCommand returns the child exit code and forwards stderr", async () 
   assert.equal(stdout.output(), "");
   assert.equal(stderr.output(), "bad");
 });
+
+test("executeCommand reports missing commands like a shell command-not-found failure", async () => {
+  const stdout = captureStream();
+  const stderr = captureStream();
+
+  const exitCode = await executeCommand(
+    "git-helper-command-that-does-not-exist",
+    [],
+    { stdout: stdout.stream, stderr: stderr.stream },
+  );
+
+  assert.equal(exitCode, 127);
+  assert.equal(stdout.output(), "");
+  assert.equal(stderr.output(), "command not found: git-helper-command-that-does-not-exist\n");
+});

@@ -26,8 +26,6 @@ export function getStatusLine({
   isAgentReviewing = false,
   agentKind,
   agentCommand,
-  isBeforeRunPending = false,
-  pendingCommand,
   tipIndex = 0,
 }: {
   isRunning: boolean;
@@ -36,8 +34,6 @@ export function getStatusLine({
   isAgentReviewing?: boolean | undefined;
   agentKind?: AgentKind | undefined;
   agentCommand?: string | undefined;
-  isBeforeRunPending?: boolean | undefined;
-  pendingCommand?: string | undefined;
   tipIndex?: number | undefined;
 }) {
   const agentLabel = getAgentLabel(agentKind);
@@ -64,10 +60,6 @@ export function getStatusLine({
 
   if (isRunning) {
     return "命令：正在执行 ...";
-  }
-
-  if (isBeforeRunPending) {
-    return `Agent：等待触发 ${pendingCommand ?? "command"}`;
   }
 
   return TUI_USAGE_TIPS[tipIndex % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;

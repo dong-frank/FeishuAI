@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
-import { SUPPORTED_GIT_SUBCOMMANDS } from "./command-registry.js";
+import { COMMON_GIT_SUBCOMMANDS } from "./command-registry.js";
 
 export type CommandCompletion = {
   completion: string;
@@ -31,7 +31,7 @@ export function getCompletion(
     return undefined;
   }
 
-  const matches = SUPPORTED_GIT_SUBCOMMANDS.filter((subcommand) =>
+  const matches = COMMON_GIT_SUBCOMMANDS.filter((subcommand) =>
     subcommand.startsWith(partial),
   );
 
