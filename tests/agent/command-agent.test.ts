@@ -54,6 +54,9 @@ test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", 
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /pull、merge、rebase 后/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /context\.gitRepository/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /branch、upstream 和 dirty/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /大胆给出 suggestedCommand/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /用户不一定会接受/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /完整、可执行的下一步命令/);
   assert.doesNotMatch(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /tldr_git_manual/);
   assert.doesNotMatch(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /generateCommitMessage/);
 });
@@ -63,6 +66,9 @@ test("AFTER_FAIL_AGENT_SYSTEM_PROMPT only describes failure behavior", () => {
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.exitCode/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.stderr/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /排查方向或下一步命令/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /大胆给出 suggestedCommand/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /用户不一定会接受/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /修复或排查命令/);
   assert.doesNotMatch(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /afterSuccess/);
   assert.doesNotMatch(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /generateCommitMessage/);
 });
