@@ -3,7 +3,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, type ResponseFormat, type TypedToolStrategy } from "langchain";
 import { traceable } from "langsmith/traceable";
 
-import type { AgentRunMetadata, AgentTokenUsage } from "./types.js";
+import type { AgentRunMetadata, AgentTokenUsage } from "../types.js";
 
 export type LangChainChatModelConfig = {
   apiKey?: string;

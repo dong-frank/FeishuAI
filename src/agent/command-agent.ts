@@ -5,7 +5,7 @@ import { providerStrategy } from "langchain";
 import { z } from "zod";
 
 import type { CommandAgent, CommandAgentOutput, AgentRunMetadata } from "./types.js";
-import { createLangChainAgent, createLangChainChatModel } from "./langchain-agent.js";
+import { createLangChainAgent, createLangChainChatModel } from "./runtime/langchain-agent.js";
 import { readTldrPage } from "../integrations/tldr.js";
 
 const TERMINAL_OUTPUT_REQUIREMENTS = `

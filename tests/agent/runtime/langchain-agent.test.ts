@@ -13,7 +13,7 @@ import {
   getLangChainAgentOutputText,
   resolveLangChainModelName,
   shouldTraceLangChainAgent,
-} from "../../src/agent/langchain-agent.js";
+} from "../../../src/agent/runtime/langchain-agent.js";
 
 test("createLangChainChatModel reads model configuration", () => {
   const model = createLangChainChatModel({

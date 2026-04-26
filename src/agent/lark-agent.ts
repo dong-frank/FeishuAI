@@ -6,7 +6,7 @@ import {
   createLangChainAgent,
   createLangChainChatModel,
   type LangChainAgent,
-} from "./langchain-agent.js";
+} from "./runtime/langchain-agent.js";
 import {
   createSkillRegistry,
   formatAvailableSkills,
