@@ -312,6 +312,7 @@ export function App() {
         result: {
           commandLine: context.rawCommand,
           kind: "help",
+          agentKind: "command",
           ...(classification ? { classification } : {}),
           exitCode: 0,
           stdout: "",
@@ -356,6 +357,7 @@ export function App() {
         result: {
           commandLine: result.commandLine,
           kind: "help",
+          agentKind: result.afterSuccessAgentKind ?? "command",
           ...(result.classification ? { classification: result.classification } : {}),
           exitCode: 0,
           stdout: "",
@@ -397,6 +399,7 @@ export function App() {
         result: {
           commandLine: result.commandLine,
           kind: "help",
+          agentKind: result.afterFailAgentKind ?? "command",
           ...(result.classification ? { classification: result.classification } : {}),
           exitCode: 0,
           stdout: "",

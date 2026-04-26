@@ -816,8 +816,19 @@ test("help output is rendered in a banner instead of normal history text", () =>
     {
       type: "output",
       result: {
+        commandLine: "git status",
+        kind: "execute",
+        exitCode: 0,
+        stdout: "status output\n",
+        stderr: "",
+      },
+    },
+    {
+      type: "output",
+      result: {
         commandLine: "git commit",
         kind: "help",
+        agentKind: "command",
         exitCode: 0,
         stdout: "",
         stderr: "",
@@ -830,10 +841,33 @@ test("help output is rendered in a banner instead of normal history text", () =>
         },
       },
     },
+    {
+      type: "output",
+      result: {
+        commandLine: "lark init",
+        kind: "help",
+        agentKind: "lark",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        help: "auth ready",
+        agentMetadata: {
+          durationMs: 2500,
+          tokenUsage: {
+            totalTokens: 1031,
+          },
+        },
+      },
+    },
   ]);
-  const agentTitle = rows.find((row) => row.text === "Agent");
-  assert.equal(agentTitle?.rightText, "[✓ 1.2s · 456 tokens]");
-  assert.equal(agentTitle?.rightColor, "cyan");
+  const gitAgentTitle = rows.find((row) => row.text === "Git Agent");
+  const gitAgentTitleIndex = rows.findIndex((row) => row.text === "Git Agent");
+  assert.equal(rows[gitAgentTitleIndex - 1]?.text, "");
+  assert.equal(gitAgentTitle?.rightText, "[✓ 1.2s · 456 tokens]");
+  assert.equal(gitAgentTitle?.rightColor, "cyan");
+  const larkAgentTitle = rows.find((row) => row.text === "Lark Agent");
+  assert.equal(larkAgentTitle?.rightText, "[✓ 2.5s · 1031 tokens]");
+  assert.equal(larkAgentTitle?.rightColor, "cyan");
   assert.equal(
     isHelpOutput({
       commandLine: "git status",

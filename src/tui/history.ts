@@ -139,8 +139,9 @@ function getHistoryEntryRows(
   if (isHelpOutput(entry.result)) {
     const output = getOutputSections(entry.result);
     return [
+      { text: "" },
       {
-        text: "Agent",
+        text: getAgentHistoryTitle(entry.result.agentKind),
         color: "cyan",
         bold: true,
         rightText: formatAgentMetadata(entry.result.agentMetadata),
@@ -230,6 +231,14 @@ function formatAgentMetadata(metadata: AgentRunMetadata | undefined) {
   }
 
   return `[${parts.join(" · ")}]`;
+}
+
+function getAgentHistoryTitle(agentKind: "command" | "lark" | undefined) {
+  if (agentKind === "lark") {
+    return "Lark Agent";
+  }
+
+  return "Git Agent";
 }
 
 function getAgentTokenCount(tokenUsage: AgentTokenUsage | undefined) {

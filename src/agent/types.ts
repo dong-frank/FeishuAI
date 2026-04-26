@@ -93,7 +93,7 @@ export type LarkMessageContext = {
 };
 
 export type LarkAgent = {
-  authorize: (context: LarkAuthContext) => Promise<string>;
-  searchDocs: (context: LarkDocSearchContext) => Promise<string>;
-  sendMessage: (context: LarkMessageContext) => Promise<string>;
+  authorize: (context: LarkAuthContext) => Promise<CommandAgentOutput>;
+  searchDocs: (context: LarkDocSearchContext) => Promise<CommandAgentOutput>;
+  sendMessage: (context: LarkMessageContext) => Promise<CommandAgentOutput>;
 };

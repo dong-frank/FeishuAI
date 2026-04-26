@@ -2,7 +2,7 @@ import type { Writable } from "node:stream";
 import { Command } from "commander";
 
 import { createLarkAgent } from "../agent/lark-agent.js";
-import type { LarkAgent } from "../agent/types.js";
+import type { CommandAgentOutput, LarkAgent } from "../agent/types.js";
 
 export type LarkCommandOptions = {
   agent?: Pick<LarkAgent, "authorize">;
@@ -31,11 +31,12 @@ export function createLarkCommand(options: LarkCommandOptions = {}): Command {
 }
 
 async function runAgentAndForward(
-  action: () => Promise<string>,
+  action: () => Promise<CommandAgentOutput>,
   options: LarkCommandOptions = {},
 ): Promise<void> {
   try {
-    const message = await action();
+    const output = await action();
+    const message = output.content.trim();
     if (message) {
       getStdout(options).write(`${message}\n`);
     }

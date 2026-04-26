@@ -11,7 +11,7 @@ test("lark init triggers the lark authorization agent phase", async () => {
     agent: {
       authorize: async (context) => {
         capturedContext = context;
-        return "auth phase ready";
+        return { content: "auth phase ready" };
       },
     },
     stdout: output,

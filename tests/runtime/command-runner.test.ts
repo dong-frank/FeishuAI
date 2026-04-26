@@ -189,7 +189,16 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
       authorize(context) {
         events.push(context);
         return new Promise((resolve) => {
-          releaseAuthorize = () => resolve("auth phase ready");
+          releaseAuthorize = () =>
+            resolve({
+              content: "auth phase ready",
+              metadata: {
+                durationMs: 2500,
+                tokenUsage: {
+                  totalTokens: 1031,
+                },
+              },
+            });
         });
       },
     },
@@ -212,7 +221,15 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
     },
   ]);
   releaseAuthorize?.();
-  assert.equal(await result.afterSuccess, "auth phase ready");
+  assert.deepEqual(await result.afterSuccess, {
+    content: "auth phase ready",
+    metadata: {
+      durationMs: 2500,
+      tokenUsage: {
+        totalTokens: 1031,
+      },
+    },
+  });
 });
 
 test("runCommandLine reports unsupported lark custom commands without spawning", async () => {

@@ -52,6 +52,7 @@ export type CommandRunOutput =
   | (BaseCommandRunOutput & {
       kind: "help";
       help: string;
+      agentKind?: "command" | "lark";
       agentMetadata?: AgentRunMetadata;
     });
 

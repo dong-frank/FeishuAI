@@ -154,14 +154,22 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
 
   return {
     async authorize(context) {
-      return agent.invoke(JSON.stringify({ task: "authorize", context }));
+      return invokeLarkAgentWithMetadata(agent, JSON.stringify({ task: "authorize", context }));
     },
     async searchDocs(context) {
-      return agent.invoke(JSON.stringify({ task: "searchDocs", context }));
+      return invokeLarkAgentWithMetadata(agent, JSON.stringify({ task: "searchDocs", context }));
     },
     async sendMessage(context) {
-      return agent.invoke(JSON.stringify({ task: "sendMessage", context }));
+      return invokeLarkAgentWithMetadata(agent, JSON.stringify({ task: "sendMessage", context }));
     },
+  };
+}
+
+async function invokeLarkAgentWithMetadata(agent: LangChainAgent, input: string) {
+  const result = await agent.invokeWithMetadata(input);
+  return {
+    content: result.content.trim(),
+    metadata: result.metadata,
   };
 }
 
