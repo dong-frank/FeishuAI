@@ -889,6 +889,7 @@ test("agent history entries render pending, success, failed, and empty states", 
       agentKind: "command",
       commandLine: "git commit",
       state: "pending",
+      activity: "waiting",
     },
     {
       type: "agent",
@@ -919,21 +920,42 @@ test("agent history entries render pending, success, failed, and empty states", 
       commandLine: "git status",
       state: "empty",
     },
+    {
+      type: "agent",
+      id: "agent-5",
+      agentKind: "command",
+      commandLine: "git push",
+      state: "pending",
+      activity: "reviewing",
+    },
+    {
+      type: "agent",
+      id: "agent-6",
+      agentKind: "lark",
+      commandLine: "lark init",
+      state: "pending",
+      activity: "reviewing",
+    },
   ]);
 
   const gitAgentTitles = rows.filter((row) => row.text === "Git Agent");
-  assert.equal(gitAgentTitles[0]?.rightText, "[running]");
+  assert.equal(gitAgentTitles[0]?.rightText, "[Command Agent：正在请求帮助 git commit ...]");
   assert.equal(gitAgentTitles[0]?.rightColor, "yellow");
   assert.equal(gitAgentTitles[1]?.rightText, "[failed]");
   assert.equal(gitAgentTitles[1]?.rightColor, "red");
   assert.equal(gitAgentTitles[2]?.rightText, "[done]");
   assert.equal(gitAgentTitles[2]?.rightColor, "gray");
+  assert.equal(gitAgentTitles[3]?.rightText, "[Command Agent：正在检查 git push ...]");
+  assert.equal(gitAgentTitles[3]?.rightColor, "yellow");
   assert.ok(rows.some((row) => row.text === "model timeout"));
   assert.ok(rows.some((row) => row.text === "No agent suggestion generated."));
 
-  const larkAgentTitle = rows.find((row) => row.text === "Lark Agent");
+  const larkAgentTitles = rows.filter((row) => row.text === "Lark Agent");
+  const larkAgentTitle = larkAgentTitles[0];
   assert.equal(larkAgentTitle?.rightText, "[✓ 2.5s · 1031 tokens]");
   assert.equal(larkAgentTitle?.rightColor, "cyan");
+  assert.equal(larkAgentTitles[1]?.rightText, "[Lark Agent：正在处理 lark init ...]");
+  assert.equal(larkAgentTitles[1]?.rightColor, "yellow");
   assert.ok(rows.some((row) => row.text === "auth ready"));
 });
 

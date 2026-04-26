@@ -15,12 +15,13 @@ import {
   isHelpOutput,
   type OutputTextPart,
 } from "./output.js";
-import { getTerminalTextWidth } from "./status.js";
+import { getStatusLine, getTerminalTextWidth } from "./status.js";
 
 type HistoryColor = NonNullable<OutputTextPart["color"]>;
 type OutputSource = "user" | "agent";
 type AgentHistoryKind = "command" | "lark";
 type AgentHistoryState = "pending" | "success" | "failed" | "empty";
+type AgentHistoryActivity = "waiting" | "reviewing";
 
 export type AgentHistoryEntry = {
   type: "agent";
@@ -28,6 +29,7 @@ export type AgentHistoryEntry = {
   agentKind: AgentHistoryKind;
   commandLine: string;
   state: AgentHistoryState;
+  activity?: AgentHistoryActivity | undefined;
   content?: string | undefined;
   error?: string | undefined;
   metadata?: AgentRunMetadata | undefined;
@@ -326,7 +328,7 @@ function getAgentHistoryBodyRows(
 
 function getAgentHistoryRightText(entry: AgentHistoryEntry) {
   if (entry.state === "pending") {
-    return "[running]";
+    return `[${getPendingAgentStatusText(entry)}]`;
   }
 
   if (entry.state === "failed") {
@@ -338,6 +340,16 @@ function getAgentHistoryRightText(entry: AgentHistoryEntry) {
   }
 
   return formatAgentMetadata(entry.metadata) ?? "[done]";
+}
+
+function getPendingAgentStatusText(entry: AgentHistoryEntry) {
+  return getStatusLine({
+    isRunning: false,
+    isAgentWaiting: entry.activity !== "reviewing",
+    isAgentReviewing: entry.activity === "reviewing",
+    agentKind: entry.agentKind,
+    agentCommand: entry.commandLine,
+  });
 }
 
 function getAgentHistoryRightColor(entry: AgentHistoryEntry): HistoryColor {

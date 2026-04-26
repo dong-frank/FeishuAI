@@ -298,7 +298,7 @@ export function App() {
   }
 
   async function triggerBeforeRun(context: CommandContext) {
-    const agentHistoryId = appendPendingAgentHistoryEntry("command", context.rawCommand);
+    const agentHistoryId = appendPendingAgentHistoryEntry("command", context.rawCommand, "waiting");
     setIsAgentWaiting(true);
     setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
@@ -344,7 +344,7 @@ export function App() {
     } = {},
   ) {
     const agentKind = result.afterSuccessAgentKind ?? "command";
-    const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine);
+    const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine, "reviewing");
     options.onAgentHistoryEntryCreated?.(agentHistoryId, agentKind);
     setIsAgentReviewing(true);
     setActiveAgentKind(agentKind);
@@ -383,7 +383,7 @@ export function App() {
     },
   ) {
     const agentKind = result.afterFailAgentKind ?? "command";
-    const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine);
+    const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine, "reviewing");
     setIsAgentReviewing(true);
     setActiveAgentKind(agentKind);
     setAgentStatusCommand(result.commandLine);
@@ -545,6 +545,7 @@ export function App() {
   function appendPendingAgentHistoryEntry(
     agentKind: AgentKind,
     commandLine: string,
+    activity: AgentHistoryEntry["activity"] = "waiting",
   ) {
     const id = `agent-${nextAgentHistoryId.current}`;
     nextAgentHistoryId.current += 1;
@@ -554,6 +555,7 @@ export function App() {
       agentKind,
       commandLine,
       state: "pending",
+      activity,
     };
     setHistory((current) => [...current, entry].slice(-20));
     setHistoryScrollOffset(0);
