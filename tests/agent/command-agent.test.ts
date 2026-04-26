@@ -15,10 +15,10 @@ import {
 } from "../../src/agent/command-agent.js";
 
 test("COMMAND_AGENT_TOOLS includes help and git commit context tools", () => {
-  assert.deepEqual(
-    COMMAND_AGENT_TOOLS.map((tool) => tool.name),
-    ["tldr_git_manual", "git_commit_context"],
-  );
+  assert.deepEqual(COMMAND_AGENT_TOOLS.map((tool) => tool.name), [
+    "tldr_git_manual",
+    "git_commit_context",
+  ]);
 });
 
 test("command agent structured output defaults to native provider schema", () => {
@@ -133,9 +133,6 @@ test("buildGitCommitContext runs fixed git commands", async () => {
       if (command === "diff --cached") {
         return Promise.resolve({ exitCode: 0, stdout: "cached diff", stderr: "" });
       }
-      if (command === "diff") {
-        return Promise.resolve({ exitCode: 0, stdout: "unstaged diff", stderr: "" });
-      }
       if (command === "log -5 --pretty=%s") {
         return Promise.resolve({ exitCode: 0, stdout: "feat: add tui\nfix: status\n", stderr: "" });
       }
@@ -147,7 +144,6 @@ test("buildGitCommitContext runs fixed git commands", async () => {
   assert.deepEqual(calls, [
     ["status", "--short"],
     ["diff", "--cached"],
-    ["diff"],
     ["log", "-5", "--pretty=%s"],
   ]);
   assert.deepEqual(context, {
@@ -162,13 +158,6 @@ test("buildGitCommitContext runs fixed git commands", async () => {
       command: "git diff --cached",
       exitCode: 0,
       stdout: "cached diff",
-      stderr: "",
-      truncated: false,
-    },
-    unstagedDiff: {
-      command: "git diff",
-      exitCode: 0,
-      stdout: "unstaged diff",
       stderr: "",
       truncated: false,
     },
@@ -206,8 +195,6 @@ test("buildGitCommitContext truncates large git outputs", async () => {
   assert.equal(context.status.truncated, true);
   assert.equal(context.stagedDiff.stdout.length, GIT_COMMIT_CONTEXT_DIFF_LIMIT);
   assert.equal(context.stagedDiff.truncated, true);
-  assert.equal(context.unstagedDiff.stdout.length, GIT_COMMIT_CONTEXT_DIFF_LIMIT);
-  assert.equal(context.unstagedDiff.truncated, true);
   assert.equal(context.recentCommits.stdout.length, GIT_COMMIT_CONTEXT_SUMMARY_LIMIT);
   assert.equal(context.recentCommits.truncated, true);
 });

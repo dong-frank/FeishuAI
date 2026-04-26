@@ -36,8 +36,8 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 用户不知道这条命令该如何使用，需要请求你的帮助。
 请给出该命令对应的参数，和使用方法。
 如果是 Git 命令，优先使用 tldr_git_manual 工具查询通用用法，再结合输入上下文回答。
-如果 context.command 是 git 且 context.args 的第一项是 commit，优先考虑生成 commit message。需要判断当前变更时，必须调用 git_commit_context 工具获取 Git 信息；不要要求初始 context 提供 diff、status 或 recent commits。
-生成 commit message 时，content 输出生成的 commit message 或一条极短说明；suggestedCommand 输出完整提交命令，例如 git commit -m "feat: add structured agent output"。不要执行 git commit，不要要求用户执行命令。优先基于 stagedDiff；如果 stagedDiff 为空，再参考 unstagedDiff 和 status；如果 recentCommits 存在，尽量贴近其中的语言、粒度和前缀风格。
+如果 context.command 是 git 且 context.args 的第一项是 commit，优先考虑生成 commit message。需要判断当前已暂存变更时，必须调用 git_commit_context 工具获取 Git 信息；不要要求初始 context 提供 diff、status 或 recent commits。
+生成 commit message 时，content 输出生成的 commit message 或一条极短说明；suggestedCommand 输出完整提交命令，例如 git commit -m "feat: add structured agent output"。不要执行 git commit，不要要求用户执行命令。只基于 stagedDiff 生成；如果 stagedDiff 为空，提示用户先 git add 需要提交的内容，不要基于未暂存内容生成提交信息；如果 recentCommits 存在，尽量贴近其中的语言、粒度和前缀风格。
 commit message 场景的当前工作区状态只能以 git_commit_context 工具返回的实时结果为准，其次参考 context.tuiSession；不要把 gitStats.failures 中的历史失败输出当成当前工作区状态，也不要因为历史 failures 里出现 nothing to commit 就拒绝生成 commit message。
 如果 context.gitStats 存在，需要参考 successCount 和 failures：
 成功次数较高且没有近期失败时，回答可以更短，只补充关键参数提醒。
@@ -139,7 +139,7 @@ export const COMMAND_AGENT_TOOLS: StructuredToolInterface[] = [
     {
       name: "git_commit_context",
       description:
-        "按需读取生成 commit message 所需的 Git 信息。只在 git commit 场景使用；内部固定运行 git status --short、git diff --cached、git diff、git log -5 --pretty=%s，并会截断过长输出。",
+        "按需读取生成 commit message 所需的已暂存 Git 信息。只在 git commit 场景使用；内部固定运行 git status --short、git diff --cached、git log -5 --pretty=%s，并会截断过长输出。",
       schema: z.object({
         cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
       }),
@@ -151,10 +151,9 @@ export async function buildGitCommitContext({
   cwd,
   runGitCommand = runGit,
 }: GitCommitContextOptions) {
-  const [status, stagedDiff, unstagedDiff, recentCommits] = await Promise.all([
+  const [status, stagedDiff, recentCommits] = await Promise.all([
     runGitCommand(["status", "--short"], cwd),
     runGitCommand(["diff", "--cached"], cwd),
-    runGitCommand(["diff"], cwd),
     runGitCommand(["log", "-5", "--pretty=%s"], cwd),
   ]);
 
@@ -167,7 +166,6 @@ export async function buildGitCommitContext({
   return {
     status: formatGitOutput("git status --short", status, GIT_COMMIT_CONTEXT_SUMMARY_LIMIT),
     stagedDiff: formatGitOutput("git diff --cached", stagedDiff, GIT_COMMIT_CONTEXT_DIFF_LIMIT),
-    unstagedDiff: formatGitOutput("git diff", unstagedDiff, GIT_COMMIT_CONTEXT_DIFF_LIMIT),
     recentCommits: {
       ...recentCommitsOutput,
       subjects: recentCommitsOutput.stdout.split("\n").filter(Boolean),
