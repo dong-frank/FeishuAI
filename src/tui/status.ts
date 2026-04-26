@@ -7,18 +7,6 @@ import {
 
 export type AgentKind = "command" | "lark";
 
-function getAgentLabel(agentKind: AgentKind | undefined) {
-  if (agentKind === "lark") {
-    return "Lark Agent";
-  }
-
-  if (agentKind === "command") {
-    return "Command Agent";
-  }
-
-  return "Agent";
-}
-
 export function getStatusLine({
   isRunning,
   isAgentWaiting,
@@ -34,22 +22,20 @@ export function getStatusLine({
   agentCommand?: string | undefined;
   tipIndex?: number | undefined;
 }) {
-  const agentLabel = getAgentLabel(agentKind);
-
   if (isAgentWaiting) {
     if (agentKind === "lark") {
-      return `${agentLabel}：正在处理 ${agentCommand ?? "lark"} ...`;
+      return `正在处理 ${agentCommand ?? "lark"} ...`;
     }
 
-    return `${agentLabel}：正在请求帮助 ${agentCommand ?? "command"} ...`;
+    return `正在请求帮助 ${agentCommand ?? "command"} ...`;
   }
 
   if (isAgentReviewing) {
     if (agentKind === "lark") {
-      return `${agentLabel}：正在处理 ${agentCommand ?? "lark"} ...`;
+      return `正在处理 ${agentCommand ?? "lark"} ...`;
     }
 
-    return `${agentLabel}：正在检查 ${agentCommand ?? "command"} ...`;
+    return `正在检查 ${agentCommand ?? "command"} ...`;
   }
 
   if (isRunning) {
