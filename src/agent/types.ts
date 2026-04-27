@@ -52,17 +52,6 @@ export type AgentRunMetadata = {
   tokenUsage?: AgentTokenUsage;
 };
 
-export type CommandAgentSupplementalLookup =
-  | {
-      type: "lark.docs";
-      query: string;
-      reason: string;
-      displayHint?:
-        | "append_as_team_policy"
-        | "append_as_troubleshooting_reference"
-        | undefined;
-    };
-
 export type CommandAgentFollowUpAction =
   | {
       type: "collaboration.notification";
@@ -75,7 +64,6 @@ export type CommandAgentFollowUpAction =
 export type CommandAgentOutput = {
   content: string;
   suggestedCommand?: string;
-  supplementalLookups?: CommandAgentSupplementalLookup[];
   followUpActions?: CommandAgentFollowUpAction[];
   metadata?: AgentRunMetadata;
 };
@@ -99,6 +87,33 @@ export type LarkAuthContext = {
   intent?: string;
 };
 
+export type LarkContextTopic = "commit_message_policy";
+
+export type LarkContextRequest = {
+  cwd: string;
+  topic: LarkContextTopic;
+  reason: string;
+  command?: string;
+  rawCommand?: string;
+  repository?: {
+    root?: string;
+    remoteUrl?: string;
+    webUrl?: string;
+  };
+};
+
+export type LarkContextPack = {
+  topic: LarkContextTopic;
+  content: string;
+  freshness: "remembered" | "refreshed" | "missing";
+  source?: {
+    title?: string;
+    url?: string;
+    documentId?: string;
+  };
+  updatedAt?: string;
+};
+
 export type LarkDocSearchContext = {
   cwd: string;
   query: string;
@@ -118,6 +133,7 @@ export type LarkMessageContext = {
 
 export type LarkAgent = {
   authorize: (context: LarkAuthContext) => Promise<CommandAgentOutput>;
+  requestContext: (context: LarkContextRequest) => Promise<LarkContextPack>;
   searchDocs: (context: LarkDocSearchContext) => Promise<CommandAgentOutput>;
   sendMessage: (context: LarkMessageContext) => Promise<CommandAgentOutput>;
 };

@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useApp, useInput, useStdout } from "ink";
 
-import type { CommandAgentOutput, CommandContext } from "../agent/types.js";
+import type { CommandAgent, CommandAgentOutput, CommandContext, LarkAgent } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
-import { createCommandOrchestrator } from "../agent/command-orchestrator.js";
 import { createLarkAgent } from "../agent/lark-agent.js";
 import { classifyCommand } from "../runtime/command-registry.js";
 import { getCompletion } from "../runtime/completion.js";
@@ -73,6 +72,9 @@ export function App() {
   const [agentStatusCommand, setAgentStatusCommand] = useState<string | undefined>();
   const [agentSuggestedCommand, setAgentSuggestedCommand] = useState<string | undefined>();
   const lastTabAgentInput = useRef<string | undefined>(undefined);
+  const larkOutputHandler = useRef<((chunk: CommandOutputChunk) => void) | undefined>(undefined);
+  const larkAgent = useRef<LarkAgent | undefined>(undefined);
+  const commandAgent = useRef<CommandAgent | undefined>(undefined);
   const nextAgentHistoryId = useRef(1);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
@@ -112,6 +114,20 @@ export function App() {
     historyScrollOffset,
     historyViewportWidth,
   );
+
+  if (!larkAgent.current) {
+    larkAgent.current = createLarkAgent({
+      onLarkCliOutput(chunk) {
+        larkOutputHandler.current?.(chunk);
+      },
+    });
+  }
+
+  if (!commandAgent.current) {
+    commandAgent.current = createCommandAgent({
+      larkAgent: larkAgent.current,
+    });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -304,10 +320,7 @@ export function App() {
     setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
     try {
-      const message = await createCommandOrchestrator({
-        commandAgent: createCommandAgent(),
-        larkAgent: createLarkAgent(),
-      }).beforeRun?.(context);
+      const message = await commandAgent.current?.beforeRun?.(context);
       if (!message) {
         updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
         return;
@@ -489,17 +502,11 @@ export function App() {
     };
 
     try {
+      larkOutputHandler.current = updateAgentLiveOutput;
       const result = await runCommandLine(commandLine, {
         cwd: currentCwd,
-        orchestrator: createCommandOrchestrator({
-          commandAgent: createCommandAgent(),
-          larkAgent: createLarkAgent({
-            onLarkCliOutput: updateAgentLiveOutput,
-          }),
-        }),
-        larkAgent: createLarkAgent({
-          onLarkCliOutput: updateAgentLiveOutput,
-        }),
+        ...(commandAgent.current ? { agent: commandAgent.current } : {}),
+        ...(larkAgent.current ? { larkAgent: larkAgent.current } : {}),
         onOutput: updateUserLiveOutput,
       });
       const entry: HistoryEntry = { type: "output", result };
@@ -541,6 +548,7 @@ export function App() {
       setHistory((current) => [...current, entry].slice(-20));
       setHistoryScrollOffset(0);
     } finally {
+      larkOutputHandler.current = undefined;
       setIsRunning(false);
     }
   }

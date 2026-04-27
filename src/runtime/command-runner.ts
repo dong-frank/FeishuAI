@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { Writable } from "node:stream";
 
-import { createCommandOrchestrator, type CommandOrchestrator } from "../agent/command-orchestrator.js";
 import { createLarkAgent } from "../agent/lark-agent.js";
 import type {
   AgentRunMetadata,
@@ -62,7 +61,6 @@ export type CommandRunOutput =
 
 export type RunCommandLineOptions = {
   agent?: CommandAgent;
-  orchestrator?: CommandOrchestrator;
   cwd?: string;
   larkAgent?: Pick<LarkAgent, "authorize">;
   statsCwd?: string;
@@ -270,7 +268,7 @@ export async function runCommandLine(
   let afterSuccess: Promise<CommandAgentOutput | string | void> | undefined;
   let afterFail: Promise<CommandAgentOutput | void> | undefined;
   const statsCwd = options.statsCwd ?? cwd;
-  const orchestrator = getCommandOrchestrator(options);
+  const agent = options.agent;
   if (classification.kind === "git") {
     if (exitCode === 0) {
       await recordGitCommandSuccess(statsCwd, rawCommand);
@@ -280,7 +278,7 @@ export async function runCommandLine(
         statsCwd,
       );
       if (
-        orchestrator?.afterSuccess &&
+        agent?.afterSuccess &&
         shouldTriggerAfterSuccess({
           classification,
           rawCommand,
@@ -289,7 +287,7 @@ export async function runCommandLine(
         afterSuccess = Promise.resolve(
           buildCommandTuiSessionContext(cwd, options)
             .then((tuiSession) =>
-              orchestrator.afterSuccess?.(
+              agent.afterSuccess?.(
                 {
                   ...context,
                   tuiSession,
@@ -303,10 +301,10 @@ export async function runCommandLine(
       await recordGitCommandFailure(statsCwd, rawCommand, result);
     }
   }
-  if (exitCode !== 0 && orchestrator?.afterFail) {
+  if (exitCode !== 0 && agent?.afterFail) {
     afterFail = Promise.resolve(
       buildCommandContext(parsed, cwd, statsCwd).then((context) =>
-        orchestrator.afterFail?.(context, result),
+        agent.afterFail?.(context, result),
       ),
     );
   }
@@ -467,18 +465,6 @@ function runBlockedNestedTuiCommand(
 
 function getLarkAgent(options: RunCommandLineOptions) {
   return options.larkAgent ?? createLarkAgent();
-}
-
-function getCommandOrchestrator(options: RunCommandLineOptions) {
-  if (options.orchestrator) {
-    return options.orchestrator;
-  }
-
-  if (options.agent) {
-    return createCommandOrchestrator({ commandAgent: options.agent });
-  }
-
-  return undefined;
 }
 
 async function buildCommandTuiSessionContext(

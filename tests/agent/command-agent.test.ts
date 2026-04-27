@@ -9,6 +9,7 @@ import {
   COMMAND_AGENT_PROVIDER_RESPONSE_FORMAT,
   COMMAND_AGENT_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOLS,
+  createRequestLarkContextTool,
   GIT_COMMIT_CONTEXT_DIFF_LIMIT,
   GIT_COMMIT_CONTEXT_SUMMARY_LIMIT,
   HELP_AGENT_SYSTEM_PROMPT,
@@ -19,6 +20,7 @@ test("COMMAND_AGENT_TOOLS includes help and git commit context tools", () => {
   assert.deepEqual(COMMAND_AGENT_TOOLS.map((tool) => tool.name), [
     "tldr_git_manual",
     "git_commit_context",
+    "request_lark_context",
   ]);
 });
 
@@ -51,6 +53,10 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git commit/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git_commit_context/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git commit -m/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /团队 commit message 规范/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /request_lark_context/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /精细化生成 commit message/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /回退到 stagedDiff 和 recentCommits/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /历史画像/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /当前工作区状态/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /不要把 gitStats\.failures/);
@@ -112,10 +118,9 @@ test("all phase prompts describe structured output boundaries", () => {
     AFTER_SUCCESS_AGENT_SYSTEM_PROMPT,
     AFTER_FAIL_AGENT_SYSTEM_PROMPT,
   ]) {
-    assert.match(prompt, /不调用 Lark Agent/);
+    assert.match(prompt, /不直接调用 Lark Agent/);
+    assert.match(prompt, /不直接执行 Lark CLI/);
     assert.match(prompt, /不会等待用户确认/);
-    assert.match(prompt, /不会二次调度 Command Agent/);
-    assert.match(prompt, /supplementalLookups/);
     assert.match(prompt, /followUpActions/);
   }
 });
@@ -130,7 +135,7 @@ test("command agent schema accepts legacy structured output", () => {
   );
 });
 
-test("command agent schema accepts supplemental lookups", () => {
+test("command agent schema rejects supplemental lookups", () => {
   assert.equal(
     COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
       content: "推送前先确认远端。",
@@ -139,11 +144,10 @@ test("command agent schema accepts supplemental lookups", () => {
           type: "lark.docs",
           query: "团队 git push PR review 规范",
           reason: "before_run_git_push_policy",
-          displayHint: "append_as_team_policy",
         },
       ],
     }).success,
-    true,
+    false,
   );
 });
 
@@ -188,20 +192,12 @@ test("parseCommandAgentOutput parses structured JSON output", () => {
   );
 });
 
-test("parseCommandAgentOutput preserves supplemental lookups and follow-up actions", () => {
+test("parseCommandAgentOutput preserves follow-up actions and rejects supplemental lookups", () => {
   assert.deepEqual(
     parseCommandAgentOutput(
       JSON.stringify({
-        content: "push 前后可以结合团队规范和通知维护者。",
+        content: "push 后可以通知维护者。",
         suggestedCommand: "",
-        supplementalLookups: [
-          {
-            type: "lark.docs",
-            query: "团队 git push PR review 规范",
-            reason: "before_run_git_push_policy",
-            displayHint: "append_as_team_policy",
-          },
-        ],
         followUpActions: [
           {
             type: "collaboration.notification",
@@ -214,15 +210,7 @@ test("parseCommandAgentOutput preserves supplemental lookups and follow-up actio
       }),
     ),
     {
-      content: "push 前后可以结合团队规范和通知维护者。",
-      supplementalLookups: [
-        {
-          type: "lark.docs",
-          query: "团队 git push PR review 规范",
-          reason: "before_run_git_push_policy",
-          displayHint: "append_as_team_policy",
-        },
-      ],
+      content: "push 后可以通知维护者。",
       followUpActions: [
         {
           type: "collaboration.notification",
@@ -234,6 +222,65 @@ test("parseCommandAgentOutput preserves supplemental lookups and follow-up actio
       ],
     },
   );
+
+  const invalid = JSON.stringify({
+    content: "push 前后可以结合团队规范和通知维护者。",
+    supplementalLookups: [
+      {
+        type: "lark.docs",
+        query: "团队 git push PR review 规范",
+        reason: "before_run_git_push_policy",
+      },
+    ],
+  });
+  assert.deepEqual(parseCommandAgentOutput(invalid), { content: invalid });
+});
+
+test("request_lark_context returns structured lark context through the lark agent", async () => {
+  const calls: unknown[] = [];
+  const requestLarkContextTool = createRequestLarkContextTool({
+    larkAgent: {
+      requestContext(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          topic: "commit_message_policy",
+          content: "团队使用 conventional commits。",
+          freshness: "refreshed",
+        });
+      },
+    },
+  });
+
+  const result = await requestLarkContextTool.invoke({
+    topic: "commit_message_policy",
+    cwd: "/repo",
+    reason: "generate_commit_message",
+    command: "git",
+    rawCommand: "git commit",
+    repository: {
+      root: "/repo",
+      webUrl: "https://github.com/dong/feishuAI",
+    },
+  });
+
+  assert.deepEqual(JSON.parse(result), {
+    topic: "commit_message_policy",
+    content: "团队使用 conventional commits。",
+    freshness: "refreshed",
+  });
+  assert.deepEqual(calls, [
+    {
+      topic: "commit_message_policy",
+      cwd: "/repo",
+      reason: "generate_commit_message",
+      command: "git",
+      rawCommand: "git commit",
+      repository: {
+        root: "/repo",
+        webUrl: "https://github.com/dong/feishuAI",
+      },
+    },
+  ]);
 });
 
 test("parseCommandAgentOutput falls back to plain text content", () => {

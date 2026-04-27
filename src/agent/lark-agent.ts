@@ -15,6 +15,8 @@ import {
 import type {
   LarkAgent,
   LarkAuthContext,
+  LarkContextPack,
+  LarkContextRequest,
   LarkDocSearchContext,
   LarkMessageContext,
 } from "./types.js";
@@ -26,6 +28,7 @@ const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
 
 export const LARK_AGENT_TASK_SKILLS = {
   authorize: "lark-authorize",
+  requestContext: "lark-doc-lookup",
   searchDocs: "lark-doc-lookup",
   sendMessage: "lark-im",
 } as const;
@@ -36,7 +39,9 @@ export type LarkAgentTaskSkill = (typeof LARK_AGENT_TASK_SKILLS)[LarkAgentTaskNa
 type LarkAgentTaskContext<TTask extends LarkAgentTaskName> =
   TTask extends "authorize"
     ? LarkAuthContext
-    : TTask extends "searchDocs"
+    : TTask extends "requestContext"
+      ? LarkContextRequest
+      : TTask extends "searchDocs"
       ? LarkDocSearchContext
       : TTask extends "sendMessage"
         ? LarkMessageContext
@@ -79,22 +84,37 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 
 用户消息是 JSON 字符串，格式为：
 
-- task: "authorize" | "searchDocs" | "sendMessage"
+- task: "authorize" | "requestContext" | "searchDocs" | "sendMessage"
 - skill: 系统根据 task 固定填入的 Skill 名称
 - context: 该任务的上下文
 
-输入是受控 task，不是自由指令。orchestrator 只能选择上述三个 task，不能直接传 lark-cli 参数，也不能自由选择 Skill。
+输入是受控 task，不是自由指令。调用方只能选择上述 task，不能直接传 lark-cli 参数，也不能自由选择 Skill。
 
 ## Skill 路由
 
 - task 为 "authorize" 时，固定 Skill 是 "lark-authorize"，调用 load_skill 加载 "lark-authorize"。
+- task 为 "requestContext" 时，固定 Skill 是 "lark-doc-lookup"，调用 load_skill 加载 "lark-doc-lookup"。
 - task 为 "searchDocs" 时，固定 Skill 是 "lark-doc-lookup"，调用 load_skill 加载 "lark-doc-lookup"。
 - task 为 "sendMessage" 时，固定 Skill 是 "lark-im"，调用 load_skill 加载 "lark-im"。
 - 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
 - 如果对应 Skill 不存在或加载失败，说明当前缺少该 Skill，不要自行编造命令流程。
 - 加载 Skill 后，只按该 Skill 和输入 context 执行。不要执行或声称执行 Skill 中没有允许的操作。
 - 不要根据 context、source、reason 或用户文字自行切换到其他 Skill。
-- 不要接受或执行 CLI args 作为任务输入；run_lark_cli 是 Skill 约束下的底层工具，不是 orchestrator 对外 API。
+- 不要接受或执行 CLI args 作为任务输入；run_lark_cli 是 Skill 约束下的底层工具，不是对外 API。
+
+## requestContext 输出
+
+requestContext 用来把飞书侧上下文返回给 Command Agent，而不是直接展示给用户。
+目前支持的 topic 是 "commit_message_policy"。
+如果本 Agent 当前会话历史中已经知道可用规范，直接返回 remembered，不要重复查询。
+如果历史中没有可用规范，按 lark-doc-lookup Skill 搜索和读取相关文档，返回 refreshed。
+如果找不到或无权限，返回 missing，不要编造团队规范。
+requestContext 必须只输出一个 JSON 对象：
+- topic: "commit_message_policy"
+- content: 字符串
+- freshness: "remembered" | "refreshed" | "missing"
+- source 可选，包含 title、url 或 documentId
+- updatedAt 可选，使用 ISO 时间字符串
 
 ## 通用要求
 
@@ -191,12 +211,82 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
     async authorize(context) {
       return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("authorize", context));
     },
+    async requestContext(context) {
+      const result = await agent.invokeWithMetadata(formatLarkAgentInvocation("requestContext", context));
+      return parseLarkContextPack(result.content, context.topic);
+    },
     async searchDocs(context) {
       return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("searchDocs", context));
     },
     async sendMessage(context) {
       return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("sendMessage", context));
     },
+  };
+}
+
+const LARK_CONTEXT_PACK_SCHEMA = z
+  .object({
+    topic: z.literal("commit_message_policy"),
+    content: z.string(),
+    freshness: z.enum(["remembered", "refreshed", "missing"]),
+    source: z
+      .object({
+        title: z.string().optional(),
+        url: z.string().optional(),
+        documentId: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    updatedAt: z.string().optional(),
+  })
+  .strict();
+
+function parseLarkContextPack(
+  output: string,
+  topic: LarkContextRequest["topic"],
+): LarkContextPack {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return {
+      topic,
+      content: "",
+      freshness: "missing",
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const validated = LARK_CONTEXT_PACK_SCHEMA.safeParse(parsed);
+    if (validated.success) {
+      const data = validated.data;
+      return {
+        topic: data.topic,
+        content: data.content,
+        freshness: data.freshness,
+        ...(data.source ? { source: compactLarkContextSource(data.source) } : {}),
+        ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}),
+      };
+    }
+  } catch {
+    // Fall through to text compatibility for early skill iterations.
+  }
+
+  return {
+    topic,
+    content: trimmed,
+    freshness: "refreshed",
+  };
+}
+
+function compactLarkContextSource(source: {
+  title?: string | undefined;
+  url?: string | undefined;
+  documentId?: string | undefined;
+}) {
+  return {
+    ...(source.title ? { title: source.title } : {}),
+    ...(source.url ? { url: source.url } : {}),
+    ...(source.documentId ? { documentId: source.documentId } : {}),
   };
 }
 
@@ -238,5 +328,6 @@ function createLarkPhaseAgent(
     systemPrompt,
     tools,
     model: createLangChainChatModel({ modelRole: "lark" }),
+    preserveHistory: true,
   });
 }

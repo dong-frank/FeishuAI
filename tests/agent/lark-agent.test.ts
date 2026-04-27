@@ -19,6 +19,7 @@ test("lark agent exposes load_skill and run_lark_cli tools", () => {
 test("lark agent exposes only controlled task to skill mappings", () => {
   assert.deepEqual(LARK_AGENT_TASK_SKILLS, {
     authorize: "lark-authorize",
+    requestContext: "lark-doc-lookup",
     searchDocs: "lark-doc-lookup",
     sendMessage: "lark-im",
   });
@@ -26,16 +27,18 @@ test("lark agent exposes only controlled task to skill mappings", () => {
 
 test("formatLarkAgentInvocation builds task envelopes with fixed skills", () => {
   assert.equal(
-    formatLarkAgentInvocation("searchDocs", {
+    formatLarkAgentInvocation("requestContext", {
       cwd: "/repo",
-      query: "团队 git push 规范",
+      topic: "commit_message_policy",
+      reason: "generate_commit_message",
     }),
     JSON.stringify({
-      task: "searchDocs",
+      task: "requestContext",
       skill: "lark-doc-lookup",
       context: {
         cwd: "/repo",
-        query: "团队 git push 规范",
+        topic: "commit_message_policy",
+        reason: "generate_commit_message",
       },
     }),
   );
@@ -55,6 +58,11 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /--format csv/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /--format json/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /authorize/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /requestContext/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /commit_message_policy/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /remembered/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /refreshed/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /missing/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /searchDocs/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /sendMessage/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-authorize/);

@@ -22,6 +22,7 @@ export type LangChainAgentOptions = {
   model?: ChatOpenAI;
   name?: string;
   responseFormat?: LangChainResponseFormat | undefined;
+  preserveHistory?: boolean;
 };
 
 export type LangChainAgent = {
@@ -82,11 +83,19 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
   });
   const name = options.name ?? "LangChain Agent";
+  let messageHistory: any[] = [];
   const invokeWithMetadata = async (input: string) => {
     const startedAt = Date.now();
+    const messages = [
+      ...(options.preserveHistory ? messageHistory : []),
+      { role: "user", content: input },
+    ];
     const result = await agent.invoke({
-      messages: [{ role: "user", content: input }],
+      messages,
     });
+    if (options.preserveHistory && isRecord(result) && Array.isArray(result.messages)) {
+      messageHistory = result.messages;
+    }
     const durationMs = Date.now() - startedAt;
 
     return {
