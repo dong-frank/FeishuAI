@@ -105,6 +105,8 @@ export type LarkDocSearchContext = {
   command?: string;
   rawCommand?: string;
   result?: CommandResult;
+  reason?: string;
+  displayHint?: "append_as_team_policy" | "append_as_troubleshooting_reference" | undefined;
 };
 
 export type LarkMessageContext = {

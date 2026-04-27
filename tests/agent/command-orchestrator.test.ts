@@ -46,6 +46,109 @@ test("command orchestrator delegates beforeRun to command agent once", async () 
   assert.deepEqual(calls, ["git status"]);
 });
 
+test("command orchestrator resolves lark docs supplemental lookups", async () => {
+  const commandCalls: string[] = [];
+  const larkSearches: unknown[] = [];
+  const orchestrator = createCommandOrchestrator({
+    commandAgent: {
+      beforeRun(context) {
+        commandCalls.push(context.rawCommand);
+        return {
+          content: "push help",
+          suggestedCommand: "git status",
+          supplementalLookups: [
+            {
+              type: "lark.docs",
+              query: "团队 git push PR 规范",
+              reason: "before_run_git_push_policy",
+              displayHint: "append_as_team_policy",
+            },
+          ],
+        };
+      },
+    },
+    larkAgent: {
+      searchDocs(context) {
+        larkSearches.push(context);
+        return Promise.resolve({
+          content: "团队规范：push 后创建 PR，并邀请维护者 review。",
+        });
+      },
+    },
+  });
+
+  assert.deepEqual(
+    await orchestrator.beforeRun({
+      cwd: "/repo",
+      command: "git",
+      args: ["push"],
+      rawCommand: "git push origin main",
+    }),
+    {
+      content:
+        "push help\n\n团队资料：\n团队规范：push 后创建 PR，并邀请维护者 review。",
+      suggestedCommand: "git status",
+      supplementalLookups: [
+        {
+          type: "lark.docs",
+          query: "团队 git push PR 规范",
+          reason: "before_run_git_push_policy",
+          displayHint: "append_as_team_policy",
+        },
+      ],
+    },
+  );
+  assert.deepEqual(commandCalls, ["git push origin main"]);
+  assert.deepEqual(larkSearches, [
+    {
+      cwd: "/repo",
+      query: "团队 git push PR 规范",
+      command: "git",
+      rawCommand: "git push origin main",
+      reason: "before_run_git_push_policy",
+      displayHint: "append_as_team_policy",
+    },
+  ]);
+});
+
+test("command orchestrator leaves supplemental lookups unresolved without lark agent", async () => {
+  const orchestrator = createCommandOrchestrator({
+    commandAgent: {
+      beforeRun() {
+        return {
+          content: "push help",
+          supplementalLookups: [
+            {
+              type: "lark.docs",
+              query: "团队 git push PR 规范",
+              reason: "before_run_git_push_policy",
+            },
+          ],
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(
+    await orchestrator.beforeRun({
+      cwd: "/repo",
+      command: "git",
+      args: ["push"],
+      rawCommand: "git push",
+    }),
+    {
+      content: "push help",
+      supplementalLookups: [
+        {
+          type: "lark.docs",
+          query: "团队 git push PR 规范",
+          reason: "before_run_git_push_policy",
+        },
+      ],
+    },
+  );
+});
+
 test("command orchestrator delegates afterSuccess to command agent once", async () => {
   const calls: string[] = [];
   const orchestrator = createCommandOrchestrator({

@@ -306,6 +306,7 @@ export function App() {
     try {
       const message = await createCommandOrchestrator({
         commandAgent: createCommandAgent(),
+        larkAgent: createLarkAgent(),
       }).beforeRun?.(context);
       if (!message) {
         updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
@@ -492,6 +493,9 @@ export function App() {
         cwd: currentCwd,
         orchestrator: createCommandOrchestrator({
           commandAgent: createCommandAgent(),
+          larkAgent: createLarkAgent({
+            onLarkCliOutput: updateAgentLiveOutput,
+          }),
         }),
         larkAgent: createLarkAgent({
           onLarkCliOutput: updateAgentLiveOutput,
