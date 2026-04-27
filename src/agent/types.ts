@@ -52,9 +52,31 @@ export type AgentRunMetadata = {
   tokenUsage?: AgentTokenUsage;
 };
 
+export type CommandAgentSupplementalLookup =
+  | {
+      type: "lark.docs";
+      query: string;
+      reason: string;
+      displayHint?:
+        | "append_as_team_policy"
+        | "append_as_troubleshooting_reference"
+        | undefined;
+    };
+
+export type CommandAgentFollowUpAction =
+  | {
+      type: "collaboration.notification";
+      reason: string;
+      title: string;
+      draftMessage: string;
+      confirmationMode: "explicit_followup";
+    };
+
 export type CommandAgentOutput = {
   content: string;
   suggestedCommand?: string;
+  supplementalLookups?: CommandAgentSupplementalLookup[];
+  followUpActions?: CommandAgentFollowUpAction[];
   metadata?: AgentRunMetadata;
 };
 

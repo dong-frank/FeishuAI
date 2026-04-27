@@ -5,6 +5,7 @@ import {
   AFTER_FAIL_AGENT_SYSTEM_PROMPT,
   AFTER_SUCCESS_AGENT_SYSTEM_PROMPT,
   buildGitCommitContext,
+  COMMAND_AGENT_OUTPUT_SCHEMA,
   COMMAND_AGENT_PROVIDER_RESPONSE_FORMAT,
   COMMAND_AGENT_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOLS,
@@ -105,6 +106,76 @@ test("all phase prompts keep terminal-friendly plain text output", () => {
   }
 });
 
+test("all phase prompts describe structured output boundaries", () => {
+  for (const prompt of [
+    HELP_AGENT_SYSTEM_PROMPT,
+    AFTER_SUCCESS_AGENT_SYSTEM_PROMPT,
+    AFTER_FAIL_AGENT_SYSTEM_PROMPT,
+  ]) {
+    assert.match(prompt, /不调用 Lark Agent/);
+    assert.match(prompt, /不会等待用户确认/);
+    assert.match(prompt, /不会二次调度 Command Agent/);
+    assert.match(prompt, /supplementalLookups/);
+    assert.match(prompt, /followUpActions/);
+  }
+});
+
+test("command agent schema accepts legacy structured output", () => {
+  assert.equal(
+    COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
+      content: "执行 git status 查看状态",
+      suggestedCommand: "git status --short",
+    }).success,
+    true,
+  );
+});
+
+test("command agent schema accepts supplemental lookups", () => {
+  assert.equal(
+    COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
+      content: "推送前先确认远端。",
+      supplementalLookups: [
+        {
+          type: "lark.docs",
+          query: "团队 git push PR review 规范",
+          reason: "before_run_git_push_policy",
+          displayHint: "append_as_team_policy",
+        },
+      ],
+    }).success,
+    true,
+  );
+});
+
+test("command agent schema accepts follow-up actions", () => {
+  assert.equal(
+    COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
+      content: "push 成功后可以通知维护者。",
+      followUpActions: [
+        {
+          type: "collaboration.notification",
+          reason: "after_success_git_push_review",
+          title: "通知维护者 review",
+          draftMessage: "我刚 push 了当前分支，请帮忙 review。",
+          confirmationMode: "explicit_followup",
+        },
+      ],
+    }).success,
+    true,
+  );
+});
+
+test("command agent schema rejects unknown structured output fields", () => {
+  assert.equal(
+    COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
+      content: "msg",
+      suggestedCommand: "",
+      extra: "ignored?",
+    }).success,
+    false,
+  );
+});
+
 test("parseCommandAgentOutput parses structured JSON output", () => {
   assert.deepEqual(
     parseCommandAgentOutput(
@@ -113,6 +184,54 @@ test("parseCommandAgentOutput parses structured JSON output", () => {
     {
       content: "执行 git status 查看状态",
       suggestedCommand: "git status --short",
+    },
+  );
+});
+
+test("parseCommandAgentOutput preserves supplemental lookups and follow-up actions", () => {
+  assert.deepEqual(
+    parseCommandAgentOutput(
+      JSON.stringify({
+        content: "push 前后可以结合团队规范和通知维护者。",
+        suggestedCommand: "",
+        supplementalLookups: [
+          {
+            type: "lark.docs",
+            query: "团队 git push PR review 规范",
+            reason: "before_run_git_push_policy",
+            displayHint: "append_as_team_policy",
+          },
+        ],
+        followUpActions: [
+          {
+            type: "collaboration.notification",
+            reason: "after_success_git_push_review",
+            title: "通知维护者 review",
+            draftMessage: "我刚 push 了当前分支，请帮忙 review。",
+            confirmationMode: "explicit_followup",
+          },
+        ],
+      }),
+    ),
+    {
+      content: "push 前后可以结合团队规范和通知维护者。",
+      supplementalLookups: [
+        {
+          type: "lark.docs",
+          query: "团队 git push PR review 规范",
+          reason: "before_run_git_push_policy",
+          displayHint: "append_as_team_policy",
+        },
+      ],
+      followUpActions: [
+        {
+          type: "collaboration.notification",
+          reason: "after_success_git_push_review",
+          title: "通知维护者 review",
+          draftMessage: "我刚 push 了当前分支，请帮忙 review。",
+          confirmationMode: "explicit_followup",
+        },
+      ],
     },
   );
 });

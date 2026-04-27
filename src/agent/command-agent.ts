@@ -16,9 +16,14 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 - 如果需要引用上下文，只基于输入 JSON 中实际存在的信息。
 - 输出要适合终端阅读：使用纯文本、短段落、短行和简单缩进；不要使用 Markdown 标题、表格、代码围栏、链接语法、复杂列表或终端控制字符。
 - 只能输出一个 JSON 对象，不要输出 JSON 之外的任何文字。
-- JSON 必须包含 content 和 suggestedCommand 字段；content 是展示给用户的终端文本。
-- suggestedCommand 必须是一条完整命令，不是命令后缀。如果没有明确可执行建议，输出空字符串。
+- JSON 必须包含 content 字段；content 是展示给用户的终端文本。
+- suggestedCommand 可选；如果输出 suggestedCommand，它必须是一条完整命令，不是命令后缀。如果没有明确可执行建议，输出空字符串或省略。
 - 可以大胆给出 suggestedCommand，用户不一定会接受；它只是 TUI 里的高优先级补全候选。只要有一个合理、完整、可执行的下一步命令，就给出 suggestedCommand；如果当前信息不足或建议可能危险，才输出空字符串。
+- Command Agent 不调用 Lark Agent，也不输出 callLarkAgent、agent、toolName 等执行字段。
+- 当前 phase 只运行一次，orchestrator 之后不会二次调度 Command Agent；不要把 supplementalLookups 写成“必须先查完再回答”。
+- 当前 phase 不会等待用户确认。需要用户确认的协作动作只能作为 followUpActions 输出，确认必须来自后续显式动作。
+- 需要团队规范、飞书文档或故障文档作为附加资料时，输出 supplementalLookups；它表示 orchestrator 可以附加查询并展示，不表示你要重新回答。
+- push、PR、review 等通知类建议只输出 followUpActions；不要声称已经发送飞书消息。
 `.trim();
 
 export const HELP_AGENT_SYSTEM_PROMPT = `
@@ -248,17 +253,42 @@ function getExitCode(error: unknown) {
   return 1;
 }
 
+const COMMAND_AGENT_SUPPLEMENTAL_LOOKUP_SCHEMA = z
+  .object({
+    type: z.literal("lark.docs"),
+    query: z.string(),
+    reason: z.string(),
+    displayHint: z
+      .enum(["append_as_team_policy", "append_as_troubleshooting_reference"])
+      .optional(),
+  })
+  .strict();
+
+const COMMAND_AGENT_FOLLOW_UP_ACTION_SCHEMA = z
+  .object({
+    type: z.literal("collaboration.notification"),
+    reason: z.string(),
+    title: z.string(),
+    draftMessage: z.string(),
+    confirmationMode: z.literal("explicit_followup"),
+  })
+  .strict();
+
 export const COMMAND_AGENT_OUTPUT_SCHEMA = z
   .object({
     content: z.string(),
     suggestedCommand: z.string().optional(),
+    supplementalLookups: z.array(COMMAND_AGENT_SUPPLEMENTAL_LOOKUP_SCHEMA).optional(),
+    followUpActions: z.array(COMMAND_AGENT_FOLLOW_UP_ACTION_SCHEMA).optional(),
   })
   .strict();
 
 const COMMAND_AGENT_RESPONSE_SCHEMA = z
   .object({
     content: z.string(),
-    suggestedCommand: z.string(),
+    suggestedCommand: z.string().optional(),
+    supplementalLookups: z.array(COMMAND_AGENT_SUPPLEMENTAL_LOOKUP_SCHEMA).optional(),
+    followUpActions: z.array(COMMAND_AGENT_FOLLOW_UP_ACTION_SCHEMA).optional(),
   })
   .strict();
 
@@ -288,6 +318,12 @@ export function parseCommandAgentOutput(output: string): CommandAgentOutput | un
       return {
         content,
         ...(suggestedCommand ? { suggestedCommand } : {}),
+        ...(validated.data.supplementalLookups
+          ? { supplementalLookups: validated.data.supplementalLookups }
+          : {}),
+        ...(validated.data.followUpActions
+          ? { followUpActions: validated.data.followUpActions }
+          : {}),
       };
     }
   } catch {
