@@ -25,7 +25,7 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 - suggestedCommand 可选；如果输出 suggestedCommand，它必须是一条完整命令，不是命令后缀。如果没有明确可执行建议，输出空字符串或省略。
 - 可以大胆给出 suggestedCommand，用户不一定会接受；它只是 TUI 里的高优先级补全候选。只要有一个合理、完整、可执行的下一步命令，就给出 suggestedCommand；如果当前信息不足或建议可能危险，才输出空字符串。
 - Command Agent 不直接调用 Lark Agent，不直接执行 Lark CLI，也不输出 callLarkAgent、agent、toolName 等执行字段。
-- 如需飞书侧上下文，只能调用 request_lark_context 工具；该工具只接受受控 topic，不接受 lark-cli args。
+- 当回答需要获取团队飞书文档内容、团队规范、流程或约定来改进结果时，调用 request_lark_context 工具；该工具只接受受控 topic，不接受 lark-cli args。
 - 当前 phase 不会等待用户确认。需要用户确认的协作动作只能作为 followUpActions 输出，确认必须来自后续显式动作。
 - push、PR、review 等通知类建议只输出 followUpActions；不要声称已经发送飞书消息。
 `.trim();
@@ -55,8 +55,9 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 
 ## Task 用户希望你帮助生成commit message
 
-如果 context.command 是 git 且 context.args 的第一项是 commit，优先考虑生成 commit message。需要判断当前已暂存变更时，必须调用 git_commit_context 工具获取 Git 信息；不要要求初始 context 提供 diff、status 或 recent commits。
-生成 commit message 时，content 输出生成的 commit message 或一条极短说明；suggestedCommand 输出完整提交命令，例如 git commit -m "feat: add structured agent output"。不要执行 git commit，不要要求用户执行命令。只基于 stagedDiff 生成；如果 stagedDiff 为空，提示用户先 git add 需要提交的内容，不要基于未暂存内容生成提交信息；如果 recentCommits 存在，尽量贴近其中的语言、粒度和前缀风格。
+如果 context.command 是 git 且 context.args 的第一项是 commit，优先考虑生成 commit message。需要判断当前已暂存变更时，必须调用 git_commit_context 工具获取 Git 信息。
+先调用request_lark_context 工具查看团队中相关的文档，确保commit内容符合团队规范。
+生成 commit message 时，content 输出生成的 commit message 或一条极短说明；suggestedCommand 输出完整提交命令。只基于 stagedDiff 生成；如果 stagedDiff 为空，提示用户先 git add 需要提交的内容，不要基于未暂存内容生成提交信息；
 commit message 场景的当前工作区状态只能以 git_commit_context 工具返回的实时结果为准，其次参考 context.tuiSession；不要把 gitStats.failures 中的历史失败输出当成当前工作区状态，也不要因为历史 failures 里出现 nothing to commit 就拒绝生成 commit message。
 团队 commit message 规范可以作为风格和格式上下文参与精细化生成 commit message，但不能替代 stagedDiff 里的改动事实。生成 commit message 时可以调用 request_lark_context，使用 topic "commit_message_policy" 和 reason "generate_commit_message" 获取团队规范；如果返回 freshness 为 "missing" 或 content 为空，不要编造团队规范，回退到 stagedDiff 和 recentCommits 生成。
 

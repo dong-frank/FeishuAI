@@ -55,6 +55,8 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /git commit -m/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /团队 commit message 规范/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /request_lark_context/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /需要获取团队飞书文档内容/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /团队规范、流程或约定/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /精细化生成 commit message/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /回退到 stagedDiff 和 recentCommits/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /历史画像/);
