@@ -12,12 +12,41 @@ import {
   formatAvailableSkills,
   type SkillRegistry,
 } from "./skill-registry.js";
-import type { LarkAgent } from "./types.js";
+import type {
+  LarkAgent,
+  LarkAuthContext,
+  LarkDocSearchContext,
+  LarkMessageContext,
+} from "./types.js";
 import { runLarkCli } from "../integrations/lark-cli.js";
 import type { LarkCliOutputChunk, LarkCliRunOptions } from "../integrations/types.js";
 
 
 const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
+
+export const LARK_AGENT_TASK_SKILLS = {
+  authorize: "lark-authorize",
+  searchDocs: "lark-doc-lookup",
+  sendMessage: "lark-im",
+} as const;
+
+export type LarkAgentTaskName = keyof typeof LARK_AGENT_TASK_SKILLS;
+export type LarkAgentTaskSkill = (typeof LARK_AGENT_TASK_SKILLS)[LarkAgentTaskName];
+
+type LarkAgentTaskContext<TTask extends LarkAgentTaskName> =
+  TTask extends "authorize"
+    ? LarkAuthContext
+    : TTask extends "searchDocs"
+      ? LarkDocSearchContext
+      : TTask extends "sendMessage"
+        ? LarkMessageContext
+        : never;
+
+export type LarkAgentInvocation<TTask extends LarkAgentTaskName = LarkAgentTaskName> = {
+  task: TTask;
+  skill: (typeof LARK_AGENT_TASK_SKILLS)[TTask];
+  context: LarkAgentTaskContext<TTask>;
+};
 
 export const LARK_AGENT_SYSTEM_PROMPT = `
 你是 git-helper TUI/CLI 中的单一飞书 Agent。
@@ -51,15 +80,21 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 用户消息是 JSON 字符串，格式为：
 
 - task: "authorize" | "searchDocs" | "sendMessage"
+- skill: 系统根据 task 固定填入的 Skill 名称
 - context: 该任务的上下文
+
+输入是受控 task，不是自由指令。orchestrator 只能选择上述三个 task，不能直接传 lark-cli 参数，也不能自由选择 Skill。
 
 ## Skill 路由
 
-- task 为 "authorize" 时，调用 load_skill 加载 "lark-authorize"。
-- task 为 "searchDocs" 时，调用 load_skill 加载 "lark-doc"。
-- task 为 "sendMessage" 时，调用 load_skill 加载 "lark-im"。
+- task 为 "authorize" 时，固定 Skill 是 "lark-authorize"，调用 load_skill 加载 "lark-authorize"。
+- task 为 "searchDocs" 时，固定 Skill 是 "lark-doc-lookup"，调用 load_skill 加载 "lark-doc-lookup"。
+- task 为 "sendMessage" 时，固定 Skill 是 "lark-im"，调用 load_skill 加载 "lark-im"。
+- 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
 - 如果对应 Skill 不存在或加载失败，说明当前缺少该 Skill，不要自行编造命令流程。
 - 加载 Skill 后，只按该 Skill 和输入 context 执行。不要执行或声称执行 Skill 中没有允许的操作。
+- 不要根据 context、source、reason 或用户文字自行切换到其他 Skill。
+- 不要接受或执行 CLI args 作为任务输入；run_lark_cli 是 Skill 约束下的底层工具，不是 orchestrator 对外 API。
 
 ## 通用要求
 
@@ -154,15 +189,27 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
 
   return {
     async authorize(context) {
-      return invokeLarkAgentWithMetadata(agent, JSON.stringify({ task: "authorize", context }));
+      return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("authorize", context));
     },
     async searchDocs(context) {
-      return invokeLarkAgentWithMetadata(agent, JSON.stringify({ task: "searchDocs", context }));
+      return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("searchDocs", context));
     },
     async sendMessage(context) {
-      return invokeLarkAgentWithMetadata(agent, JSON.stringify({ task: "sendMessage", context }));
+      return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("sendMessage", context));
     },
   };
+}
+
+export function formatLarkAgentInvocation<TTask extends LarkAgentTaskName>(
+  task: TTask,
+  context: LarkAgentTaskContext<TTask>,
+) {
+  const invocation: LarkAgentInvocation<TTask> = {
+    task,
+    skill: LARK_AGENT_TASK_SKILLS[task],
+    context,
+  };
+  return JSON.stringify(invocation);
 }
 
 async function invokeLarkAgentWithMetadata(agent: LangChainAgent, input: string) {
