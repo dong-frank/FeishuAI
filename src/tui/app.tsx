@@ -3,6 +3,7 @@ import { useApp, useInput, useStdout } from "ink";
 
 import type { CommandAgentOutput, CommandContext } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
+import { createCommandOrchestrator } from "../agent/command-orchestrator.js";
 import { createLarkAgent } from "../agent/lark-agent.js";
 import { classifyCommand } from "../runtime/command-registry.js";
 import { getCompletion } from "../runtime/completion.js";
@@ -303,7 +304,9 @@ export function App() {
     setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
     try {
-      const message = await createCommandAgent().beforeRun?.(context);
+      const message = await createCommandOrchestrator({
+        commandAgent: createCommandAgent(),
+      }).beforeRun?.(context);
       if (!message) {
         updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
         return;
@@ -487,7 +490,9 @@ export function App() {
     try {
       const result = await runCommandLine(commandLine, {
         cwd: currentCwd,
-        agent: createCommandAgent(),
+        orchestrator: createCommandOrchestrator({
+          commandAgent: createCommandAgent(),
+        }),
         larkAgent: createLarkAgent({
           onLarkCliOutput: updateAgentLiveOutput,
         }),

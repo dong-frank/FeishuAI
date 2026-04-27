@@ -181,10 +181,19 @@ test("runCommandLine blocks recursive empty git-helper TUI launches", async () =
 
 test("runCommandLine starts lark init authorization agent without waiting", async () => {
   const events: unknown[] = [];
+  const orchestratorEvents: string[] = [];
   let releaseAuthorize: (() => void) | undefined;
   const cwd = await createTempCwd();
   const result = await runCommandLine("lark init", {
     cwd,
+    orchestrator: {
+      afterSuccess(context) {
+        orchestratorEvents.push(context.rawCommand);
+      },
+      afterFail(context) {
+        orchestratorEvents.push(context.rawCommand);
+      },
+    },
     larkAgent: {
       authorize(context) {
         events.push(context);
@@ -214,6 +223,7 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
   assert.ok(result.afterSuccess);
   assert.equal(result.afterSuccessAgentKind, "lark");
   await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(orchestratorEvents, []);
   assert.deepEqual(events, [
     {
       cwd,
@@ -349,7 +359,7 @@ test("runCommandLine starts afterSuccess for key git command successes without w
         name: "Dong",
       },
     }),
-    agent: {
+    orchestrator: {
       afterSuccess(context) {
         contexts.push({
           gitStats: context.gitStats,
@@ -433,7 +443,7 @@ test("runCommandLine triggers afterSuccess even after repeated key command succe
   const result = await runCommandLine("git push origin main", {
     statsCwd,
     executeCommand: async () => 0,
-    agent: {
+    orchestrator: {
       afterSuccess(context) {
         events.push(context.rawCommand);
       },
@@ -456,7 +466,7 @@ test("runCommandLine skips afterSuccess for non-key successes and failures", asy
   const statusResult = await runCommandLine("git status", {
     statsCwd,
     executeCommand: async () => 0,
-    agent: {
+    orchestrator: {
       afterSuccess(context) {
         events.push(context.rawCommand);
       },
@@ -465,7 +475,7 @@ test("runCommandLine skips afterSuccess for non-key successes and failures", asy
   const failedResult = await runCommandLine("git push origin main", {
     statsCwd,
     executeCommand: async () => 1,
-    agent: {
+    orchestrator: {
       afterSuccess(context) {
         events.push(context.rawCommand);
       },
@@ -489,7 +499,7 @@ test("runCommandLine triggers afterFail for command-not-found failures", async (
       options.stderr?.write("command not found: aaa\n");
       return 127;
     },
-    agent: {
+    orchestrator: {
       afterFail(context, commandResult) {
         events.push({ context, commandResult });
         return {
