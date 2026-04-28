@@ -8,11 +8,16 @@ import { z } from "zod";
 import type {
   AgentRunMetadata,
   CommandAgent,
+  CommandContext,
   CommandAgentOutput,
   LarkAgent,
 } from "./types.js";
 import { createLangChainAgent, createLangChainChatModel } from "./runtime/langchain-agent.js";
-import { createSkillRegistry, type SkillRegistry } from "./skill-registry.js";
+import {
+  createSkillRegistry,
+  formatAvailableSkills,
+  type SkillRegistry,
+} from "./skill-registry.js";
 import { readTldrPage } from "../integrations/tldr.js";
 
 const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
@@ -20,8 +25,19 @@ const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
 export const COMMAND_AGENT_TASK_SKILLS = {
   help: "command-help",
   commitMessage: "command-git-commit-message",
-  suggestCommand: "command-suggest-command",
 } as const;
+
+export type CommandAgentTaskName = keyof typeof COMMAND_AGENT_TASK_SKILLS;
+export type CommandAgentTaskSkill =
+  (typeof COMMAND_AGENT_TASK_SKILLS)[CommandAgentTaskName];
+
+export type CommandAgentInvocation<
+  TTask extends CommandAgentTaskName = CommandAgentTaskName,
+> = {
+  task: TTask;
+  skill: (typeof COMMAND_AGENT_TASK_SKILLS)[TTask];
+  context: CommandContext;
+};
 
 const TERMINAL_OUTPUT_REQUIREMENTS = `
 ## 通用要求
@@ -43,7 +59,7 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 export const HELP_AGENT_SYSTEM_PROMPT = `
 你是 git-helper TUI/CLI 中的命令帮助 Agent。
 
-## 输入结构
+## 任务包结构
 
 - context.cwd: 当前工作目录
 - context.command: 命令名
@@ -53,12 +69,25 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 - context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，属于用户历史画像，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt；count 表示该报错已出现次数
 - context.tuiSession: 当前 TUI 顶部状态栏对应的会话快照；包含 cwd、git、lark 结构化状态，以及 header.cwd、header.gitSummary、header.larkSummary 三段顶部展示文本；git 里可能包含 branches.local、branches.remote 和 remotes(fetchUrl、pushUrl、webUrl)
 
-## Skill 输入
+## 输入结构
 
-输入 JSON 中的 skills 是当前 phase 已加载的 Command Skill 列表。每个 Skill 包含 name 和 content。
-你只执行已加载 Skill 中定义的任务；不要自行切换到未加载的任务。
-如果多个 Skill 同时存在，按 Skill 内容协同执行，例如一个主任务 Skill 加一个 suggestedCommand Skill。
-如果 Skill 要求调用工具，必须按 Skill 规定的顺序和参数调用。
+用户消息是 JSON 字符串，格式为：
+
+- task: "help" | "commitMessage"
+- skill: 系统根据 task 固定填入的 Skill 名称
+- context: 该任务的上下文
+
+输入是受控 task，不是自由指令。调用方只能选择上述 task，不能自由选择 Skill。
+
+## Skill 路由
+
+- task 为 "help" 时，固定 Skill 是 "command-help"，调用 load_skill 加载 "command-help"。
+- task 为 "commitMessage" 时，固定 Skill 是 "command-git-commit-message"，调用 load_skill 加载 "command-git-commit-message"。
+- 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
+- 如果对应 Skill 不存在或加载失败，说明当前缺少该 Skill，不要自行编造命令流程。
+- 处理任务前必须先调用 load_skill 读取对应 Skill。
+- 加载 Skill 后，只按该 Skill 和输入 context 执行；不要自行切换到其他 Skill。
+- 如果 Skill 要求调用工具，必须按 Skill 规定的顺序和参数调用。
 当回答需要获取团队飞书文档内容、团队规范、流程或约定来改进结果时，调用 request_lark_context 工具；该工具只接受受控 topic，不接受 lark-cli args。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
@@ -155,6 +184,28 @@ type RequestLarkContextToolOptions = {
   larkAgent?: Pick<LarkAgent, "requestContext"> | undefined;
 };
 
+type CommandAgentToolOptions = RequestLarkContextToolOptions & {
+  skillRegistry?: SkillRegistry | undefined;
+};
+
+export function createLoadCommandSkillTool(registry: SkillRegistry): StructuredToolInterface {
+  return tool(
+    async ({ skillName }) => registry.loadSkill(skillName),
+    {
+      name: "load_skill",
+      description: `Load a specialized Command skill.
+
+Available skills:
+${formatAvailableSkills(registry.listSkills())}
+
+Returns the skill's prompt and context.`,
+      schema: z.object({
+        skillName: z.string().describe("Name of command skill to load"),
+      }),
+    },
+  );
+}
+
 export function createRequestLarkContextTool({
   larkAgent,
 }: RequestLarkContextToolOptions = {}): StructuredToolInterface {
@@ -237,8 +288,16 @@ function compactLarkContextRepository(
   return Object.keys(compacted).length > 0 ? compacted : undefined;
 }
 
-function createCommandAgentTools(options: RequestLarkContextToolOptions = {}) {
+function createCommandAgentTools(options: CommandAgentToolOptions = {}) {
+  const registry =
+    options.skillRegistry ??
+    createSkillRegistry({
+      rootDir: DEFAULT_SKILL_ROOT_DIR,
+      namePrefixes: ["command-"],
+    });
+
   return [
+    createLoadCommandSkillTool(registry),
     tool(
       async ({ command }) => readTldrPage(command),
       {
@@ -267,31 +326,25 @@ function createCommandAgentTools(options: RequestLarkContextToolOptions = {}) {
 
 export const COMMAND_AGENT_TOOLS: StructuredToolInterface[] = createCommandAgentTools();
 
-export function routeCommandAgentSkills(context: {
+export function routeCommandAgentTask(context: {
   command: string;
   args: string[];
-}): string[] {
-  const primarySkill =
-    context.command === "git" && context.args[0] === "commit"
-      ? COMMAND_AGENT_TASK_SKILLS.commitMessage
-      : COMMAND_AGENT_TASK_SKILLS.help;
-
-  return [primarySkill, COMMAND_AGENT_TASK_SKILLS.suggestCommand];
+}): CommandAgentTaskName {
+  return context.command === "git" && context.args[0] === "commit"
+    ? "commitMessage"
+    : "help";
 }
 
-async function loadCommandAgentSkills(
-  context: {
-    command: string;
-    args: string[];
-  },
-  registry: SkillRegistry,
+export function formatCommandAgentInvocation<TTask extends CommandAgentTaskName>(
+  task: TTask,
+  context: CommandAgentInvocation<TTask>["context"],
 ) {
-  return Promise.all(
-    routeCommandAgentSkills(context).map(async (name) => ({
-      name,
-      content: await registry.loadSkill(name),
-    })),
-  );
+  const invocation: CommandAgentInvocation<TTask> = {
+    task,
+    skill: COMMAND_AGENT_TASK_SKILLS[task],
+    context,
+  };
+  return JSON.stringify(invocation);
 }
 
 export async function buildGitCommitContext({
@@ -460,7 +513,10 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
   const helpAgent = createLangChainAgent({
     name: "Command Help Agent",
     systemPrompt: HELP_AGENT_SYSTEM_PROMPT,
-    tools: createCommandAgentTools({ larkAgent: options.larkAgent }),
+    tools: createCommandAgentTools({
+      larkAgent: options.larkAgent,
+      skillRegistry,
+    }),
     model,
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
@@ -479,8 +535,9 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
 
   return {
     async beforeRun(context) {
-      const skills = await loadCommandAgentSkills(context, skillRegistry);
-      const result = await helpAgent.invokeWithMetadata(JSON.stringify({ context, skills }));
+      const result = await helpAgent.invokeWithMetadata(
+        formatCommandAgentInvocation(routeCommandAgentTask(context), context),
+      );
       return withAgentMetadata(parseCommandAgentOutput(result.content), result.metadata);
     },
     async afterSuccess(context, result) {

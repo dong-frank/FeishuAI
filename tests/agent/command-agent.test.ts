@@ -12,16 +12,18 @@ import {
   COMMAND_AGENT_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOLS,
   COMMAND_AGENT_TASK_SKILLS,
+  formatCommandAgentInvocation,
   createRequestLarkContextTool,
   GIT_COMMIT_CONTEXT_DIFF_LIMIT,
   GIT_COMMIT_CONTEXT_SUMMARY_LIMIT,
   HELP_AGENT_SYSTEM_PROMPT,
-  routeCommandAgentSkills,
+  routeCommandAgentTask,
   parseCommandAgentOutput,
 } from "../../src/agent/command-agent.js";
 
 test("COMMAND_AGENT_TOOLS includes help and git commit context tools", () => {
   assert.deepEqual(COMMAND_AGENT_TOOLS.map((tool) => tool.name), [
+    "load_skill",
     "tldr_git_manual",
     "git_commit_context",
     "request_lark_context",
@@ -37,26 +39,46 @@ test("command agent routes beforeRun tasks to command skills", () => {
   assert.deepEqual(COMMAND_AGENT_TASK_SKILLS, {
     help: "command-help",
     commitMessage: "command-git-commit-message",
-    suggestCommand: "command-suggest-command",
   });
 
-  assert.deepEqual(
-    routeCommandAgentSkills({
+  assert.equal(
+    routeCommandAgentTask({
       cwd: "/repo",
       command: "git",
       args: ["commit"],
       rawCommand: "git commit",
     }),
-    ["command-git-commit-message", "command-suggest-command"],
+    "commitMessage",
   );
-  assert.deepEqual(
-    routeCommandAgentSkills({
+  assert.equal(
+    routeCommandAgentTask({
       cwd: "/repo",
       command: "git",
       args: ["status"],
       rawCommand: "git status",
     }),
-    ["command-help", "command-suggest-command"],
+    "help",
+  );
+});
+
+test("formatCommandAgentInvocation builds task envelopes with fixed skills", () => {
+  assert.equal(
+    formatCommandAgentInvocation("commitMessage", {
+      cwd: "/repo",
+      command: "git",
+      args: ["commit"],
+      rawCommand: "git commit",
+    }),
+    JSON.stringify({
+      task: "commitMessage",
+      skill: "command-git-commit-message",
+      context: {
+        cwd: "/repo",
+        command: "git",
+        args: ["commit"],
+        rawCommand: "git commit",
+      },
+    }),
   );
 });
 
@@ -71,8 +93,11 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /header\.larkSummary/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /大胆给出 suggestedCommand/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /用户不一定会接受/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /输入 JSON 中的 skills/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /只执行已加载 Skill/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /task: "help" \| "commitMessage"/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /skill: 系统根据 task 固定填入的 Skill 名称/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /load_skill/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /处理任务前必须先调用 load_skill/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /如果输入中的 skill 与上述固定映射不一致/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /request_lark_context/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /历史画像/);
   assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /## Task 用户希望你帮助生成commit message/);
@@ -84,7 +109,6 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
 test("command task skills contain task-specific instructions", () => {
   const helpSkill = readSkill("command-help");
   const commitSkill = readSkill("command-git-commit-message");
-  const suggestSkill = readSkill("command-suggest-command");
 
   assert.match(helpSkill, /tldr_git_manual/);
   assert.match(helpSkill, /successCount 较高/);
@@ -94,9 +118,6 @@ test("command task skills contain task-specific instructions", () => {
   assert.match(commitSkill, /commit_message_policy/);
   assert.match(commitSkill, /stagedDiff/);
   assert.match(commitSkill, /不要把 gitStats\.failures/);
-
-  assert.match(suggestSkill, /suggestedCommand/);
-  assert.match(suggestSkill, /完整命令/);
 });
 
 test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", () => {
