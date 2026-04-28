@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   formatLarkAgentInvocation,
   createRunLarkCliTool,
+  LARK_AGENT_INTERACTION_SKILLS,
   LARK_AGENT_SYSTEM_PROMPT,
   LARK_AGENT_TASK_SKILLS,
   LARK_AGENT_TOOLS,
+  parseLarkInteractionResult,
 } from "../../src/agent/lark-agent.js";
 
 test("lark agent exposes load_skill and run_lark_cli tools", () => {
@@ -19,25 +23,61 @@ test("lark agent exposes load_skill and run_lark_cli tools", () => {
 test("lark agent exposes only controlled task to skill mappings", () => {
   assert.deepEqual(LARK_AGENT_TASK_SKILLS, {
     authorize: "lark-authorize",
-    getContext: "lark-doc-lookup",
-    sendMessage: "lark-im",
+  });
+  assert.deepEqual(LARK_AGENT_INTERACTION_SKILLS, {
+    get_context: "lark-doc-lookup",
+    send_message: "lark-im",
+    write_development_record: "lark-doc-write",
   });
 });
 
 test("formatLarkAgentInvocation builds task envelopes with fixed skills", () => {
   assert.equal(
-    formatLarkAgentInvocation("getContext", {
+    formatLarkAgentInvocation("interact", {
+      action: "get_context",
       cwd: "/repo",
       topic: "commit_message_policy",
       reason: "generate_commit_message",
     }),
     JSON.stringify({
-      task: "getContext",
+      task: "interact",
       skill: "lark-doc-lookup",
       context: {
+        action: "get_context",
         cwd: "/repo",
         topic: "commit_message_policy",
         reason: "generate_commit_message",
+      },
+    }),
+  );
+
+  assert.equal(
+    formatLarkAgentInvocation("interact", {
+      action: "write_development_record",
+      cwd: "/repo",
+      reason: "after_success_git_push",
+      command: "git",
+      rawCommand: "git push",
+      result: {
+        exitCode: 0,
+        stdout: "To github.com:acme/repo.git\n",
+        stderr: "",
+      },
+    }),
+    JSON.stringify({
+      task: "interact",
+      skill: "lark-doc-write",
+      context: {
+        action: "write_development_record",
+        cwd: "/repo",
+        reason: "after_success_git_push",
+        command: "git",
+        rawCommand: "git push",
+        result: {
+          exitCode: 0,
+          stdout: "To github.com:acme/repo.git\n",
+          stderr: "",
+        },
       },
     }),
   );
@@ -57,12 +97,16 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /--format csv/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /--format json/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /authorize/);
-  assert.match(LARK_AGENT_SYSTEM_PROMPT, /getContext/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /interact/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /get_context/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /write_development_record/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /requestContext/);
+  assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /getContext/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /commit_message_policy/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /troubleshooting_reference/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队 commit message 规范/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队排障参考/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队开发记录文档/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /同一个 topic/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把 commit 规范当作排障方法/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把排障资料当作 commit 规范/);
@@ -70,11 +114,13 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /refreshed/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /missing/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /searchDocs/);
-  assert.match(LARK_AGENT_SYSTEM_PROMPT, /sendMessage/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /send_message/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-authorize/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-doc-lookup/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-im/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-doc-write/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /受控 task/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /受控 action/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /固定 Skill/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要根据 context/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要接受或执行 CLI args/);
@@ -84,6 +130,69 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /config", "init/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要编造/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /输出要适合终端阅读/);
+});
+
+test("parseLarkInteractionResult keeps get_context structured packs", () => {
+  assert.deepEqual(
+    parseLarkInteractionResult(
+      {
+        action: "get_context",
+        cwd: "/repo",
+        topic: "commit_message_policy",
+        reason: "generate_commit_message",
+      },
+      JSON.stringify({
+        topic: "commit_message_policy",
+        content: "团队使用 conventional commits。",
+        freshness: "refreshed",
+      }),
+    ),
+    {
+      topic: "commit_message_policy",
+      content: "团队使用 conventional commits。",
+      freshness: "refreshed",
+    },
+  );
+});
+
+test("parseLarkInteractionResult returns command output for write_development_record", () => {
+  assert.deepEqual(
+    parseLarkInteractionResult(
+      {
+        action: "write_development_record",
+        cwd: "/repo",
+        reason: "after_success_git_push",
+      },
+      JSON.stringify({
+        content: "已写入团队开发记录：研发记录 / repo",
+      }),
+    ),
+    {
+      content: "已写入团队开发记录：研发记录 / repo",
+    },
+  );
+});
+
+test("lark doc write skill constrains document writes", () => {
+  const skill = readFileSync(
+    join(process.cwd(), "skills", "lark-doc-write", "SKILL.md"),
+    "utf8",
+  );
+
+  assert.match(skill, /name: lark-doc-write/);
+  assert.match(skill, /docs \+search/);
+  assert.match(skill, /docs \+fetch/);
+  assert.match(skill, /docs \+update/);
+  assert.match(skill, /append/);
+  assert.match(skill, /block_insert_after/);
+  assert.match(skill, /通用飞书文档写入/);
+  assert.match(skill, /参考目标文档已有结构/);
+  assert.match(skill, /禁止/);
+  assert.match(skill, /overwrite/);
+  assert.match(skill, /不要执行输入 context 直接提供的 CLI args/);
+  assert.doesNotMatch(skill, /write_development_record/);
+  assert.doesNotMatch(skill, /团队开发记录/);
+  assert.doesNotMatch(skill, /git push/);
 });
 
 test("run_lark_cli only forwards output to TUI history when requested", async () => {

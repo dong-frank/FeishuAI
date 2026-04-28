@@ -42,9 +42,10 @@ test("after-fail tools include tldr, git context, and lark interaction only", ()
   ]);
 });
 
-test("after-success tools include git repository context only", () => {
+test("after-success tools include git context and lark interaction only", () => {
   assert.deepEqual(createCommandAfterSuccessTools().map((tool) => tool.name), [
     "git_repository_context",
+    "interact_with_lark_agent",
   ]);
 });
 
@@ -186,7 +187,10 @@ test("command task skills contain task-specific instructions", () => {
   assert.match(afterFailSkill, /不要编造飞书文档/);
 
   assert.match(afterSuccessSkill, /git_repository_context/);
+  assert.match(afterSuccessSkill, /interact_with_lark_agent/);
+  assert.match(afterSuccessSkill, /write_development_record/);
   assert.match(afterSuccessSkill, /push 后/);
+  assert.match(afterSuccessSkill, /只在 git push 成功/);
   assert.match(afterSuccessSkill, /commit 后/);
   assert.match(afterSuccessSkill, /pull、merge、rebase 后/);
   assert.match(afterSuccessSkill, /不要复述成功输出/);
@@ -370,7 +374,7 @@ test("interact_with_lark_agent returns structured lark context through the lark 
   const calls: unknown[] = [];
   const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
     larkAgent: {
-      getContext(context: unknown) {
+      interact(context: unknown) {
         calls.push(context);
         return Promise.resolve({
           topic: "commit_message_policy",
@@ -382,6 +386,7 @@ test("interact_with_lark_agent returns structured lark context through the lark 
   });
 
   const result = await interactWithLarkAgentTool.invoke({
+    action: "get_context",
     topic: "commit_message_policy",
     cwd: "/repo",
     reason: "generate_commit_message",
@@ -400,6 +405,7 @@ test("interact_with_lark_agent returns structured lark context through the lark 
   });
   assert.deepEqual(calls, [
     {
+      action: "get_context",
       topic: "commit_message_policy",
       cwd: "/repo",
       reason: "generate_commit_message",
@@ -417,7 +423,7 @@ test("interact_with_lark_agent accepts troubleshooting reference requests", asyn
   const calls: unknown[] = [];
   const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
     larkAgent: {
-      getContext(context: unknown) {
+      interact(context: unknown) {
         calls.push(context);
         return Promise.resolve({
           topic: "troubleshooting_reference",
@@ -429,6 +435,7 @@ test("interact_with_lark_agent accepts troubleshooting reference requests", asyn
   });
 
   const result = await interactWithLarkAgentTool.invoke({
+    action: "get_context",
     topic: "troubleshooting_reference",
     cwd: "/repo",
     reason: "diagnose_command_failure",
@@ -443,11 +450,65 @@ test("interact_with_lark_agent accepts troubleshooting reference requests", asyn
   });
   assert.deepEqual(calls, [
     {
+      action: "get_context",
       topic: "troubleshooting_reference",
       cwd: "/repo",
       reason: "diagnose_command_failure",
       command: "git",
       rawCommand: "git push",
+    },
+  ]);
+});
+
+test("interact_with_lark_agent writes development records through the lark agent", async () => {
+  const calls: unknown[] = [];
+  const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
+    larkAgent: {
+      interact(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          content: "已写入团队开发记录：研发记录 / feishuAI",
+        });
+      },
+    },
+  });
+
+  const result = await interactWithLarkAgentTool.invoke({
+    action: "write_development_record",
+    cwd: "/repo",
+    reason: "after_success_git_push",
+    command: "git",
+    rawCommand: "git push",
+    result: {
+      exitCode: 0,
+      stdout: "To github.com:dong/feishuAI.git\n",
+      stderr: "",
+    },
+    repository: {
+      root: "/repo",
+      webUrl: "https://github.com/dong/feishuAI",
+    },
+  });
+
+  assert.deepEqual(JSON.parse(result), {
+    content: "已写入团队开发记录：研发记录 / feishuAI",
+  });
+  assert.deepEqual(calls, [
+    {
+      action: "write_development_record",
+      cwd: "/repo",
+      reason: "after_success_git_push",
+      command: "git",
+      rawCommand: "git push",
+      result: {
+        exitCode: 0,
+        stdout: "To github.com:dong/feishuAI.git\n",
+        stderr: "",
+      },
+      repository: {
+        root: "/repo",
+        webUrl: "https://github.com/dong/feishuAI",
+      },
     },
   ]);
 });

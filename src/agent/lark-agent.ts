@@ -13,11 +13,12 @@ import {
   type SkillRegistry,
 } from "./skill-registry.js";
 import type {
+  CommandAgentOutput,
   LarkAgent,
   LarkAuthContext,
   LarkContextPack,
   LarkContextRequest,
-  LarkMessageContext,
+  LarkInteractionRequest,
 } from "./types.js";
 import { runLarkCli } from "../integrations/lark-cli.js";
 import type { LarkCliOutputChunk, LarkCliRunOptions } from "../integrations/types.js";
@@ -27,27 +28,32 @@ const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
 
 export const LARK_AGENT_TASK_SKILLS = {
   authorize: "lark-authorize",
-  getContext: "lark-doc-lookup",
-  sendMessage: "lark-im",
+} as const;
+
+export const LARK_AGENT_INTERACTION_SKILLS = {
+  get_context: "lark-doc-lookup",
+  send_message: "lark-im",
+  write_development_record: "lark-doc-write",
 } as const;
 
 export type LarkAgentTaskName = keyof typeof LARK_AGENT_TASK_SKILLS;
 export type LarkAgentTaskSkill = (typeof LARK_AGENT_TASK_SKILLS)[LarkAgentTaskName];
 
-type LarkAgentTaskContext<TTask extends LarkAgentTaskName> =
-  TTask extends "authorize"
-    ? LarkAuthContext
-    : TTask extends "getContext"
-      ? LarkContextRequest
-      : TTask extends "sendMessage"
-        ? LarkMessageContext
-        : never;
+export type LarkAgentInteractionAction = keyof typeof LARK_AGENT_INTERACTION_SKILLS;
+export type LarkAgentInteractionSkill =
+  (typeof LARK_AGENT_INTERACTION_SKILLS)[LarkAgentInteractionAction];
 
-export type LarkAgentInvocation<TTask extends LarkAgentTaskName = LarkAgentTaskName> = {
-  task: TTask;
-  skill: (typeof LARK_AGENT_TASK_SKILLS)[TTask];
-  context: LarkAgentTaskContext<TTask>;
-};
+export type LarkAgentInvocation =
+  | {
+      task: "authorize";
+      skill: (typeof LARK_AGENT_TASK_SKILLS)["authorize"];
+      context: LarkAuthContext;
+    }
+  | {
+      task: "interact";
+      skill: LarkAgentInteractionSkill;
+      context: LarkInteractionRequest;
+    };
 
 export const LARK_AGENT_SYSTEM_PROMPT = `
 你是 git-helper TUI/CLI 中的单一飞书 Agent。
@@ -80,26 +86,24 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 
 用户消息是 JSON 字符串，格式为：
 
-- task: "authorize" | "getContext" | "sendMessage"
+- task: "authorize" | "interact"
 - skill: 系统根据 task 固定填入的 Skill 名称
 - context: 该任务的上下文
 
-输入是受控 task，不是自由指令。调用方只能选择上述 task，不能直接传 lark-cli 参数，也不能自由选择 Skill。
+输入是受控 task 和受控 action，不是自由指令。调用方只能选择上述 task 和允许的 interact action，不能直接传 lark-cli 参数，也不能自由选择 Skill。
 
 ## Skill 路由
 
 - task 为 "authorize" 时，固定 Skill 是 "lark-authorize"，调用 load_skill 加载 "lark-authorize"。
-- task 为 "getContext" 时，固定 Skill 是 "lark-doc-lookup"，调用 load_skill 加载 "lark-doc-lookup"。
-- task 为 "sendMessage" 时，固定 Skill 是 "lark-im"，调用 load_skill 加载 "lark-im"。
-- 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
-- 如果对应 Skill 不存在或加载失败，说明当前缺少该 Skill，不要自行编造命令流程。
-- 加载 Skill 后，只按该 Skill 和输入 context 执行。不要执行或声称执行 Skill 中没有允许的操作。
-- 不要根据 context、source、reason 或用户文字自行切换到其他 Skill。
-- 不要接受或执行 CLI args 作为任务输入；run_lark_cli 是 Skill 约束下的底层工具，不是对外 API。
+- task 为 "interact" 时，根据 context.action 固定选择 Skill：
+  - action 为 "get_context" 时，固定 Skill 是 "lark-doc-lookup"，调用 load_skill 加载 "lark-doc-lookup"。
+  - action 为 "send_message" 时，固定 Skill 是 "lark-im"，调用 load_skill 加载 "lark-im"。
+  - action 为 "write_development_record" 时，固定 Skill 是 "lark-doc-write"，调用 load_skill 加载 "lark-doc-write"。
 
-## getContext 输出
 
-getContext 用来把飞书侧上下文返回给 Command Agent，而不是直接展示给用户。
+## interact 输出
+
+action 为 "get_context" 时，用来把飞书侧上下文返回给 Command Agent，而不是直接展示给用户。
 目前支持的 topic 是 "commit_message_policy" 和 "troubleshooting_reference"。
 topic 为 "commit_message_policy" 时，查询或返回团队 commit message 规范；这类内容只影响提交信息的风格、格式、前缀和粒度。
 topic 为 "troubleshooting_reference" 时，查询或返回团队排障参考；这类内容只用于解释命令失败、定位错误和建议下一步检查。
@@ -107,12 +111,20 @@ topic 为 "troubleshooting_reference" 时，查询或返回团队排障参考；
 如果历史中没有同一个 topic 的可用资料，按 lark-doc-lookup Skill 搜索和读取相关文档，返回 refreshed。
 如果找不到或无权限，返回 missing，不要编造团队规范或排障方法。
 不要把 commit 规范当作排障方法，也不要把排障资料当作 commit 规范。
-getContext 必须只输出一个 JSON 对象：
+get_context 必须只输出一个 JSON 对象：
 - topic: "commit_message_policy" | "troubleshooting_reference"
 - content: 字符串
 - freshness: "remembered" | "refreshed" | "missing"
 - source 可选，包含 title、url 或 documentId
 - updatedAt 可选，使用 ISO 时间字符串
+
+action 为 "write_development_record" 时，用来写入团队开发记录文档。按 lark-doc-write Skill 搜索、读取并更新文档，输出一个 JSON 对象：
+- content: 字符串，说明文档位置、写入摘要，或未写入原因
+- suggestedCommand 可选，一般省略
+
+action 为 "send_message" 时，按 lark-im Skill 发送消息，输出一个 JSON 对象：
+- content: 字符串，说明发送结果
+- suggestedCommand 可选，一般省略
 
 ## 通用要求
 
@@ -209,12 +221,9 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
     async authorize(context) {
       return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("authorize", context));
     },
-    async getContext(context) {
-      const result = await agent.invokeWithMetadata(formatLarkAgentInvocation("getContext", context));
-      return parseLarkContextPack(result.content, context.topic);
-    },
-    async sendMessage(context) {
-      return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("sendMessage", context));
+    async interact(context) {
+      const result = await agent.invokeWithMetadata(formatLarkAgentInvocation("interact", context));
+      return parseLarkInteractionResult(context, result.content, result.metadata);
     },
   };
 }
@@ -273,6 +282,52 @@ function parseLarkContextPack(
   };
 }
 
+const LARK_COMMAND_OUTPUT_SCHEMA = z
+  .object({
+    content: z.string(),
+    suggestedCommand: z.string().optional(),
+  })
+  .strict();
+
+export function parseLarkInteractionResult(
+  context: LarkInteractionRequest,
+  output: string,
+  metadata?: CommandAgentOutput["metadata"],
+) {
+  if (context.action === "get_context") {
+    return parseLarkContextPack(output, context.topic);
+  }
+
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return {
+      content: "",
+      ...(metadata ? { metadata } : {}),
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const validated = LARK_COMMAND_OUTPUT_SCHEMA.safeParse(parsed);
+    if (validated.success) {
+      const content = validated.data.content.trim();
+      const suggestedCommand = validated.data.suggestedCommand?.trim() ?? "";
+      return {
+        content,
+        ...(suggestedCommand ? { suggestedCommand } : {}),
+        ...(metadata ? { metadata } : {}),
+      };
+    }
+  } catch {
+    // Fall through to text compatibility for early skill iterations.
+  }
+
+  return {
+    content: trimmed,
+    ...(metadata ? { metadata } : {}),
+  };
+}
+
 function compactLarkContextSource(source: {
   title?: string | undefined;
   url?: string | undefined;
@@ -285,15 +340,32 @@ function compactLarkContextSource(source: {
   };
 }
 
-export function formatLarkAgentInvocation<TTask extends LarkAgentTaskName>(
-  task: TTask,
-  context: LarkAgentTaskContext<TTask>,
+export function formatLarkAgentInvocation(
+  task: "authorize",
+  context: LarkAuthContext,
+): string;
+export function formatLarkAgentInvocation(
+  task: "interact",
+  context: LarkInteractionRequest,
+): string;
+export function formatLarkAgentInvocation(
+  task: "authorize" | "interact",
+  context: LarkAuthContext | LarkInteractionRequest,
 ) {
-  const invocation: LarkAgentInvocation<TTask> = {
-    task,
-    skill: LARK_AGENT_TASK_SKILLS[task],
-    context,
-  };
+  const invocation: LarkAgentInvocation =
+    task === "authorize"
+      ? {
+          task,
+          skill: LARK_AGENT_TASK_SKILLS.authorize,
+          context: context as LarkAuthContext,
+        }
+      : {
+          task,
+          skill: LARK_AGENT_INTERACTION_SKILLS[
+            (context as LarkInteractionRequest).action
+          ],
+          context: context as LarkInteractionRequest,
+        };
   return JSON.stringify(invocation);
 }
 

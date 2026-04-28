@@ -111,8 +111,36 @@ export type LarkMessageContext = {
   summary?: string;
 };
 
+export type LarkGetContextInteraction = LarkContextRequest & {
+  action: "get_context";
+};
+
+export type LarkSendMessageInteraction = LarkMessageContext & {
+  action: "send_message";
+};
+
+export type LarkDevelopmentRecordContext = {
+  action: "write_development_record";
+  cwd: string;
+  reason: string;
+  command?: string;
+  rawCommand?: string;
+  result?: CommandResult;
+  repository?: {
+    root?: string;
+    remoteUrl?: string;
+    webUrl?: string;
+  };
+};
+
+export type LarkInteractionRequest =
+  | LarkGetContextInteraction
+  | LarkSendMessageInteraction
+  | LarkDevelopmentRecordContext;
+
+export type LarkInteractionResult = LarkContextPack | CommandAgentOutput;
+
 export type LarkAgent = {
   authorize: (context: LarkAuthContext) => Promise<CommandAgentOutput>;
-  getContext: (context: LarkContextRequest) => Promise<LarkContextPack>;
-  sendMessage: (context: LarkMessageContext) => Promise<CommandAgentOutput>;
+  interact: (context: LarkInteractionRequest) => Promise<LarkInteractionResult>;
 };

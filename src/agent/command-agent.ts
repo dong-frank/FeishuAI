@@ -12,6 +12,7 @@ import type {
   CommandAgentOutput,
   CommandResult,
   LarkAgent,
+  LarkInteractionRequest,
 } from "./types.js";
 import { createLangChainAgent, createLangChainChatModel } from "./runtime/langchain-agent.js";
 import {
@@ -183,7 +184,7 @@ type GitCommitContextOutput = {
 };
 
 type InteractWithLarkAgentToolOptions = {
-  larkAgent?: Pick<LarkAgent, "getContext"> | undefined;
+  larkAgent?: Pick<LarkAgent, "interact"> | undefined;
 };
 
 type CommandAgentToolOptions = InteractWithLarkAgentToolOptions & {
@@ -212,59 +213,123 @@ export function createInteractWithLarkAgentTool({
   larkAgent,
 }: InteractWithLarkAgentToolOptions = {}): StructuredToolInterface {
   return tool(
-    async ({
-      topic,
-      cwd,
-      reason,
-      command,
-      rawCommand,
-      repository,
-    }) => {
+    async (input) => {
       if (!larkAgent) {
+        if (input.action === "get_context") {
+          return JSON.stringify({
+            topic: input.topic,
+            content: "",
+            freshness: "missing",
+          });
+        }
+
         return JSON.stringify({
-          topic,
-          content: "",
-          freshness: "missing",
+          content: "未配置 Lark Agent，开发记录未更新。",
         });
       }
 
-      const compactRepository = compactLarkContextRepository(repository);
-      return JSON.stringify(
-        await larkAgent.getContext({
-          topic,
-          cwd,
-          reason,
-          ...(command ? { command } : {}),
-          ...(rawCommand ? { rawCommand } : {}),
-          ...(compactRepository ? { repository: compactRepository } : {}),
-        }),
-      );
+      return JSON.stringify(await larkAgent.interact(normalizeLarkInteractionInput(input)));
     },
     {
       name: "interact_with_lark_agent",
       description:
         "与 Lark Agent 执行受控交互。只接受固定交互参数，不接受 lark-cli args",
-      schema: z
-        .object({
-          topic: z
-            .enum(["commit_message_policy", "troubleshooting_reference"])
-            .describe("需要的飞书交互主题。"),
-          cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
-          reason: z.string().describe("请求该上下文的原因。"),
-          command: z.string().optional(),
-          rawCommand: z.string().optional(),
-          repository: z
-            .object({
-              root: z.string().optional(),
-              remoteUrl: z.string().optional(),
-              webUrl: z.string().optional(),
-            })
-            .strict()
-            .optional(),
-        })
-        .strict(),
+      schema: createInteractWithLarkAgentSchema(),
     },
   );
+}
+
+function createInteractWithLarkAgentSchema() {
+  const repositorySchema = z
+    .object({
+      root: z.string().optional(),
+      remoteUrl: z.string().optional(),
+      webUrl: z.string().optional(),
+    })
+    .strict()
+    .optional();
+  const commandContextSchema = {
+    cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
+    reason: z.string().describe("请求该交互的原因。"),
+    command: z.string().optional(),
+    rawCommand: z.string().optional(),
+    repository: repositorySchema,
+  };
+
+  return z.discriminatedUnion("action", [
+    z
+      .object({
+        action: z.literal("get_context"),
+        ...commandContextSchema,
+        topic: z
+          .enum(["commit_message_policy", "troubleshooting_reference"])
+          .describe("需要的飞书上下文主题。"),
+      })
+      .strict(),
+    z
+      .object({
+        action: z.literal("send_message"),
+        cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
+        reason: z.string().describe("请求该交互的原因。"),
+        recipient: z.string().optional(),
+        message: z.string(),
+        summary: z.string().optional(),
+      })
+      .strict(),
+    z
+      .object({
+        action: z.literal("write_development_record"),
+        ...commandContextSchema,
+        result: z
+          .object({
+            exitCode: z.number(),
+            stdout: z.string(),
+            stderr: z.string(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+  ]);
+}
+
+type InteractWithLarkAgentInput = z.infer<ReturnType<typeof createInteractWithLarkAgentSchema>>;
+
+function normalizeLarkInteractionInput(
+  input: InteractWithLarkAgentInput,
+): LarkInteractionRequest {
+  if (input.action === "send_message") {
+    return {
+      action: "send_message",
+      cwd: input.cwd,
+      ...(input.recipient ? { recipient: input.recipient } : {}),
+      message: input.message,
+      ...(input.summary ? { summary: input.summary } : {}),
+    };
+  }
+
+  const compactRepository = compactLarkContextRepository(input.repository);
+  if (input.action === "get_context") {
+    return {
+      action: "get_context",
+      topic: input.topic,
+      cwd: input.cwd,
+      reason: input.reason,
+      ...(input.command ? { command: input.command } : {}),
+      ...(input.rawCommand ? { rawCommand: input.rawCommand } : {}),
+      ...(compactRepository ? { repository: compactRepository } : {}),
+    };
+  }
+
+  return {
+    action: "write_development_record",
+    cwd: input.cwd,
+    reason: input.reason,
+    ...(input.command ? { command: input.command } : {}),
+    ...(input.rawCommand ? { rawCommand: input.rawCommand } : {}),
+    ...(input.result ? { result: input.result } : {}),
+    ...(compactRepository ? { repository: compactRepository } : {}),
+  };
 }
 
 function compactLarkContextRepository(
@@ -316,9 +381,10 @@ export function createCommandAfterFailTools(options: CommandAgentToolOptions = {
   ];
 }
 
-export function createCommandAfterSuccessTools() {
+export function createCommandAfterSuccessTools(options: CommandAgentToolOptions = {}) {
   return [
     createGitRepositoryContextTool(),
+    createInteractWithLarkAgentTool(options),
   ];
 }
 
@@ -538,7 +604,7 @@ function withAgentMetadata(
 }
 
 export type CommandAgentOptions = {
-  larkAgent?: Pick<LarkAgent, "getContext"> | undefined;
+  larkAgent?: Pick<LarkAgent, "interact"> | undefined;
   skillRegistry?: SkillRegistry | undefined;
   skillRootDir?: string | undefined;
 };
@@ -574,7 +640,10 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       const afterSuccessAgent = createLangChainAgent({
         name: "Command After Success Agent",
         systemPrompt: formatAfterSuccessAgentSystemPrompt(afterSuccessSkill),
-        tools: createCommandAfterSuccessTools(),
+        tools: createCommandAfterSuccessTools({
+          larkAgent: options.larkAgent,
+          skillRegistry,
+        }),
         model,
         responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
       });
