@@ -13,7 +13,7 @@ import {
   COMMAND_AGENT_TOOLS,
   COMMAND_AGENT_TASK_SKILLS,
   formatCommandAgentInvocation,
-  createRequestLarkContextTool,
+  createInteractWithLarkAgentTool,
   GIT_COMMIT_CONTEXT_DIFF_LIMIT,
   GIT_COMMIT_CONTEXT_SUMMARY_LIMIT,
   HELP_AGENT_SYSTEM_PROMPT,
@@ -26,7 +26,7 @@ test("COMMAND_AGENT_TOOLS includes help and git commit context tools", () => {
     "load_skill",
     "tldr_git_manual",
     "git_commit_context",
-    "request_lark_context",
+    "interact_with_lark_agent",
   ]);
 });
 
@@ -39,6 +39,7 @@ test("command agent routes beforeRun tasks to command skills", () => {
   assert.deepEqual(COMMAND_AGENT_TASK_SKILLS, {
     help: "command-help",
     commitMessage: "command-git-commit-message",
+    afterFail: "command-after-fail",
   });
 
   assert.equal(
@@ -98,7 +99,7 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /load_skill/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /处理任务前必须先调用 load_skill/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /如果输入中的 skill 与上述固定映射不一致/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /request_lark_context/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /interact_with_lark_agent/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /历史画像/);
   assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /## Task 用户希望你帮助生成commit message/);
   assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /必须调用 tldr_git_manual/);
@@ -109,15 +110,21 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
 test("command task skills contain task-specific instructions", () => {
   const helpSkill = readSkill("command-help");
   const commitSkill = readSkill("command-git-commit-message");
+  const afterFailSkill = readSkill("command-after-fail");
 
   assert.match(helpSkill, /tldr_git_manual/);
   assert.match(helpSkill, /successCount 较高/);
   assert.match(helpSkill, /failures 是历史画像/);
 
-  assert.match(commitSkill, /先调用 `request_lark_context`，再调用 `git_commit_context`/);
+  assert.match(commitSkill, /先调用 `interact_with_lark_agent`，再调用 `git_commit_context`/);
   assert.match(commitSkill, /commit_message_policy/);
   assert.match(commitSkill, /stagedDiff/);
   assert.match(commitSkill, /不要把 gitStats\.failures/);
+
+  assert.match(afterFailSkill, /interact_with_lark_agent/);
+  assert.match(afterFailSkill, /troubleshooting_reference/);
+  assert.match(afterFailSkill, /result\.stderr/);
+  assert.match(afterFailSkill, /不要编造飞书文档/);
 });
 
 test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", () => {
@@ -143,8 +150,10 @@ test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", 
 
 test("AFTER_FAIL_AGENT_SYSTEM_PROMPT only describes failure behavior", () => {
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /失败后辅助 Agent/);
-  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /## Task 用户的命令执行失败/);
-  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /## Task 用户可能需要一条可直接补全的修复或排查命令/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /task: "afterFail"/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /command-after-fail/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /load_skill/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /interact_with_lark_agent/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.exitCode/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.stderr/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /排查方向或下一步命令/);
@@ -292,11 +301,11 @@ test("parseCommandAgentOutput preserves follow-up actions and rejects supplement
   assert.deepEqual(parseCommandAgentOutput(invalid), { content: invalid });
 });
 
-test("request_lark_context returns structured lark context through the lark agent", async () => {
+test("interact_with_lark_agent returns structured lark context through the lark agent", async () => {
   const calls: unknown[] = [];
-  const requestLarkContextTool = createRequestLarkContextTool({
+  const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
     larkAgent: {
-      requestContext(context: unknown) {
+      getContext(context: unknown) {
         calls.push(context);
         return Promise.resolve({
           topic: "commit_message_policy",
@@ -307,7 +316,7 @@ test("request_lark_context returns structured lark context through the lark agen
     },
   });
 
-  const result = await requestLarkContextTool.invoke({
+  const result = await interactWithLarkAgentTool.invoke({
     topic: "commit_message_policy",
     cwd: "/repo",
     reason: "generate_commit_message",
@@ -335,6 +344,45 @@ test("request_lark_context returns structured lark context through the lark agen
         root: "/repo",
         webUrl: "https://github.com/dong/feishuAI",
       },
+    },
+  ]);
+});
+
+test("interact_with_lark_agent accepts troubleshooting reference requests", async () => {
+  const calls: unknown[] = [];
+  const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
+    larkAgent: {
+      getContext(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          topic: "troubleshooting_reference",
+          content: "团队排障文档建议先检查认证状态。",
+          freshness: "refreshed",
+        });
+      },
+    },
+  });
+
+  const result = await interactWithLarkAgentTool.invoke({
+    topic: "troubleshooting_reference",
+    cwd: "/repo",
+    reason: "diagnose_command_failure",
+    command: "git",
+    rawCommand: "git push",
+  });
+
+  assert.deepEqual(JSON.parse(result), {
+    topic: "troubleshooting_reference",
+    content: "团队排障文档建议先检查认证状态。",
+    freshness: "refreshed",
+  });
+  assert.deepEqual(calls, [
+    {
+      topic: "troubleshooting_reference",
+      cwd: "/repo",
+      reason: "diagnose_command_failure",
+      command: "git",
+      rawCommand: "git push",
     },
   ]);
 });

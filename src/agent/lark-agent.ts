@@ -17,7 +17,6 @@ import type {
   LarkAuthContext,
   LarkContextPack,
   LarkContextRequest,
-  LarkDocSearchContext,
   LarkMessageContext,
 } from "./types.js";
 import { runLarkCli } from "../integrations/lark-cli.js";
@@ -28,8 +27,7 @@ const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
 
 export const LARK_AGENT_TASK_SKILLS = {
   authorize: "lark-authorize",
-  requestContext: "lark-doc-lookup",
-  searchDocs: "lark-doc-lookup",
+  getContext: "lark-doc-lookup",
   sendMessage: "lark-im",
 } as const;
 
@@ -39,10 +37,8 @@ export type LarkAgentTaskSkill = (typeof LARK_AGENT_TASK_SKILLS)[LarkAgentTaskNa
 type LarkAgentTaskContext<TTask extends LarkAgentTaskName> =
   TTask extends "authorize"
     ? LarkAuthContext
-    : TTask extends "requestContext"
+    : TTask extends "getContext"
       ? LarkContextRequest
-      : TTask extends "searchDocs"
-      ? LarkDocSearchContext
       : TTask extends "sendMessage"
         ? LarkMessageContext
         : never;
@@ -84,7 +80,7 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 
 用户消息是 JSON 字符串，格式为：
 
-- task: "authorize" | "requestContext" | "searchDocs" | "sendMessage"
+- task: "authorize" | "getContext" | "sendMessage"
 - skill: 系统根据 task 固定填入的 Skill 名称
 - context: 该任务的上下文
 
@@ -93,8 +89,7 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 ## Skill 路由
 
 - task 为 "authorize" 时，固定 Skill 是 "lark-authorize"，调用 load_skill 加载 "lark-authorize"。
-- task 为 "requestContext" 时，固定 Skill 是 "lark-doc-lookup"，调用 load_skill 加载 "lark-doc-lookup"。
-- task 为 "searchDocs" 时，固定 Skill 是 "lark-doc-lookup"，调用 load_skill 加载 "lark-doc-lookup"。
+- task 为 "getContext" 时，固定 Skill 是 "lark-doc-lookup"，调用 load_skill 加载 "lark-doc-lookup"。
 - task 为 "sendMessage" 时，固定 Skill 是 "lark-im"，调用 load_skill 加载 "lark-im"。
 - 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
 - 如果对应 Skill 不存在或加载失败，说明当前缺少该 Skill，不要自行编造命令流程。
@@ -102,15 +97,18 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 - 不要根据 context、source、reason 或用户文字自行切换到其他 Skill。
 - 不要接受或执行 CLI args 作为任务输入；run_lark_cli 是 Skill 约束下的底层工具，不是对外 API。
 
-## requestContext 输出
+## getContext 输出
 
-requestContext 用来把飞书侧上下文返回给 Command Agent，而不是直接展示给用户。
-目前支持的 topic 是 "commit_message_policy"。
-如果本 Agent 当前会话历史中已经知道可用规范，直接返回 remembered，不要重复查询。
-如果历史中没有可用规范，按 lark-doc-lookup Skill 搜索和读取相关文档，返回 refreshed。
-如果找不到或无权限，返回 missing，不要编造团队规范。
-requestContext 必须只输出一个 JSON 对象：
-- topic: "commit_message_policy"
+getContext 用来把飞书侧上下文返回给 Command Agent，而不是直接展示给用户。
+目前支持的 topic 是 "commit_message_policy" 和 "troubleshooting_reference"。
+topic 为 "commit_message_policy" 时，查询或返回团队 commit message 规范；这类内容只影响提交信息的风格、格式、前缀和粒度。
+topic 为 "troubleshooting_reference" 时，查询或返回团队排障参考；这类内容只用于解释命令失败、定位错误和建议下一步检查。
+如果本 Agent 当前会话历史中已经知道同一个 topic 的可用资料，直接返回 remembered，不要重复查询。
+如果历史中没有同一个 topic 的可用资料，按 lark-doc-lookup Skill 搜索和读取相关文档，返回 refreshed。
+如果找不到或无权限，返回 missing，不要编造团队规范或排障方法。
+不要把 commit 规范当作排障方法，也不要把排障资料当作 commit 规范。
+getContext 必须只输出一个 JSON 对象：
+- topic: "commit_message_policy" | "troubleshooting_reference"
 - content: 字符串
 - freshness: "remembered" | "refreshed" | "missing"
 - source 可选，包含 title、url 或 documentId
@@ -211,12 +209,9 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
     async authorize(context) {
       return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("authorize", context));
     },
-    async requestContext(context) {
-      const result = await agent.invokeWithMetadata(formatLarkAgentInvocation("requestContext", context));
+    async getContext(context) {
+      const result = await agent.invokeWithMetadata(formatLarkAgentInvocation("getContext", context));
       return parseLarkContextPack(result.content, context.topic);
-    },
-    async searchDocs(context) {
-      return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("searchDocs", context));
     },
     async sendMessage(context) {
       return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("sendMessage", context));
@@ -226,7 +221,7 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
 
 const LARK_CONTEXT_PACK_SCHEMA = z
   .object({
-    topic: z.literal("commit_message_policy"),
+    topic: z.enum(["commit_message_policy", "troubleshooting_reference"]),
     content: z.string(),
     freshness: z.enum(["remembered", "refreshed", "missing"]),
     source: z

@@ -87,7 +87,7 @@ export type LarkAuthContext = {
   intent?: string;
 };
 
-export type LarkContextTopic = "commit_message_policy";
+export type LarkContextTopic = "commit_message_policy" | "troubleshooting_reference";
 
 export type LarkContextRequest = {
   cwd: string;
@@ -114,16 +114,6 @@ export type LarkContextPack = {
   updatedAt?: string;
 };
 
-export type LarkDocSearchContext = {
-  cwd: string;
-  query: string;
-  command?: string;
-  rawCommand?: string;
-  result?: CommandResult;
-  reason?: string;
-  displayHint?: "append_as_team_policy" | "append_as_troubleshooting_reference" | undefined;
-};
-
 export type LarkMessageContext = {
   cwd: string;
   recipient?: string;
@@ -133,7 +123,6 @@ export type LarkMessageContext = {
 
 export type LarkAgent = {
   authorize: (context: LarkAuthContext) => Promise<CommandAgentOutput>;
-  requestContext: (context: LarkContextRequest) => Promise<LarkContextPack>;
-  searchDocs: (context: LarkDocSearchContext) => Promise<CommandAgentOutput>;
+  getContext: (context: LarkContextRequest) => Promise<LarkContextPack>;
   sendMessage: (context: LarkMessageContext) => Promise<CommandAgentOutput>;
 };

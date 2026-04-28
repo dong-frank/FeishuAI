@@ -19,21 +19,20 @@ test("lark agent exposes load_skill and run_lark_cli tools", () => {
 test("lark agent exposes only controlled task to skill mappings", () => {
   assert.deepEqual(LARK_AGENT_TASK_SKILLS, {
     authorize: "lark-authorize",
-    requestContext: "lark-doc-lookup",
-    searchDocs: "lark-doc-lookup",
+    getContext: "lark-doc-lookup",
     sendMessage: "lark-im",
   });
 });
 
 test("formatLarkAgentInvocation builds task envelopes with fixed skills", () => {
   assert.equal(
-    formatLarkAgentInvocation("requestContext", {
+    formatLarkAgentInvocation("getContext", {
       cwd: "/repo",
       topic: "commit_message_policy",
       reason: "generate_commit_message",
     }),
     JSON.stringify({
-      task: "requestContext",
+      task: "getContext",
       skill: "lark-doc-lookup",
       context: {
         cwd: "/repo",
@@ -58,12 +57,19 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /--format csv/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /--format json/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /authorize/);
-  assert.match(LARK_AGENT_SYSTEM_PROMPT, /requestContext/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /getContext/);
+  assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /requestContext/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /commit_message_policy/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /troubleshooting_reference/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队 commit message 规范/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队排障参考/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /同一个 topic/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把 commit 规范当作排障方法/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把排障资料当作 commit 规范/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /remembered/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /refreshed/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /missing/);
-  assert.match(LARK_AGENT_SYSTEM_PROMPT, /searchDocs/);
+  assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /searchDocs/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /sendMessage/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-authorize/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-doc-lookup/);

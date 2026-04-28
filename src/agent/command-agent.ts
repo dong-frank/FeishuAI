@@ -10,6 +10,7 @@ import type {
   CommandAgent,
   CommandContext,
   CommandAgentOutput,
+  CommandResult,
   LarkAgent,
 } from "./types.js";
 import { createLangChainAgent, createLangChainChatModel } from "./runtime/langchain-agent.js";
@@ -25,6 +26,7 @@ const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
 export const COMMAND_AGENT_TASK_SKILLS = {
   help: "command-help",
   commitMessage: "command-git-commit-message",
+  afterFail: "command-after-fail",
 } as const;
 
 export type CommandAgentTaskName = keyof typeof COMMAND_AGENT_TASK_SKILLS;
@@ -37,6 +39,7 @@ export type CommandAgentInvocation<
   task: TTask;
   skill: (typeof COMMAND_AGENT_TASK_SKILLS)[TTask];
   context: CommandContext;
+  result?: TTask extends "afterFail" ? CommandResult : never;
 };
 
 const TERMINAL_OUTPUT_REQUIREMENTS = `
@@ -51,7 +54,7 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 - suggestedCommand 可选；如果输出 suggestedCommand，它必须是一条完整命令，不是命令后缀。如果没有明确可执行建议，输出空字符串或省略。
 - 可以大胆给出 suggestedCommand，用户不一定会接受；它只是 TUI 里的高优先级补全候选。只要有一个合理、完整、可执行的下一步命令，就给出 suggestedCommand；如果当前信息不足或建议可能危险，才输出空字符串。
 - Command Agent 不直接调用 Lark Agent，不直接执行 Lark CLI，也不输出 callLarkAgent、agent、toolName 等执行字段。
-- 当回答需要获取团队飞书文档内容、团队规范、流程或约定来改进结果时，调用 request_lark_context 工具；该工具只接受受控 topic，不接受 lark-cli args。
+- 当回答需要获取团队飞书文档内容、团队规范、流程或约定来改进结果时，调用 interact_with_lark_agent 工具；该工具只接受受控交互参数，不接受 lark-cli args。
 - 当前 phase 不会等待用户确认。需要用户确认的协作动作只能作为 followUpActions 输出，确认必须来自后续显式动作。
 - push、PR、review 等通知类建议只输出 followUpActions；不要声称已经发送飞书消息。
 `.trim();
@@ -88,7 +91,7 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 - 处理任务前必须先调用 load_skill 读取对应 Skill。
 - 加载 Skill 后，只按该 Skill 和输入 context 执行；不要自行切换到其他 Skill。
 - 如果 Skill 要求调用工具，必须按 Skill 规定的顺序和参数调用。
-当回答需要获取团队飞书文档内容、团队规范、流程或约定来改进结果时，调用 request_lark_context 工具；该工具只接受受控 topic，不接受 lark-cli args。
+当回答需要获取团队飞书文档内容、团队规范、流程或约定来改进结果时，调用 interact_with_lark_agent 工具；该工具只接受受控交互参数，不接受 lark-cli args。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
@@ -130,25 +133,25 @@ ${TERMINAL_OUTPUT_REQUIREMENTS}
 export const AFTER_FAIL_AGENT_SYSTEM_PROMPT = `
 你是 git-helper TUI/CLI 中的命令失败后辅助 Agent。
 
-## 输入结构
+## 任务包结构
 
-- context.cwd: 当前工作目录
-- context.command: 命令名
-- context.args: 命令参数数组
-- context.rawCommand: 用户输入的完整命令
-- result.exitCode: 命令退出码
-- result.stdout: 命令标准输出
-- result.stderr: 命令错误输出
+用户消息是 JSON 字符串，格式为：
 
-## Task 用户的命令执行失败，需要排查帮助
+- task: "afterFail"
+- skill: 系统根据 task 固定填入的 Skill 名称，必须是 "command-after-fail"
+- context: 当前命令上下文，包含 context.cwd、context.command、context.args、context.rawCommand
+- result: 命令失败结果，包含 result.exitCode、result.stdout、result.stderr
 
-根据失败结果给出非常短的排查方向或下一步命令。
-优先参考 result.stderr，其次参考 result.stdout 和 rawCommand。
-不要假设没有出现在输入中的仓库状态、远端状态或团队规范。
+## Skill 路由
 
-## Task 用户可能需要一条可直接补全的修复或排查命令
-
-只要能从失败输出判断出一个合理、完整、可执行的修复或排查命令，就给出 suggestedCommand。
+- task 为 "afterFail" 时，固定 Skill 是 "command-after-fail"，调用 load_skill 加载 "command-after-fail"。
+- 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
+- 如果对应 Skill 不存在或加载失败，说明当前缺少该 Skill，不要自行编造排障流程。
+- 处理任务前必须先调用 load_skill 读取对应 Skill。
+- 加载 Skill 后，只按该 Skill 和输入 context/result 执行；不要自行切换到其他 Skill。
+- 如果 Skill 要求调用工具，必须按 Skill 规定的顺序和参数调用。
+- 排障类飞书资料查询必须通过 interact_with_lark_agent，不要直接调用 Lark Agent 或执行 Lark CLI。
+- 最终输出非常短的排查方向或下一步命令；如果能判断出一个合理、完整、可执行且不危险的修复或排查命令，放入 suggestedCommand。优先参考 result.stderr，其次参考 result.stdout 和 context.rawCommand。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
@@ -180,11 +183,11 @@ type GitCommitContextOutput = {
   truncated: boolean;
 };
 
-type RequestLarkContextToolOptions = {
-  larkAgent?: Pick<LarkAgent, "requestContext"> | undefined;
+type InteractWithLarkAgentToolOptions = {
+  larkAgent?: Pick<LarkAgent, "getContext"> | undefined;
 };
 
-type CommandAgentToolOptions = RequestLarkContextToolOptions & {
+type CommandAgentToolOptions = InteractWithLarkAgentToolOptions & {
   skillRegistry?: SkillRegistry | undefined;
 };
 
@@ -206,9 +209,9 @@ Returns the skill's prompt and context.`,
   );
 }
 
-export function createRequestLarkContextTool({
+export function createInteractWithLarkAgentTool({
   larkAgent,
-}: RequestLarkContextToolOptions = {}): StructuredToolInterface {
+}: InteractWithLarkAgentToolOptions = {}): StructuredToolInterface {
   return tool(
     async ({
       topic,
@@ -228,7 +231,7 @@ export function createRequestLarkContextTool({
 
       const compactRepository = compactLarkContextRepository(repository);
       return JSON.stringify(
-        await larkAgent.requestContext({
+        await larkAgent.getContext({
           topic,
           cwd,
           reason,
@@ -239,12 +242,14 @@ export function createRequestLarkContextTool({
       );
     },
     {
-      name: "request_lark_context",
+      name: "interact_with_lark_agent",
       description:
-        "向 Lark Agent 请求受控飞书上下文。只接受固定 topic，不接受 lark-cli args；用于在 Command Agent 生成最终回答前获取团队规范。",
+        "与 Lark Agent 执行受控交互。只接受固定交互参数，不接受 lark-cli args",
       schema: z
         .object({
-          topic: z.literal("commit_message_policy").describe("需要的飞书上下文主题。"),
+          topic: z
+            .enum(["commit_message_policy", "troubleshooting_reference"])
+            .describe("需要的飞书交互主题。"),
           cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
           reason: z.string().describe("请求该上下文的原因。"),
           command: z.string().optional(),
@@ -320,7 +325,7 @@ function createCommandAgentTools(options: CommandAgentToolOptions = {}) {
         }),
       },
     ),
-    createRequestLarkContextTool(options),
+    createInteractWithLarkAgentTool(options),
   ];
 }
 
@@ -338,11 +343,13 @@ export function routeCommandAgentTask(context: {
 export function formatCommandAgentInvocation<TTask extends CommandAgentTaskName>(
   task: TTask,
   context: CommandAgentInvocation<TTask>["context"],
+  result?: CommandAgentInvocation<TTask>["result"],
 ) {
   const invocation: CommandAgentInvocation<TTask> = {
     task,
     skill: COMMAND_AGENT_TASK_SKILLS[task],
     context,
+    ...(result ? { result } : {}),
   };
   return JSON.stringify(invocation);
 }
@@ -497,7 +504,7 @@ function withAgentMetadata(
 }
 
 export type CommandAgentOptions = {
-  larkAgent?: Pick<LarkAgent, "requestContext"> | undefined;
+  larkAgent?: Pick<LarkAgent, "getContext"> | undefined;
   skillRegistry?: SkillRegistry | undefined;
   skillRootDir?: string | undefined;
 };
@@ -529,6 +536,10 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
   const afterFailAgent = createLangChainAgent({
     name: "Command After Fail Agent",
     systemPrompt: AFTER_FAIL_AGENT_SYSTEM_PROMPT,
+    tools: createCommandAgentTools({
+      larkAgent: options.larkAgent,
+      skillRegistry,
+    }),
     model,
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
@@ -548,7 +559,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     },
     async afterFail(context, result) {
       const agentResult = await afterFailAgent.invokeWithMetadata(
-        JSON.stringify({ context, result }),
+        formatCommandAgentInvocation("afterFail", context, result),
       );
       return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },
