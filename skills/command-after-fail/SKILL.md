@@ -20,6 +20,7 @@ description: "Command Agent 命令失败排障任务：按错误复杂度选择 
    - 典型信号包括权限、认证、远端拒绝、分支保护、CI、团队流程、仓库规范、钩子、提交规范、发布流程或需要结合项目约定的问题。
    - 如果需要当前仓库状态、分支或远端信息，先调用 `git_repository_context`。
    - 只有这类复杂问题才调用 `interact_with_lark_agent` 查询团队排障资料：
+     - action: `get_context`
      - topic: `troubleshooting_reference`
      - reason: `diagnose_command_failure`
      - cwd: 使用 context.cwd

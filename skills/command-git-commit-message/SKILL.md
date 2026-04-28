@@ -13,6 +13,7 @@ description: "Command Agent git commit message 任务：基于团队文档上下
 必须先调用 `interact_with_lark_agent`，再调用 `git_commit_context`。
 
 1. 调用 `interact_with_lark_agent` 获取团队 commit message 规范：
+   - action: `get_context`
    - topic: `commit_message_policy`
    - reason: `generate_commit_message`
    - cwd: 使用 context.cwd
