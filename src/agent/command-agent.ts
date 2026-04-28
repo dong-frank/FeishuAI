@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { join } from "node:path";
 
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
-import { providerStrategy } from "langchain";
+import { toolStrategy } from "langchain";
 import { z } from "zod";
 
 import type {
@@ -45,18 +45,16 @@ export type CommandAgentInvocation<
 const TERMINAL_OUTPUT_REQUIREMENTS = `
 ## 通用要求
 
-- 回答要简短、准确、可执行。
-- 不要编造不存在的团队规范、飞书文档或命令结果。
-- 如果需要引用上下文，只基于输入 JSON 中实际存在的信息。
+- 回答要简短、准确、可执行，不要编造不存在的团队规范、飞书文档或命令结果。
 - 输出要适合终端阅读：使用纯文本、短段落、短行和简单缩进；不要使用 Markdown 标题、表格、代码围栏、链接语法、复杂列表或终端控制字符。
 - 只能输出一个 JSON 对象，不要输出 JSON 之外的任何文字。
 - JSON 必须包含 content 字段；content 是展示给用户的终端文本。
 - suggestedCommand 可选；如果输出 suggestedCommand，它必须是一条完整命令，不是命令后缀。如果没有明确可执行建议，输出空字符串或省略。
 - 可以大胆给出 suggestedCommand，用户不一定会接受；它只是 TUI 里的高优先级补全候选。只要有一个合理、完整、可执行的下一步命令，就给出 suggestedCommand；如果当前信息不足或建议可能危险，才输出空字符串。
+- skills里面封装了流程经验，需要参考对应的skills来回答。
 - Command Agent 不直接调用 Lark Agent，不直接执行 Lark CLI，也不输出 callLarkAgent、agent、toolName 等执行字段。
-- 当回答需要获取团队飞书文档内容、团队规范、流程或约定来改进结果时，调用 interact_with_lark_agent 工具；该工具只接受受控交互参数，不接受 lark-cli args。
 - 当前 phase 不会等待用户确认。需要用户确认的协作动作只能作为 followUpActions 输出，确认必须来自后续显式动作。
-- push、PR、review 等通知类建议只输出 followUpActions；不要声称已经发送飞书消息。
+
 `.trim();
 
 export const HELP_AGENT_SYSTEM_PROMPT = `
@@ -82,16 +80,13 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 
 输入是受控 task，不是自由指令。调用方只能选择上述 task，不能自由选择 Skill。
 
-## Skill 路由
+## Skills
 
 - task 为 "help" 时，固定 Skill 是 "command-help"，调用 load_skill 加载 "command-help"。
 - task 为 "commitMessage" 时，固定 Skill 是 "command-git-commit-message"，调用 load_skill 加载 "command-git-commit-message"。
 - 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
-- 如果对应 Skill 不存在或加载失败，说明当前缺少该 Skill，不要自行编造命令流程。
 - 处理任务前必须先调用 load_skill 读取对应 Skill。
-- 加载 Skill 后，只按该 Skill 和输入 context 执行；不要自行切换到其他 Skill。
-- 如果 Skill 要求调用工具，必须按 Skill 规定的顺序和参数调用。
-当回答需要获取团队飞书文档内容、团队规范、流程或约定来改进结果时，调用 interact_with_lark_agent 工具；该工具只接受受控交互参数，不接受 lark-cli args。
+- 如果对应 Skill 需要团队飞书上下文，只能通过 interact_with_lark_agent 获取。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
@@ -135,26 +130,21 @@ export const AFTER_FAIL_AGENT_SYSTEM_PROMPT = `
 
 ## 任务包结构
 
-用户消息是 JSON 字符串，格式为：
-
 - task: "afterFail"
 - skill: 系统根据 task 固定填入的 Skill 名称，必须是 "command-after-fail"
 - context: 当前命令上下文，包含 context.cwd、context.command、context.args、context.rawCommand
 - result: 命令失败结果，包含 result.exitCode、result.stdout、result.stderr
 
-## Skill 路由
-
-- task 为 "afterFail" 时，固定 Skill 是 "command-after-fail"，调用 load_skill 加载 "command-after-fail"。
-- 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
-- 如果对应 Skill 不存在或加载失败，说明当前缺少该 Skill，不要自行编造排障流程。
-- 处理任务前必须先调用 load_skill 读取对应 Skill。
-- 加载 Skill 后，只按该 Skill 和输入 context/result 执行；不要自行切换到其他 Skill。
-- 如果 Skill 要求调用工具，必须按 Skill 规定的顺序和参数调用。
-- 排障类飞书资料查询必须通过 interact_with_lark_agent，不要直接调用 Lark Agent 或执行 Lark CLI。
-- 最终输出非常短的排查方向或下一步命令；如果能判断出一个合理、完整、可执行且不危险的修复或排查命令，放入 suggestedCommand。优先参考 result.stderr，其次参考 result.stdout 和 context.rawCommand。
-
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
+
+export function formatAfterFailAgentSystemPrompt(skillContent: string) {
+  return `${AFTER_FAIL_AGENT_SYSTEM_PROMPT}
+
+## Injected Skill: command-after-fail
+
+${skillContent.trim()}`.trim();
+}
 
 export const GIT_COMMIT_CONTEXT_DIFF_LIMIT = 3000;
 export const GIT_COMMIT_CONTEXT_SUMMARY_LIMIT = 1000;
@@ -171,6 +161,11 @@ type GitCommandRunner = (
 ) => Promise<GitCommandResult>;
 
 type GitCommitContextOptions = {
+  cwd: string;
+  runGitCommand?: GitCommandRunner | undefined;
+};
+
+type GitRepositoryContextOptions = {
   cwd: string;
   runGitCommand?: GitCommandRunner | undefined;
 };
@@ -303,28 +298,16 @@ function createCommandAgentTools(options: CommandAgentToolOptions = {}) {
 
   return [
     createLoadCommandSkillTool(registry),
-    tool(
-      async ({ command }) => readTldrPage(command),
-      {
-        name: "tldr_git_manual",
-        description:
-          "查询 tldr 中的 Git 命令快速手册。输入可以是 git push、git status 或 git-push 这样的命令名。",
-        schema: z.object({
-          command: z.string().describe("需要查询的 Git 命令，例如 git push 或 git status。"),
-        }),
-      },
-    ),
-    tool(
-      async ({ cwd }) => JSON.stringify(await buildGitCommitContext({ cwd })),
-      {
-        name: "git_commit_context",
-        description:
-          "按需读取生成 commit message 所需的已暂存 Git 信息。只在 git commit 场景使用；内部固定运行 git status --short、git diff --cached、git log -5 --pretty=%s，并会截断过长输出。",
-        schema: z.object({
-          cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
-        }),
-      },
-    ),
+    createTldrGitManualTool(),
+    createGitCommitContextTool(),
+    createInteractWithLarkAgentTool(options),
+  ];
+}
+
+export function createCommandAfterFailTools(options: CommandAgentToolOptions = {}) {
+  return [
+    createTldrGitManualTool(),
+    createGitRepositoryContextTool(),
     createInteractWithLarkAgentTool(options),
   ];
 }
@@ -378,6 +361,65 @@ export async function buildGitCommitContext({
       subjects: recentCommitsOutput.stdout.split("\n").filter(Boolean),
     },
   };
+}
+
+export async function buildGitRepositoryContext({
+  cwd,
+  runGitCommand = runGit,
+}: GitRepositoryContextOptions) {
+  const [status, branch, remotes] = await Promise.all([
+    runGitCommand(["status", "--short", "--branch"], cwd),
+    runGitCommand(["branch", "--show-current"], cwd),
+    runGitCommand(["remote", "-v"], cwd),
+  ]);
+
+  return {
+    status: formatGitOutput("git status --short --branch", status, GIT_COMMIT_CONTEXT_SUMMARY_LIMIT),
+    branch: formatGitOutput("git branch --show-current", branch, GIT_COMMIT_CONTEXT_SUMMARY_LIMIT),
+    remotes: formatGitOutput("git remote -v", remotes, GIT_COMMIT_CONTEXT_SUMMARY_LIMIT),
+  };
+}
+
+function createTldrGitManualTool(): StructuredToolInterface {
+  return tool(
+    async ({ command }) => readTldrPage(command),
+    {
+      name: "tldr_git_manual",
+      description:
+        "查询 tldr 中的 Git 命令快速手册。输入可以是 git push、git status 或 git-push 这样的命令名。",
+      schema: z.object({
+        command: z.string().describe("需要查询的 Git 命令，例如 git push 或 git status。"),
+      }),
+    },
+  );
+}
+
+function createGitCommitContextTool(): StructuredToolInterface {
+  return tool(
+    async ({ cwd }) => JSON.stringify(await buildGitCommitContext({ cwd })),
+    {
+      name: "git_commit_context",
+      description:
+        "按需读取生成 commit message 所需的已暂存 Git 信息。只在 git commit 场景使用；内部固定运行 git status --short、git diff --cached、git log -5 --pretty=%s，并会截断过长输出。",
+      schema: z.object({
+        cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
+      }),
+    },
+  );
+}
+
+function createGitRepositoryContextTool(): StructuredToolInterface {
+  return tool(
+    async ({ cwd }) => JSON.stringify(await buildGitRepositoryContext({ cwd })),
+    {
+      name: "git_repository_context",
+      description:
+        "读取排查命令失败常用的 Git 仓库上下文。内部固定运行 git status --short --branch、git branch --show-current、git remote -v，并会截断过长输出。",
+      schema: z.object({
+        cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
+      }),
+    },
+  );
 }
 
 function formatGitOutput(
@@ -458,12 +500,9 @@ const COMMAND_AGENT_RESPONSE_SCHEMA = z
   })
   .strict();
 
-export const COMMAND_AGENT_PROVIDER_RESPONSE_FORMAT = providerStrategy({
-  schema: COMMAND_AGENT_RESPONSE_SCHEMA,
-  strict: true,
-});
+export const COMMAND_AGENT_TOOL_RESPONSE_FORMAT = toolStrategy(COMMAND_AGENT_RESPONSE_SCHEMA);
 
-export const COMMAND_AGENT_RESPONSE_FORMAT = COMMAND_AGENT_PROVIDER_RESPONSE_FORMAT;
+export const COMMAND_AGENT_RESPONSE_FORMAT = COMMAND_AGENT_TOOL_RESPONSE_FORMAT;
 
 export function parseCommandAgentOutput(output: string): CommandAgentOutput | undefined {
   const trimmed = output.trim();
@@ -533,23 +572,13 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     model,
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
-  const afterFailAgent = createLangChainAgent({
-    name: "Command After Fail Agent",
-    systemPrompt: AFTER_FAIL_AGENT_SYSTEM_PROMPT,
-    tools: createCommandAgentTools({
-      larkAgent: options.larkAgent,
-      skillRegistry,
-    }),
-    model,
-    responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
-  });
 
   return {
     async beforeRun(context) {
-      const result = await helpAgent.invokeWithMetadata(
+      const agentResult = await helpAgent.invokeWithMetadata(
         formatCommandAgentInvocation(routeCommandAgentTask(context), context),
       );
-      return withAgentMetadata(parseCommandAgentOutput(result.content), result.metadata);
+      return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },
     async afterSuccess(context, result) {
       const agentResult = await afterSuccessAgent.invokeWithMetadata(
@@ -558,6 +587,17 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },
     async afterFail(context, result) {
+      const afterFailSkill = await skillRegistry.loadSkill(COMMAND_AGENT_TASK_SKILLS.afterFail);
+      const afterFailAgent = createLangChainAgent({
+        name: "Command After Fail Agent",
+        systemPrompt: formatAfterFailAgentSystemPrompt(afterFailSkill),
+        tools: createCommandAfterFailTools({
+          larkAgent: options.larkAgent,
+          skillRegistry,
+        }),
+        model,
+        responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
+      });
       const agentResult = await afterFailAgent.invokeWithMetadata(
         formatCommandAgentInvocation("afterFail", context, result),
       );

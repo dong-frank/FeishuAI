@@ -64,8 +64,8 @@ test("completion ghost style is visually distinct from ordinary gray text", () =
 test("usage tips are recorded in one place for the status bar", () => {
   assert.ok(TUI_USAGE_TIPS.includes("按 Enter 执行命令"));
   assert.ok(TUI_USAGE_TIPS.includes("按 Tab 请求 Agent 帮助"));
-  assert.ok(TUI_USAGE_TIPS.includes("按 Right 接受命令或文件补全"));
-  assert.ok(TUI_USAGE_TIPS.includes("按 Up/Down 切换命令历史"));
+  assert.ok(TUI_USAGE_TIPS.includes("按 → 接受命令或文件补全"));
+  assert.ok(TUI_USAGE_TIPS.includes("按 ↑/↓ 切换命令历史"));
   assert.ok(TUI_USAGE_TIPS.includes("按 PageUp/PageDown 滚动输出历史"));
 });
 

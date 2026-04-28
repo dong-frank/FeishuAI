@@ -5,9 +5,9 @@ export const DEFAULT_STATUS_PANE_WIDTH = 28;
 export const TUI_USAGE_TIPS = [
   "按 Enter 执行命令",
   "按 Tab 请求 Agent 帮助",
-  "按 Right 接受命令或文件补全",
+  "按 → 接受命令或文件补全",
   "按 Ctrl+C 退出",
-  "按 Up/Down 切换命令历史",
+  "按 ↑/↓ 切换命令历史",
   "按 PageUp/PageDown 滚动输出历史",
   "输入 git commit -m 后按 Tab 生成 commit message",
   "执行 lark init 命令将连接飞书"

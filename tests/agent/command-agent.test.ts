@@ -7,11 +7,13 @@ import {
   AFTER_FAIL_AGENT_SYSTEM_PROMPT,
   AFTER_SUCCESS_AGENT_SYSTEM_PROMPT,
   buildGitCommitContext,
+  buildGitRepositoryContext,
   COMMAND_AGENT_OUTPUT_SCHEMA,
-  COMMAND_AGENT_PROVIDER_RESPONSE_FORMAT,
   COMMAND_AGENT_RESPONSE_FORMAT,
+  COMMAND_AGENT_TOOL_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOLS,
   COMMAND_AGENT_TASK_SKILLS,
+  createCommandAfterFailTools,
   formatCommandAgentInvocation,
   createInteractWithLarkAgentTool,
   GIT_COMMIT_CONTEXT_DIFF_LIMIT,
@@ -30,9 +32,19 @@ test("COMMAND_AGENT_TOOLS includes help and git commit context tools", () => {
   ]);
 });
 
-test("command agent structured output defaults to native provider schema", () => {
-  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT, COMMAND_AGENT_PROVIDER_RESPONSE_FORMAT);
-  assert.equal(Array.isArray(COMMAND_AGENT_RESPONSE_FORMAT), false);
+test("after-fail tools include tldr, git context, and lark interaction only", () => {
+  assert.deepEqual(createCommandAfterFailTools().map((tool) => tool.name), [
+    "tldr_git_manual",
+    "git_repository_context",
+    "interact_with_lark_agent",
+  ]);
+});
+
+test("command agent structured output uses function calling", () => {
+  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT, COMMAND_AGENT_TOOL_RESPONSE_FORMAT);
+  assert.equal(Array.isArray(COMMAND_AGENT_RESPONSE_FORMAT), true);
+  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT.length, 1);
+  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT[0]?.tool.type, "function");
 });
 
 test("command agent routes beforeRun tasks to command skills", () => {
@@ -123,6 +135,11 @@ test("command task skills contain task-specific instructions", () => {
 
   assert.match(afterFailSkill, /interact_with_lark_agent/);
   assert.match(afterFailSkill, /troubleshooting_reference/);
+  assert.match(afterFailSkill, /tldr_git_manual/);
+  assert.match(afterFailSkill, /git_repository_context/);
+  assert.match(afterFailSkill, /语法或参数错误/);
+  assert.match(afterFailSkill, /复杂/);
+  assert.match(afterFailSkill, /只有/);
   assert.match(afterFailSkill, /result\.stderr/);
   assert.match(afterFailSkill, /不要编造飞书文档/);
 });
@@ -152,8 +169,13 @@ test("AFTER_FAIL_AGENT_SYSTEM_PROMPT only describes failure behavior", () => {
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /失败后辅助 Agent/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /task: "afterFail"/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /command-after-fail/);
-  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /load_skill/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /Skill 已由 runtime 注入/);
+  assert.doesNotMatch(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /load_skill/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /interact_with_lark_agent/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /tldr_git_manual/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /git_repository_context/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /简单的语法或参数错误/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /复杂问题/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.exitCode/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /result\.stderr/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /排查方向或下一步命令/);
@@ -494,6 +516,57 @@ test("buildGitCommitContext truncates large git outputs", async () => {
   assert.equal(context.stagedDiff.truncated, true);
   assert.equal(context.recentCommits.stdout.length, GIT_COMMIT_CONTEXT_SUMMARY_LIMIT);
   assert.equal(context.recentCommits.truncated, true);
+});
+
+test("buildGitRepositoryContext runs fixed git context commands", async () => {
+  const calls: string[][] = [];
+  const context = await buildGitRepositoryContext({
+    cwd: "/repo",
+    runGitCommand(args) {
+      calls.push(args);
+      const command = args.join(" ");
+      if (command === "status --short --branch") {
+        return Promise.resolve({ exitCode: 0, stdout: "## main...origin/main\n M src/app.ts\n", stderr: "" });
+      }
+      if (command === "branch --show-current") {
+        return Promise.resolve({ exitCode: 0, stdout: "main\n", stderr: "" });
+      }
+      if (command === "remote -v") {
+        return Promise.resolve({ exitCode: 0, stdout: "origin\thttps://github.com/acme/repo.git (fetch)\norigin\thttps://github.com/acme/repo.git (push)\n", stderr: "" });
+      }
+
+      return Promise.resolve({ exitCode: 1, stdout: "", stderr: "unexpected" });
+    },
+  });
+
+  assert.deepEqual(calls, [
+    ["status", "--short", "--branch"],
+    ["branch", "--show-current"],
+    ["remote", "-v"],
+  ]);
+  assert.deepEqual(context, {
+    status: {
+      command: "git status --short --branch",
+      exitCode: 0,
+      stdout: "## main...origin/main\n M src/app.ts",
+      stderr: "",
+      truncated: false,
+    },
+    branch: {
+      command: "git branch --show-current",
+      exitCode: 0,
+      stdout: "main",
+      stderr: "",
+      truncated: false,
+    },
+    remotes: {
+      command: "git remote -v",
+      exitCode: 0,
+      stdout: "origin\thttps://github.com/acme/repo.git (fetch)\norigin\thttps://github.com/acme/repo.git (push)",
+      stderr: "",
+      truncated: false,
+    },
+  });
 });
 
 function readSkill(name: string) {
