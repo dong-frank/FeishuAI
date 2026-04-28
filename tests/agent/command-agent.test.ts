@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -9,10 +11,12 @@ import {
   COMMAND_AGENT_PROVIDER_RESPONSE_FORMAT,
   COMMAND_AGENT_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOLS,
+  COMMAND_AGENT_TASK_SKILLS,
   createRequestLarkContextTool,
   GIT_COMMIT_CONTEXT_DIFF_LIMIT,
   GIT_COMMIT_CONTEXT_SUMMARY_LIMIT,
   HELP_AGENT_SYSTEM_PROMPT,
+  routeCommandAgentSkills,
   parseCommandAgentOutput,
 } from "../../src/agent/command-agent.js";
 
@@ -29,9 +33,35 @@ test("command agent structured output defaults to native provider schema", () =>
   assert.equal(Array.isArray(COMMAND_AGENT_RESPONSE_FORMAT), false);
 });
 
+test("command agent routes beforeRun tasks to command skills", () => {
+  assert.deepEqual(COMMAND_AGENT_TASK_SKILLS, {
+    help: "command-help",
+    commitMessage: "command-git-commit-message",
+    suggestCommand: "command-suggest-command",
+  });
+
+  assert.deepEqual(
+    routeCommandAgentSkills({
+      cwd: "/repo",
+      command: "git",
+      args: ["commit"],
+      rawCommand: "git commit",
+    }),
+    ["command-git-commit-message", "command-suggest-command"],
+  );
+  assert.deepEqual(
+    routeCommandAgentSkills({
+      cwd: "/repo",
+      command: "git",
+      args: ["status"],
+      rawCommand: "git status",
+    }),
+    ["command-help", "command-suggest-command"],
+  );
+});
+
 test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /命令帮助 Agent/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /tldr_git_manual/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.gitStats\.successCount/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.gitStats\.failures/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.tuiSession/);
@@ -41,29 +71,32 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /header\.larkSummary/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /大胆给出 suggestedCommand/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /用户不一定会接受/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /## Task 用户不知道这条命令该如何使用/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /## Task 用户希望你帮助生成commit message/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /## Task 用户可能需要一条可直接补全的建议命令/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /帮助的详细程度/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /successCount 较高且没有近期失败/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /successCount 较低、为 0、缺失/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /必须调用 tldr_git_manual/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /当前命令参数的作用/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /失败原因和对应下一步命令/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /git commit/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /git_commit_context/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /git commit -m/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /团队 commit message 规范/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /输入 JSON 中的 skills/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /只执行已加载 Skill/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /request_lark_context/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /需要获取团队飞书文档内容/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /团队规范、流程或约定/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /精细化生成 commit message/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /回退到 stagedDiff 和 recentCommits/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /历史画像/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /当前工作区状态/);
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /不要把 gitStats\.failures/);
+  assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /## Task 用户希望你帮助生成commit message/);
+  assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /必须调用 tldr_git_manual/);
   assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /afterSuccess/);
   assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /generateCommitMessage/);
+});
+
+test("command task skills contain task-specific instructions", () => {
+  const helpSkill = readSkill("command-help");
+  const commitSkill = readSkill("command-git-commit-message");
+  const suggestSkill = readSkill("command-suggest-command");
+
+  assert.match(helpSkill, /tldr_git_manual/);
+  assert.match(helpSkill, /successCount 较高/);
+  assert.match(helpSkill, /failures 是历史画像/);
+
+  assert.match(commitSkill, /先调用 `request_lark_context`，再调用 `git_commit_context`/);
+  assert.match(commitSkill, /commit_message_policy/);
+  assert.match(commitSkill, /stagedDiff/);
+  assert.match(commitSkill, /不要把 gitStats\.failures/);
+
+  assert.match(suggestSkill, /suggestedCommand/);
+  assert.match(suggestSkill, /完整命令/);
 });
 
 test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", () => {
@@ -393,3 +426,7 @@ test("buildGitCommitContext truncates large git outputs", async () => {
   assert.equal(context.recentCommits.stdout.length, GIT_COMMIT_CONTEXT_SUMMARY_LIMIT);
   assert.equal(context.recentCommits.truncated, true);
 });
+
+function readSkill(name: string) {
+  return readFileSync(join(process.cwd(), "skills", name, "SKILL.md"), "utf8");
+}

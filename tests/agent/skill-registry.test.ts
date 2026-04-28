@@ -95,6 +95,53 @@ test("skill registry ignores skills whose names do not start with lark-", async 
   );
 });
 
+test("skill registry can discover command skills with an explicit prefix", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "skills-"));
+  const commandSkillDir = join(rootDir, "command-help");
+  const larkSkillDir = join(rootDir, "lark-example");
+  await mkdir(commandSkillDir);
+  await mkdir(larkSkillDir);
+  await writeFile(
+    join(commandSkillDir, "SKILL.md"),
+    [
+      "---",
+      "name: command-help",
+      'description: "Command help routing skill."',
+      "---",
+      "",
+      "# Command Help",
+    ].join("\n"),
+    { flush: true },
+  );
+  await writeFile(
+    join(larkSkillDir, "SKILL.md"),
+    [
+      "---",
+      "name: lark-example",
+      'description: "Lark example."',
+      "---",
+      "",
+      "# Lark Example",
+    ].join("\n"),
+    { flush: true },
+  );
+
+  const registry = await createSkillRegistry({
+    rootDir,
+    namePrefixes: ["command-"],
+  });
+
+  assert.deepEqual(
+    registry.listSkills().map((skill) => skill.name),
+    ["command-help"],
+  );
+  assert.match(await registry.loadSkill("command-help"), /Command Help/);
+  await assert.rejects(
+    () => registry.loadSkill("lark-example"),
+    /Unknown skill/,
+  );
+});
+
 test("skill registry discovers lark-authorize skills", async () => {
   const rootDir = await mkdtemp(join(tmpdir(), "skills-"));
   const skillDir = join(rootDir, "lark-authorize");

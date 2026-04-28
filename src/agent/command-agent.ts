@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { join } from "node:path";
 
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
 import { providerStrategy } from "langchain";
@@ -11,7 +12,16 @@ import type {
   LarkAgent,
 } from "./types.js";
 import { createLangChainAgent, createLangChainChatModel } from "./runtime/langchain-agent.js";
+import { createSkillRegistry, type SkillRegistry } from "./skill-registry.js";
 import { readTldrPage } from "../integrations/tldr.js";
+
+const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
+
+export const COMMAND_AGENT_TASK_SKILLS = {
+  help: "command-help",
+  commitMessage: "command-git-commit-message",
+  suggestCommand: "command-suggest-command",
+} as const;
 
 const TERMINAL_OUTPUT_REQUIREMENTS = `
 ## 通用要求
@@ -43,28 +53,13 @@ export const HELP_AGENT_SYSTEM_PROMPT = `
 - context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，属于用户历史画像，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt；count 表示该报错已出现次数
 - context.tuiSession: 当前 TUI 顶部状态栏对应的会话快照；包含 cwd、git、lark 结构化状态，以及 header.cwd、header.gitSummary、header.larkSummary 三段顶部展示文本；git 里可能包含 branches.local、branches.remote 和 remotes(fetchUrl、pushUrl、webUrl)
 
-## Task 用户不知道这条命令该如何使用，需要请求你的帮助
+## Skill 输入
 
-请根据用户画像决定帮助的详细程度，再给出该命令对应的参数和使用方法。
-如果是 Git 命令，需要结合 context.gitStats.successCount 判断是否调用 tldr_git_manual：
-- successCount 较高且没有近期失败时，用户大概率熟悉该命令；不要展开手册，只给非常简短的说明、关键参数提醒或下一步 suggestedCommand。
-- successCount 较低、为 0、缺失，或用户有近期失败时，必须调用 tldr_git_manual 工具查询通用用法，再结合输入上下文给出更详细说明，特别解释当前命令参数的作用、常见组合和安全注意点。
-如果 context.gitStats 存在，需要参考 successCount 和 failures：
-存在近期失败时，需要结合 failures 中的错误输出解释用户过去可能遇到的问题、失败原因和对应下一步命令；但 failures 始终是历史画像，不是当前事实。
-如果 context.tuiSession 存在，可以结合顶部状态栏中的 git/lark 状态给出更贴近当前环境的建议；git checkout、git switch 等分支相关命令可以参考 branches 中实际存在的分支；push、remote、PR 相关建议可以参考 remotes 和 webUrl；不要编造不存在的分支、远端、登录身份或文件名。
-
-## Task 用户希望你帮助生成commit message
-
-如果 context.command 是 git 且 context.args 的第一项是 commit，优先考虑生成 commit message。需要判断当前已暂存变更时，必须调用 git_commit_context 工具获取 Git 信息。
-先调用request_lark_context 工具查看团队中相关的文档，确保commit内容符合团队规范。
-生成 commit message 时，content 输出生成的 commit message 或一条极短说明；suggestedCommand 输出完整提交命令。只基于 stagedDiff 生成；如果 stagedDiff 为空，提示用户先 git add 需要提交的内容，不要基于未暂存内容生成提交信息；
-commit message 场景的当前工作区状态只能以 git_commit_context 工具返回的实时结果为准，其次参考 context.tuiSession；不要把 gitStats.failures 中的历史失败输出当成当前工作区状态，也不要因为历史 failures 里出现 nothing to commit 就拒绝生成 commit message。
-团队 commit message 规范可以作为风格和格式上下文参与精细化生成 commit message，但不能替代 stagedDiff 里的改动事实。生成 commit message 时可以调用 request_lark_context，使用 topic "commit_message_policy" 和 reason "generate_commit_message" 获取团队规范；如果返回 freshness 为 "missing" 或 content 为空，不要编造团队规范，回退到 stagedDiff 和 recentCommits 生成。
-
-## Task 用户可能需要一条可直接补全的建议命令
-
-你可以根据当前输入、用户历史画像和顶部状态栏给出 suggestedCommand。
-suggestedCommand 不只用于 commit message 场景。
+输入 JSON 中的 skills 是当前 phase 已加载的 Command Skill 列表。每个 Skill 包含 name 和 content。
+你只执行已加载 Skill 中定义的任务；不要自行切换到未加载的任务。
+如果多个 Skill 同时存在，按 Skill 内容协同执行，例如一个主任务 Skill 加一个 suggestedCommand Skill。
+如果 Skill 要求调用工具，必须按 Skill 规定的顺序和参数调用。
+当回答需要获取团队飞书文档内容、团队规范、流程或约定来改进结果时，调用 request_lark_context 工具；该工具只接受受控 topic，不接受 lark-cli args。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
@@ -272,6 +267,33 @@ function createCommandAgentTools(options: RequestLarkContextToolOptions = {}) {
 
 export const COMMAND_AGENT_TOOLS: StructuredToolInterface[] = createCommandAgentTools();
 
+export function routeCommandAgentSkills(context: {
+  command: string;
+  args: string[];
+}): string[] {
+  const primarySkill =
+    context.command === "git" && context.args[0] === "commit"
+      ? COMMAND_AGENT_TASK_SKILLS.commitMessage
+      : COMMAND_AGENT_TASK_SKILLS.help;
+
+  return [primarySkill, COMMAND_AGENT_TASK_SKILLS.suggestCommand];
+}
+
+async function loadCommandAgentSkills(
+  context: {
+    command: string;
+    args: string[];
+  },
+  registry: SkillRegistry,
+) {
+  return Promise.all(
+    routeCommandAgentSkills(context).map(async (name) => ({
+      name,
+      content: await registry.loadSkill(name),
+    })),
+  );
+}
+
 export async function buildGitCommitContext({
   cwd,
   runGitCommand = runGit,
@@ -423,9 +445,17 @@ function withAgentMetadata(
 
 export type CommandAgentOptions = {
   larkAgent?: Pick<LarkAgent, "requestContext"> | undefined;
+  skillRegistry?: SkillRegistry | undefined;
+  skillRootDir?: string | undefined;
 };
 
 export function createCommandAgent(options: CommandAgentOptions = {}): CommandAgent {
+  const skillRegistry =
+    options.skillRegistry ??
+    createSkillRegistry({
+      rootDir: options.skillRootDir ?? DEFAULT_SKILL_ROOT_DIR,
+      namePrefixes: ["command-"],
+    });
   const model = createLangChainChatModel({ modelRole: "command" });
   const helpAgent = createLangChainAgent({
     name: "Command Help Agent",
@@ -449,7 +479,8 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
 
   return {
     async beforeRun(context) {
-      const result = await helpAgent.invokeWithMetadata(JSON.stringify({ context }));
+      const skills = await loadCommandAgentSkills(context, skillRegistry);
+      const result = await helpAgent.invokeWithMetadata(JSON.stringify({ context, skills }));
       return withAgentMetadata(parseCommandAgentOutput(result.content), result.metadata);
     },
     async afterSuccess(context, result) {

@@ -14,6 +14,7 @@ export type SkillRegistry = {
 
 export type SkillRegistryOptions = {
   rootDir: string;
+  namePrefixes?: string[];
 };
 
 type SkillRecord = SkillMetadata & {
@@ -21,7 +22,7 @@ type SkillRecord = SkillMetadata & {
 };
 
 export function createSkillRegistry(options: SkillRegistryOptions): SkillRegistry {
-  const skills = discoverSkills(options.rootDir);
+  const skills = discoverSkills(options.rootDir, options.namePrefixes ?? ["lark-"]);
 
   return {
     listSkills() {
@@ -52,7 +53,7 @@ export function formatAvailableSkills(skills: SkillMetadata[]): string {
     .join("\n");
 }
 
-function discoverSkills(rootDir: string): SkillRecord[] {
+function discoverSkills(rootDir: string, namePrefixes: string[]): SkillRecord[] {
   if (!existsSync(rootDir)) {
     return [];
   }
@@ -63,7 +64,7 @@ function discoverSkills(rootDir: string): SkillRecord[] {
     .map((skillDir) => join(skillDir, "SKILL.md"))
     .filter((skillPath) => existsSync(skillPath))
     .map(readSkillRecord)
-    .filter((skill) => skill.name.startsWith("lark-"))
+    .filter((skill) => namePrefixes.some((prefix) => skill.name.startsWith(prefix)))
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
