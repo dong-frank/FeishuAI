@@ -27,6 +27,7 @@ export const COMMAND_AGENT_TASK_SKILLS = {
   help: "command-help",
   commitMessage: "command-git-commit-message",
   afterFail: "command-after-fail",
+  afterSuccess: "command-after-success",
 } as const;
 
 export type CommandAgentTaskName = keyof typeof COMMAND_AGENT_TASK_SKILLS;
@@ -39,7 +40,7 @@ export type CommandAgentInvocation<
   task: TTask;
   skill: (typeof COMMAND_AGENT_TASK_SKILLS)[TTask];
   context: CommandContext;
-  result?: TTask extends "afterFail" ? CommandResult : never;
+  result?: TTask extends "afterFail" | "afterSuccess" ? CommandResult : never;
 };
 
 const TERMINAL_OUTPUT_REQUIREMENTS = `
@@ -53,7 +54,7 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 - 可以大胆给出 suggestedCommand，用户不一定会接受；它只是 TUI 里的高优先级补全候选。只要有一个合理、完整、可执行的下一步命令，就给出 suggestedCommand；如果当前信息不足或建议可能危险，才输出空字符串。
 - skills里面封装了流程经验，需要参考对应的skills来回答。
 - Command Agent 不直接调用 Lark Agent，不直接执行 Lark CLI，也不输出 callLarkAgent、agent、toolName 等执行字段。
-- 当前 phase 不会等待用户确认。需要用户确认的协作动作只能作为 followUpActions 输出，确认必须来自后续显式动作。
+- 当前 phase 不会等待用户确认，也不输出后续动作草稿；需要执行飞书动作时必须通过受控 command task 和 interact_with_lark_agent。
 
 `.trim();
 
@@ -94,33 +95,19 @@ ${TERMINAL_OUTPUT_REQUIREMENTS}
 export const AFTER_SUCCESS_AGENT_SYSTEM_PROMPT = `
 你是 git-helper TUI/CLI 中的 Git 命令成功后建议 Agent。
 
-## 输入结构
+## 任务包结构
 
-- context.cwd: 当前工作目录
-- context.command: 命令名
-- context.args: 命令参数数组
-- context.rawCommand: 用户输入的完整命令
-- context.gitStats.successCount: 归一化后的同类 Git 命令最近连续成功次数
-- context.gitStats.failures: 归一化后的同类 Git 命令最近不同失败记录数组，最多 3 条，包含 count、exitCode、stdout、stderr、occurredAt
-- context.tuiSession: 当前 TUI 顶部状态栏对应的会话快照；包含 cwd、git、lark 结构化状态，以及 header.cwd、header.gitSummary、header.larkSummary 三段顶部展示文本；git 里可能包含 branches.local、branches.remote 和 remotes(fetchUrl、pushUrl、webUrl)
-- result.exitCode: 命令退出码
-- result.stdout: 命令标准输出
-- result.stderr: 命令错误输出
+- task: "afterSuccess"
+- skill: 系统根据 task 固定填入的 Skill 名称，必须是 "command-after-success"
+- context: 当前命令上下文，包含 context.cwd、context.command、context.args、context.rawCommand
+- result: 命令成功结果，包含 result.exitCode、result.stdout、result.stderr
 
-## Task 用户刚成功执行了关键 Git 命令，需要下一步建议
+## Skills
 
-关键 Git 命令已经成功执行。你需要给出非常短的下一步建议，帮助用户继续推进工作。
-
-不要复述成功输出，不要解释已经成功的事实。
-根据命令类型给出 1-3 条可执行提醒：
-push 后，提醒是否需要打开 PR、通知维护者或检查远端状态。
-commit 后，提醒是否需要 push、继续拆分提交或查看状态。
-pull、merge、rebase 后，提醒检查 git status，并按项目习惯运行必要测试。
-如果 context.tuiSession 存在，可以结合 context.tuiSession.git 的 branch、upstream、dirty 状态，branches 中实际存在的分支，以及 remotes 中的 fetchUrl、pushUrl、webUrl 给出更贴近当前环境的提醒；push 成功后如果存在可识别 webUrl，可以在 content 中给出仓库链接，方便用户继续打开 PR；不要编造不存在的远端、分支、登录身份或文件名。
-
-## Task 用户可能需要一条可直接补全的建议命令
-
-如果能判断出合理的下一步，把它放进 suggestedCommand，例如 push 后建议查看远端或打开 PR 前的检查命令，commit 后建议 git push，pull、merge、rebase 后建议 git status 或项目测试命令。不要建议会破坏工作区或需要额外确认的危险命令。
+- task 为 "afterSuccess" 时，固定 Skill 是 "command-after-success"。
+- Skill 已由 runtime 注入到本 system prompt 中；不要再加载 Skill。
+- 需要当前仓库状态、分支或远端信息时调用 git_repository_context。
+- 最终输出非常短的下一步建议；如果能判断出一个合理、完整、可执行且不危险的下一步命令，放入 suggestedCommand。优先参考 context.rawCommand，其次参考 result.stdout 和 result.stderr。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
@@ -135,6 +122,15 @@ export const AFTER_FAIL_AGENT_SYSTEM_PROMPT = `
 - context: 当前命令上下文，包含 context.cwd、context.command、context.args、context.rawCommand
 - result: 命令失败结果，包含 result.exitCode、result.stdout、result.stderr
 
+## Skills
+
+- task 为 "afterFail" 时，固定 Skill 是 "command-after-fail"。
+- Skill 已由 runtime 注入到本 system prompt 中；不要再加载 Skill。
+- 简单的语法或参数错误优先调用 tldr_git_manual。
+- 需要仓库状态、分支或远端信息时调用 git_repository_context。
+- 复杂问题或团队流程相关问题才通过 interact_with_lark_agent 查询飞书资料。
+- 最终输出非常短的排查方向或下一步命令；如果能判断出一个合理、完整、可执行且不危险的修复或排查命令，放入 suggestedCommand。优先参考 result.stderr，其次参考 result.stdout 和 context.rawCommand。
+
 ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
 
@@ -142,6 +138,14 @@ export function formatAfterFailAgentSystemPrompt(skillContent: string) {
   return `${AFTER_FAIL_AGENT_SYSTEM_PROMPT}
 
 ## Injected Skill: command-after-fail
+
+${skillContent.trim()}`.trim();
+}
+
+export function formatAfterSuccessAgentSystemPrompt(skillContent: string) {
+  return `${AFTER_SUCCESS_AGENT_SYSTEM_PROMPT}
+
+## Injected Skill: command-after-success
 
 ${skillContent.trim()}`.trim();
 }
@@ -312,6 +316,12 @@ export function createCommandAfterFailTools(options: CommandAgentToolOptions = {
   ];
 }
 
+export function createCommandAfterSuccessTools() {
+  return [
+    createGitRepositoryContextTool(),
+  ];
+}
+
 export const COMMAND_AGENT_TOOLS: StructuredToolInterface[] = createCommandAgentTools();
 
 export function routeCommandAgentTask(context: {
@@ -414,7 +424,7 @@ function createGitRepositoryContextTool(): StructuredToolInterface {
     {
       name: "git_repository_context",
       description:
-        "读取排查命令失败常用的 Git 仓库上下文。内部固定运行 git status --short --branch、git branch --show-current、git remote -v，并会截断过长输出。",
+        "读取 Git 仓库上下文。内部固定运行 git status --short --branch、git branch --show-current、git remote -v，并会截断过长输出。",
       schema: z.object({
         cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
       }),
@@ -474,21 +484,10 @@ function getExitCode(error: unknown) {
   return 1;
 }
 
-const COMMAND_AGENT_FOLLOW_UP_ACTION_SCHEMA = z
-  .object({
-    type: z.literal("collaboration.notification"),
-    reason: z.string(),
-    title: z.string(),
-    draftMessage: z.string(),
-    confirmationMode: z.literal("explicit_followup"),
-  })
-  .strict();
-
 export const COMMAND_AGENT_OUTPUT_SCHEMA = z
   .object({
     content: z.string(),
     suggestedCommand: z.string().optional(),
-    followUpActions: z.array(COMMAND_AGENT_FOLLOW_UP_ACTION_SCHEMA).optional(),
   })
   .strict();
 
@@ -496,7 +495,6 @@ const COMMAND_AGENT_RESPONSE_SCHEMA = z
   .object({
     content: z.string(),
     suggestedCommand: z.string().optional(),
-    followUpActions: z.array(COMMAND_AGENT_FOLLOW_UP_ACTION_SCHEMA).optional(),
   })
   .strict();
 
@@ -523,9 +521,6 @@ export function parseCommandAgentOutput(output: string): CommandAgentOutput | un
       return {
         content,
         ...(suggestedCommand ? { suggestedCommand } : {}),
-        ...(validated.data.followUpActions
-          ? { followUpActions: validated.data.followUpActions }
-          : {}),
       };
     }
   } catch {
@@ -566,12 +561,6 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     model,
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
   });
-  const afterSuccessAgent = createLangChainAgent({
-    name: "Command After Success Agent",
-    systemPrompt: AFTER_SUCCESS_AGENT_SYSTEM_PROMPT,
-    model,
-    responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
-  });
 
   return {
     async beforeRun(context) {
@@ -581,8 +570,16 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },
     async afterSuccess(context, result) {
+      const afterSuccessSkill = await skillRegistry.loadSkill(COMMAND_AGENT_TASK_SKILLS.afterSuccess);
+      const afterSuccessAgent = createLangChainAgent({
+        name: "Command After Success Agent",
+        systemPrompt: formatAfterSuccessAgentSystemPrompt(afterSuccessSkill),
+        tools: createCommandAfterSuccessTools(),
+        model,
+        responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
+      });
       const agentResult = await afterSuccessAgent.invokeWithMetadata(
-        JSON.stringify({ context, result }),
+        formatCommandAgentInvocation("afterSuccess", context, result),
       );
       return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },

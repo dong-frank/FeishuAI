@@ -52,19 +52,9 @@ export type AgentRunMetadata = {
   tokenUsage?: AgentTokenUsage;
 };
 
-export type CommandAgentFollowUpAction =
-  | {
-      type: "collaboration.notification";
-      reason: string;
-      title: string;
-      draftMessage: string;
-      confirmationMode: "explicit_followup";
-    };
-
 export type CommandAgentOutput = {
   content: string;
   suggestedCommand?: string;
-  followUpActions?: CommandAgentFollowUpAction[];
   metadata?: AgentRunMetadata;
 };
 

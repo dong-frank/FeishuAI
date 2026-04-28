@@ -14,6 +14,8 @@ import {
   COMMAND_AGENT_TOOLS,
   COMMAND_AGENT_TASK_SKILLS,
   createCommandAfterFailTools,
+  createCommandAfterSuccessTools,
+  formatAfterSuccessAgentSystemPrompt,
   formatCommandAgentInvocation,
   createInteractWithLarkAgentTool,
   GIT_COMMIT_CONTEXT_DIFF_LIMIT,
@@ -40,6 +42,12 @@ test("after-fail tools include tldr, git context, and lark interaction only", ()
   ]);
 });
 
+test("after-success tools include git repository context only", () => {
+  assert.deepEqual(createCommandAfterSuccessTools().map((tool) => tool.name), [
+    "git_repository_context",
+  ]);
+});
+
 test("command agent structured output uses function calling", () => {
   assert.equal(COMMAND_AGENT_RESPONSE_FORMAT, COMMAND_AGENT_TOOL_RESPONSE_FORMAT);
   assert.equal(Array.isArray(COMMAND_AGENT_RESPONSE_FORMAT), true);
@@ -52,6 +60,7 @@ test("command agent routes beforeRun tasks to command skills", () => {
     help: "command-help",
     commitMessage: "command-git-commit-message",
     afterFail: "command-after-fail",
+    afterSuccess: "command-after-success",
   });
 
   assert.equal(
@@ -93,6 +102,38 @@ test("formatCommandAgentInvocation builds task envelopes with fixed skills", () 
       },
     }),
   );
+
+  assert.equal(
+    formatCommandAgentInvocation(
+      "afterSuccess",
+      {
+        cwd: "/repo",
+        command: "git",
+        args: ["push"],
+        rawCommand: "git push",
+      },
+      {
+        exitCode: 0,
+        stdout: "Everything up-to-date",
+        stderr: "",
+      },
+    ),
+    JSON.stringify({
+      task: "afterSuccess",
+      skill: "command-after-success",
+      context: {
+        cwd: "/repo",
+        command: "git",
+        args: ["push"],
+        rawCommand: "git push",
+      },
+      result: {
+        exitCode: 0,
+        stdout: "Everything up-to-date",
+        stderr: "",
+      },
+    }),
+  );
 });
 
 test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
@@ -123,6 +164,7 @@ test("command task skills contain task-specific instructions", () => {
   const helpSkill = readSkill("command-help");
   const commitSkill = readSkill("command-git-commit-message");
   const afterFailSkill = readSkill("command-after-fail");
+  const afterSuccessSkill = readSkill("command-after-success");
 
   assert.match(helpSkill, /tldr_git_manual/);
   assert.match(helpSkill, /successCount 较高/);
@@ -142,27 +184,43 @@ test("command task skills contain task-specific instructions", () => {
   assert.match(afterFailSkill, /只有/);
   assert.match(afterFailSkill, /result\.stderr/);
   assert.match(afterFailSkill, /不要编造飞书文档/);
+
+  assert.match(afterSuccessSkill, /git_repository_context/);
+  assert.match(afterSuccessSkill, /push 后/);
+  assert.match(afterSuccessSkill, /commit 后/);
+  assert.match(afterSuccessSkill, /pull、merge、rebase 后/);
+  assert.match(afterSuccessSkill, /不要复述成功输出/);
+  assert.match(afterSuccessSkill, /suggestedCommand/);
+  assert.match(afterSuccessSkill, /不要建议破坏工作区/);
 });
 
-test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT only describes after-success behavior", () => {
+test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT describes injected after-success skill behavior", () => {
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /成功后建议 Agent/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /## Task 用户刚成功执行了关键 Git 命令/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /## Task 用户可能需要一条可直接补全的建议命令/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /不要复述成功输出/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /push 后/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /commit 后/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /pull、merge、rebase 后/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /context\.tuiSession/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /git、lark/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /branch、upstream、dirty/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /branches/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /remotes/);
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /webUrl/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /task: "afterSuccess"/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /command-after-success/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /Skill 已由 runtime 注入/);
+  assert.doesNotMatch(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /load_skill/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /git_repository_context/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /result\.exitCode/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /result\.stdout/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /下一步建议/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /大胆给出 suggestedCommand/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /用户不一定会接受/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /完整、可执行的下一步命令/);
+  assert.doesNotMatch(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /## Task 用户刚成功执行了关键 Git 命令/);
   assert.doesNotMatch(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /tldr_git_manual/);
   assert.doesNotMatch(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /generateCommitMessage/);
+});
+
+test("formatAfterSuccessAgentSystemPrompt injects the after-success skill", () => {
+  assert.equal(
+    formatAfterSuccessAgentSystemPrompt("Use git context."),
+    `${AFTER_SUCCESS_AGENT_SYSTEM_PROMPT}
+
+## Injected Skill: command-after-success
+
+Use git context.`,
+  );
 });
 
 test("AFTER_FAIL_AGENT_SYSTEM_PROMPT only describes failure behavior", () => {
@@ -207,8 +265,8 @@ test("all phase prompts describe structured output boundaries", () => {
   ]) {
     assert.match(prompt, /不直接调用 Lark Agent/);
     assert.match(prompt, /不直接执行 Lark CLI/);
-    assert.match(prompt, /不会等待用户确认/);
-    assert.match(prompt, /followUpActions/);
+    assert.doesNotMatch(prompt, /followUpActions/);
+    assert.doesNotMatch(prompt, /后续显式动作/);
   }
 });
 
@@ -238,7 +296,7 @@ test("command agent schema rejects supplemental lookups", () => {
   );
 });
 
-test("command agent schema accepts follow-up actions", () => {
+test("command agent schema rejects follow-up actions", () => {
   assert.equal(
     COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
       content: "push 成功后可以通知维护者。",
@@ -252,7 +310,7 @@ test("command agent schema accepts follow-up actions", () => {
         },
       ],
     }).success,
-    true,
+    false,
   );
 });
 
@@ -279,36 +337,21 @@ test("parseCommandAgentOutput parses structured JSON output", () => {
   );
 });
 
-test("parseCommandAgentOutput preserves follow-up actions and rejects supplemental lookups", () => {
-  assert.deepEqual(
-    parseCommandAgentOutput(
-      JSON.stringify({
-        content: "push 后可以通知维护者。",
-        suggestedCommand: "",
-        followUpActions: [
-          {
-            type: "collaboration.notification",
-            reason: "after_success_git_push_review",
-            title: "通知维护者 review",
-            draftMessage: "我刚 push 了当前分支，请帮忙 review。",
-            confirmationMode: "explicit_followup",
-          },
-        ],
-      }),
-    ),
-    {
-      content: "push 后可以通知维护者。",
-      followUpActions: [
-        {
-          type: "collaboration.notification",
-          reason: "after_success_git_push_review",
-          title: "通知维护者 review",
-          draftMessage: "我刚 push 了当前分支，请帮忙 review。",
-          confirmationMode: "explicit_followup",
-        },
-      ],
-    },
-  );
+test("parseCommandAgentOutput rejects follow-up actions and supplemental lookups", () => {
+  const followUpActions = JSON.stringify({
+    content: "push 后可以通知维护者。",
+    suggestedCommand: "",
+    followUpActions: [
+      {
+        type: "collaboration.notification",
+        reason: "after_success_git_push_review",
+        title: "通知维护者 review",
+        draftMessage: "我刚 push 了当前分支，请帮忙 review。",
+        confirmationMode: "explicit_followup",
+      },
+    ],
+  });
+  assert.deepEqual(parseCommandAgentOutput(followUpActions), { content: followUpActions });
 
   const invalid = JSON.stringify({
     content: "push 前后可以结合团队规范和通知维护者。",
