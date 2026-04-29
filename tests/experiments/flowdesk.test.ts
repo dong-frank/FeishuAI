@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -59,6 +59,27 @@ test("reset upstream stage creates a branch where plain git push fails with upst
   );
 });
 
+test("reset writes experiment marker metadata for recorder discovery", async () => {
+  const workspaceRoot = await createTempWorkspace();
+
+  const result = await resetFlowdeskExperiment({
+    workspaceRoot,
+    stage: "upstream",
+  });
+
+  const marker = JSON.parse(
+    await readFile(join(result.projectDir, ".git-helper-experiment.json"), "utf8"),
+  );
+
+  assert.equal(marker.experiment, "flowdesk");
+  assert.equal(marker.stage, "upstream");
+  assert.equal(marker.case_id, "FD-124-UPSTREAM");
+  assert.equal(marker.recommended_command, "git push");
+  assert.equal(marker.expected_phase, "afterFail");
+  assert.equal(marker.results_dir, join(workspaceRoot, ".experiments", "results"));
+  assert.match(marker.created_at, /^\d{4}-\d{2}-\d{2}T/);
+});
+
 test("fresh reset includes lightweight project history and active sprint context", async () => {
   const workspaceRoot = await createTempWorkspace();
 
@@ -88,6 +109,8 @@ test("fresh reset includes lightweight project history and active sprint context
 test("export and score produce reusable evaluation artifacts", async () => {
   const workspaceRoot = await createTempWorkspace();
   await resetFlowdeskExperiment({ workspaceRoot, stage: "fresh" });
+  const runPath = join(workspaceRoot, ".experiments", "results", "runs", "demo-run.jsonl");
+  await writeFile(runPath, "{\"type\":\"command_submitted\"}\n");
 
   const exportResult = await exportFlowdeskCases({ workspaceRoot });
   const jsonl = await readFile(exportResult.outputPath, "utf8");
@@ -95,6 +118,9 @@ test("export and score produce reusable evaluation artifacts", async () => {
   assert.match(jsonl, /FD-124-COMMIT/);
   assert.match(jsonl, /FD-124-UPSTREAM/);
   assert.match(jsonl, /expected_behavior/);
+  assert.deepEqual(exportResult.recentRunFiles, [runPath]);
+  const exportSummary = JSON.parse(await readFile(exportResult.summaryPath, "utf8"));
+  assert.deepEqual(exportSummary.recentRunFiles, [runPath]);
 
   const scoreResult = await scoreFlowdeskExperiment({ workspaceRoot });
   await stat(scoreResult.outputPath);

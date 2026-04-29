@@ -13,6 +13,11 @@ import {
   type CommandRunOutput,
 } from "../runtime/command-runner.js";
 import {
+  createExperimentRecorder,
+  type ExperimentRecorder,
+  type ExperimentRecordInput,
+} from "../runtime/experiment-recorder.js";
+import {
   initializeTuiSession,
   type TuiSessionInfo,
 } from "../runtime/tui-session.js";
@@ -75,6 +80,7 @@ export function App() {
   const larkOutputHandler = useRef<((chunk: CommandOutputChunk) => void) | undefined>(undefined);
   const larkAgent = useRef<LarkAgent | undefined>(undefined);
   const commandAgent = useRef<CommandAgent | undefined>(undefined);
+  const experimentRecorder = useRef<ExperimentRecorder | undefined>(undefined);
   const nextAgentHistoryId = useRef(1);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
@@ -139,6 +145,27 @@ export function App() {
   }, [currentCwd]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    void createExperimentRecorder(currentCwd).then((recorder) => {
+      if (!cancelled) {
+        if (!recorder) {
+          experimentRecorder.current = undefined;
+          return;
+        }
+        if (experimentRecorder.current?.marker.path === recorder.marker.path) {
+          return;
+        }
+        experimentRecorder.current = recorder;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCwd]);
+
+  useEffect(() => {
     if (!stdout.isTTY || !shouldEnableMouseWheelReporting()) {
       return;
     }
@@ -162,6 +189,12 @@ export function App() {
     } catch {
       // Session information is auxiliary; command interaction should keep working.
     }
+  }
+
+  function recordExperimentEvent(event: ExperimentRecordInput) {
+    void experimentRecorder.current?.record(event).catch(() => {
+      // Experiment recording must never interrupt the manual TUI flow.
+    });
   }
 
   useInput((character, key) => {
@@ -322,9 +355,27 @@ export function App() {
     try {
       const message = await commandAgent.current?.beforeRun?.(context);
       if (!message) {
+        recordExperimentEvent({
+          type: "agent_completed",
+          cwd: context.cwd,
+          command: context.rawCommand,
+          phase: "beforeRun",
+          agentKind: "command",
+          content: "",
+        });
         updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
         return;
       }
+      recordExperimentEvent({
+        type: "agent_completed",
+        cwd: context.cwd,
+        command: context.rawCommand,
+        phase: "beforeRun",
+        agentKind: "command",
+        content: message.content,
+        ...(message.suggestedCommand ? { suggestedCommand: message.suggestedCommand } : {}),
+        ...(message.metadata ? { metadata: message.metadata } : {}),
+      });
       setAgentSuggestedCommand(message.suggestedCommand);
 
       updateAgentHistoryEntry(agentHistoryId, {
@@ -335,6 +386,14 @@ export function App() {
       setHistoryScrollOffset(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      recordExperimentEvent({
+        type: "agent_failed",
+        cwd: context.cwd,
+        command: context.rawCommand,
+        phase: "beforeRun",
+        agentKind: "command",
+        error: message,
+      });
       updateAgentHistoryEntry(agentHistoryId, {
         state: "failed",
         error: message,
@@ -369,9 +428,27 @@ export function App() {
     try {
       const output = normalizeAgentOutput(await result.afterSuccess);
       if (!output) {
+        recordExperimentEvent({
+          type: "agent_completed",
+          cwd: currentCwd,
+          command: result.commandLine,
+          phase: "afterSuccess",
+          agentKind,
+          content: "",
+        });
         updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
         return;
       }
+      recordExperimentEvent({
+        type: "agent_completed",
+        cwd: currentCwd,
+        command: result.commandLine,
+        phase: "afterSuccess",
+        agentKind,
+        content: output.content,
+        ...(output.suggestedCommand ? { suggestedCommand: output.suggestedCommand } : {}),
+        ...(output.metadata ? { metadata: output.metadata } : {}),
+      });
       setAgentSuggestedCommand(output.suggestedCommand);
 
       updateAgentHistoryEntry(agentHistoryId, {
@@ -381,9 +458,18 @@ export function App() {
       });
       setHistoryScrollOffset(0);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      recordExperimentEvent({
+        type: "agent_failed",
+        cwd: currentCwd,
+        command: result.commandLine,
+        phase: "afterSuccess",
+        agentKind,
+        error: message,
+      });
       updateAgentHistoryEntry(agentHistoryId, {
         state: "failed",
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       });
     } finally {
       setIsAgentReviewing(false);
@@ -407,9 +493,27 @@ export function App() {
     try {
       const output = normalizeAgentOutput(await result.afterFail);
       if (!output) {
+        recordExperimentEvent({
+          type: "agent_completed",
+          cwd: currentCwd,
+          command: result.commandLine,
+          phase: "afterFail",
+          agentKind,
+          content: "",
+        });
         updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
         return;
       }
+      recordExperimentEvent({
+        type: "agent_completed",
+        cwd: currentCwd,
+        command: result.commandLine,
+        phase: "afterFail",
+        agentKind,
+        content: output.content,
+        ...(output.suggestedCommand ? { suggestedCommand: output.suggestedCommand } : {}),
+        ...(output.metadata ? { metadata: output.metadata } : {}),
+      });
       setAgentSuggestedCommand(output.suggestedCommand);
 
       updateAgentHistoryEntry(agentHistoryId, {
@@ -419,9 +523,18 @@ export function App() {
       });
       setHistoryScrollOffset(0);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      recordExperimentEvent({
+        type: "agent_failed",
+        cwd: currentCwd,
+        command: result.commandLine,
+        phase: "afterFail",
+        agentKind,
+        error: message,
+      });
       updateAgentHistoryEntry(agentHistoryId, {
         state: "failed",
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       });
     } finally {
       setIsAgentReviewing(false);
@@ -448,6 +561,13 @@ export function App() {
       exit();
       return;
     }
+
+    const executionCwd = currentCwd;
+    recordExperimentEvent({
+      type: "command_submitted",
+      cwd: executionCwd,
+      command: commandLine,
+    });
 
     setIsRunning(true);
     const parsed = parseCommandLine(commandLine);
@@ -504,11 +624,22 @@ export function App() {
     try {
       larkOutputHandler.current = updateAgentLiveOutput;
       const result = await runCommandLine(commandLine, {
-        cwd: currentCwd,
+        cwd: executionCwd,
         ...(commandAgent.current ? { agent: commandAgent.current } : {}),
         ...(larkAgent.current ? { larkAgent: larkAgent.current } : {}),
         onOutput: updateUserLiveOutput,
       });
+      if (result.kind === "execute") {
+        recordExperimentEvent({
+          type: "command_completed",
+          cwd: executionCwd,
+          command: result.commandLine,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          ...(typeof result.durationMs === "number" ? { durationMs: result.durationMs } : {}),
+        });
+      }
       const entry: HistoryEntry = { type: "output", result };
       setHistory((current) => {
         const lastEntry = current.at(-1);

@@ -91,6 +91,7 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 - context: 该任务的上下文
 
 输入是受控 task 和受控 action，不是自由指令。调用方只能选择上述 task 和允许的 interact action，不能直接传 lark-cli 参数，也不能自由选择 Skill。
+不要根据 context 自行改选 Skill，也不要接受或执行 CLI args；只能通过固定 task/action 路由加载对应 Skill。
 
 ## Skill 路由
 

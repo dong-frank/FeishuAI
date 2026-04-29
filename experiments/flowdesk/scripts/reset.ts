@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -27,6 +27,8 @@ export type FlowdeskResetResult = {
   projectDir: string;
   remoteDir: string;
   larkDocsDir: string;
+  resultsDir: string;
+  runDataDir: string;
   recommendedCommand: string;
   expectedPhase: string;
 };
@@ -103,6 +105,10 @@ function resultsDir(workspaceRoot: string) {
   return join(generatedRoot(workspaceRoot), "results");
 }
 
+function runDataDir(workspaceRoot: string) {
+  return join(resultsDir(workspaceRoot), "runs");
+}
+
 async function git(args: string[], cwd: string) {
   return execFileAsync("git", args, {
     cwd,
@@ -141,7 +147,7 @@ export async function resetFlowdeskExperiment(
   await rm(remote, { recursive: true, force: true });
   await rm(docs, { recursive: true, force: true });
   await mkdir(join(generated, "remotes"), { recursive: true });
-  await mkdir(resultsDir(workspaceRoot), { recursive: true });
+  await mkdir(runDataDir(workspaceRoot), { recursive: true });
 
   await git(["init", "--bare", remote], workspaceRoot);
   await cp(join(fixturesRoot(), "project"), demo, { recursive: true });
@@ -155,7 +161,7 @@ export async function resetFlowdeskExperiment(
   await git(["push", "-u", "origin", "main"], demo);
 
   if (stage === "fresh") {
-    return buildResetResult(workspaceRoot, stage);
+    return writeAndBuildResetResult(workspaceRoot, stage);
   }
 
   await git(["switch", "-c", FEATURE_BRANCH], demo);
@@ -163,19 +169,19 @@ export async function resetFlowdeskExperiment(
 
   if (stage === "commit-message") {
     await git(["add", "flowdesk/tickets/filters.py", "flowdesk/tickets/service.py", "tests/test_ticket_filters.py"], demo);
-    return buildResetResult(workspaceRoot, stage);
+    return writeAndBuildResetResult(workspaceRoot, stage);
   }
 
   await git(["add", "."], demo);
   await git(["commit", "-m", "feat(tickets): add priority filter"], demo);
 
   if (stage === "upstream") {
-    return buildResetResult(workspaceRoot, stage);
+    return writeAndBuildResetResult(workspaceRoot, stage);
   }
 
   if (stage === "post-push") {
     await git(["push", "-u", "origin", FEATURE_BRANCH], demo);
-    return buildResetResult(workspaceRoot, stage);
+    return writeAndBuildResetResult(workspaceRoot, stage);
   }
 
   await git(["switch", "main"], demo);
@@ -184,7 +190,7 @@ export async function resetFlowdeskExperiment(
   await git(["commit", "-m", "feat(tickets): sort tickets by priority"], demo);
   await git(["push", "origin", "main"], demo);
   await git(["switch", FEATURE_BRANCH], demo);
-  return buildResetResult(workspaceRoot, stage);
+  return writeAndBuildResetResult(workspaceRoot, stage);
 }
 
 async function configureGitUser(cwd: string) {
@@ -288,6 +294,30 @@ async function applyDevBChanges(demo: string) {
   );
 }
 
+async function writeAndBuildResetResult(
+  workspaceRoot: string,
+  stage: FlowdeskStage,
+): Promise<FlowdeskResetResult> {
+  const result = buildResetResult(workspaceRoot, stage);
+  await writeExperimentMarker(result);
+  return result;
+}
+
+async function writeExperimentMarker(result: FlowdeskResetResult) {
+  await writeFile(
+    join(result.projectDir, ".git-helper-experiment.json"),
+    `${JSON.stringify({
+      experiment: "flowdesk",
+      stage: result.stage,
+      case_id: result.caseId,
+      recommended_command: result.recommendedCommand,
+      expected_phase: result.expectedPhase,
+      results_dir: result.resultsDir,
+      created_at: new Date().toISOString(),
+    }, null, 2)}\n`,
+  );
+}
+
 function buildResetResult(workspaceRoot: string, stage: FlowdeskStage): FlowdeskResetResult {
   const details = STAGE_DETAILS[stage];
   return {
@@ -296,6 +326,8 @@ function buildResetResult(workspaceRoot: string, stage: FlowdeskStage): Flowdesk
     projectDir: projectDir(workspaceRoot),
     remoteDir: remoteDir(workspaceRoot),
     larkDocsDir: larkDocsDir(workspaceRoot),
+    resultsDir: resultsDir(workspaceRoot),
+    runDataDir: runDataDir(workspaceRoot),
     recommendedCommand: details.recommendedCommand,
     expectedPhase: details.expectedPhase,
   };
@@ -305,6 +337,7 @@ export async function exportFlowdeskCases(options: { workspaceRoot?: string } = 
   const workspaceRoot = resolve(options.workspaceRoot ?? process.cwd());
   const cases = await readCaseDefinitions();
   const outputPath = join(resultsDir(workspaceRoot), "flowdesk-cases.jsonl");
+  const summaryPath = join(resultsDir(workspaceRoot), "flowdesk-export-summary.json");
   await mkdir(dirname(outputPath), { recursive: true });
 
   const lines = await Promise.all(
@@ -324,10 +357,48 @@ export async function exportFlowdeskCases(options: { workspaceRoot?: string } = 
   );
 
   await writeFile(outputPath, `${lines.join("\n")}\n`);
+  const recentRunFiles = await listRecentRunFiles(workspaceRoot);
+  await writeFile(
+    summaryPath,
+    `${JSON.stringify({
+      casesPath: outputPath,
+      caseCount: cases.length,
+      recentRunFiles,
+      exportedAt: new Date().toISOString(),
+    }, null, 2)}\n`,
+  );
   return {
     outputPath,
+    summaryPath,
     caseCount: cases.length,
+    recentRunFiles,
   };
+}
+
+async function listRecentRunFiles(workspaceRoot: string, limit = 5) {
+  const runs = runDataDir(workspaceRoot);
+  if (!(await pathExists(runs))) {
+    return [];
+  }
+
+  const entries = await readdir(runs, { withFileTypes: true });
+  const files = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map(async (entry) => {
+        const path = join(runs, entry.name);
+        const fileStat = await stat(path);
+        return {
+          path,
+          mtimeMs: fileStat.mtimeMs,
+        };
+      }),
+  );
+
+  return files
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    .slice(0, limit)
+    .map((file) => file.path);
 }
 
 export async function scoreFlowdeskExperiment(options: { workspaceRoot?: string } = {}) {
@@ -454,6 +525,7 @@ function printResetResult(result: FlowdeskResetResult) {
     `Project: ${result.projectDir}`,
     `Remote: ${result.remoteDir}`,
     `Lark docs: ${result.larkDocsDir}`,
+    `Run data: ${result.runDataDir}`,
     `Current branch: ${result.stage === "fresh" ? "main" : FEATURE_BRANCH}`,
     `Recommended command: ${result.recommendedCommand}`,
     `Expected phase: ${result.expectedPhase}`,
@@ -469,6 +541,12 @@ async function main() {
   if (command === "export") {
     const result = await exportFlowdeskCases();
     console.log(`Exported ${result.caseCount} FlowDesk cases to ${result.outputPath}`);
+    console.log(`Wrote export summary to ${result.summaryPath}`);
+    if (result.recentRunFiles.length > 0) {
+      console.log(`Recent run files:\n${result.recentRunFiles.join("\n")}`);
+    } else {
+      console.log("Recent run files: none");
+    }
     return;
   }
   if (command === "score") {
