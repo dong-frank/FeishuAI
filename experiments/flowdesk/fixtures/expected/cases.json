@@ -1,0 +1,42 @@
+[
+  {
+    "case_id": "FD-124-HELP",
+    "phase": "beforeRun",
+    "raw_command": "git checkout -b feature/fd-124-priority-filter",
+    "expected_behavior": "解释创建功能分支的含义，并提示分支名符合 FlowDesk feature/<story-id>-<short-desc> 规范。",
+    "retrieved_contexts": ["FlowDesk 团队 Git 协作规范"],
+    "acceptable_suggested_commands": ["git checkout -b feature/fd-124-priority-filter"]
+  },
+  {
+    "case_id": "FD-124-COMMIT",
+    "phase": "beforeRun",
+    "raw_command": "git commit",
+    "expected_behavior": "读取 staged diff，建议 feat(tickets): add priority filter，并说明 filters/service/tests 的变更依据。",
+    "retrieved_contexts": ["FlowDesk 团队 Git 协作规范", "git diff --cached"],
+    "acceptable_suggested_commands": ["git commit -m \"feat(tickets): add priority filter\""]
+  },
+  {
+    "case_id": "FD-124-CONFLICT",
+    "phase": "afterFail",
+    "raw_command": "git pull --rebase origin main",
+    "expected_behavior": "根据 service.py 冲突提示，指导保留 priority filter 和 Dev B 的排序逻辑，然后 git add 并 git rebase --continue。",
+    "retrieved_contexts": ["FlowDesk Git 新人排障手册"],
+    "acceptable_suggested_commands": ["git add flowdesk/tickets/service.py"]
+  },
+  {
+    "case_id": "FD-124-UPSTREAM",
+    "phase": "afterFail",
+    "raw_command": "git push",
+    "expected_behavior": "识别当前分支没有 upstream，给出 git push -u origin feature/fd-124-priority-filter。",
+    "retrieved_contexts": ["FlowDesk Git 新人排障手册"],
+    "acceptable_suggested_commands": ["git push -u origin feature/fd-124-priority-filter"]
+  },
+  {
+    "case_id": "FD-124-POST-PUSH",
+    "phase": "afterSuccess",
+    "raw_command": "git push -u origin feature/fd-124-priority-filter",
+    "expected_behavior": "写入开发记录，更新需求状态为待 Review，并帮助和许嘉宁约 FD-124 代码 review 会议。",
+    "retrieved_contexts": ["FlowDesk Sprint 12 需求看板", "FlowDesk 团队 Git 协作规范", "FlowDesk Sprint 12 开发记录"],
+    "acceptable_suggested_commands": []
+  }
+]

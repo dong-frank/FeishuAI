@@ -10,7 +10,8 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node --env-file .env dist/index.js",
-    "test": "NODE_ENV=test LANGSMITH_TRACING=false LANGCHAIN_TRACING_V2=false node --env-file .env --import tsx --test tests/**/*.test.ts"
+    "test": "NODE_ENV=test LANGSMITH_TRACING=false LANGCHAIN_TRACING_V2=false node --env-file .env --import tsx --test tests/**/*.test.ts",
+    "experiment:flowdesk": "tsx experiments/flowdesk/scripts/reset.ts"
   },
   "repository": {
     "type": "git",

@@ -21,6 +21,7 @@ lerna-debug.log*
 
 # Local git-helper state
 .git-helper/
+.experiments/
 
 # OS files
 .DS_Store
