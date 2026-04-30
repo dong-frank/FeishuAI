@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { ChatOpenAI } from "@langchain/openai";
-import { ProviderStrategy } from "langchain";
+import { ToolStrategy } from "langchain";
 
 import {
   compactLarkAgentHistoryEntry,
@@ -38,11 +38,13 @@ test("lark agent exposes only controlled task to skill mappings", () => {
   });
 });
 
-test("lark agent structured output uses provider JSON schema", () => {
-  assert.equal(LARK_AGENT_RESPONSE_FORMAT instanceof ProviderStrategy, true);
-  assert.equal(LARK_AGENT_RESPONSE_FORMAT.strict, true);
-  assert.equal(LARK_AGENT_RESPONSE_FORMAT.schema.type, "object");
-  assert.deepEqual(LARK_AGENT_RESPONSE_FORMAT.schema.required, [
+test("lark agent structured output uses tool-call JSON schema", () => {
+  assert.equal(Array.isArray(LARK_AGENT_RESPONSE_FORMAT), true);
+  assert.equal(LARK_AGENT_RESPONSE_FORMAT.length, 1);
+  const responseTool = LARK_AGENT_RESPONSE_FORMAT[0];
+  assert.equal(responseTool instanceof ToolStrategy, true);
+  assert.equal(responseTool.schema.type, "object");
+  assert.deepEqual(responseTool.schema.required, [
     "content",
     "suggestedCommand",
     "topic",
@@ -51,7 +53,7 @@ test("lark agent structured output uses provider JSON schema", () => {
     "updatedAt",
   ]);
   assert.equal(
-    (LARK_AGENT_RESPONSE_FORMAT.schema.properties as Record<string, unknown>).freshness !==
+    (responseTool.schema.properties as Record<string, unknown>).freshness !==
       undefined,
     true,
   );
@@ -231,9 +233,6 @@ test("parseLarkInteractionResult keeps get_context structured packs", () => {
         topic: "commit_message_policy",
         content: "团队使用 conventional commits。",
         freshness: "refreshed",
-        suggestedCommand: null,
-        source: null,
-        updatedAt: null,
       }),
     ),
     {
@@ -254,11 +253,6 @@ test("parseLarkInteractionResult returns command output for write_development_re
       },
       JSON.stringify({
         content: "已写入团队开发记录：研发记录 / repo",
-        suggestedCommand: null,
-        topic: null,
-        freshness: null,
-        source: null,
-        updatedAt: null,
       }),
     ),
     {
@@ -272,14 +266,7 @@ test("lark agent compacts preserved history to task, action, topic, and reply", 
   const agent = createLarkAgent({
     model: new FakeListChatModel({
       responses: [
-        JSON.stringify({
-          content: "auth ready",
-          suggestedCommand: null,
-          topic: null,
-          freshness: null,
-          source: null,
-          updatedAt: null,
-        }),
+        JSON.stringify({ content: "auth ready" }),
       ],
     }) as unknown as ChatOpenAI,
     skillRegistry: {
@@ -349,7 +336,7 @@ test("lark agent compacts preserved history to task, action, topic, and reply", 
     }),
   );
 
-  assert.match(authorizeOutput.content, /"content":"auth ready"/);
+  assert.match(authorizeOutput.content, /\{"content":"auth ready"\}/);
   assert.deepEqual(JSON.parse(compactAuthorizeHistory.userContent), {
     task: "authorize",
     skill: "lark-authorize",

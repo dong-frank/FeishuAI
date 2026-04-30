@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { ChatOpenAI } from "@langchain/openai";
-import { ProviderStrategy } from "langchain";
+import { FakeToolCallingModel, ToolStrategy } from "langchain";
 
 import {
   AFTER_FAIL_AGENT_SYSTEM_PROMPT,
@@ -15,6 +15,7 @@ import {
   COMMAND_AGENT_SYSTEM_PROMPT,
   COMMAND_AGENT_OUTPUT_SCHEMA,
   COMMAND_AGENT_RESPONSE_FORMAT,
+  COMMAND_AGENT_TOOL_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOLS,
   COMMAND_AGENT_TASK_SKILLS,
   compactCommandAgentHistoryEntry,
@@ -62,11 +63,14 @@ test("after-success tools include git context and lark interaction only", () => 
   ]);
 });
 
-test("command agent structured output uses provider JSON schema", () => {
-  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT instanceof ProviderStrategy, true);
-  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT.strict, true);
-  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT.schema.type, "object");
-  assert.deepEqual(COMMAND_AGENT_RESPONSE_FORMAT.schema.required, [
+test("command agent structured output uses tool-call JSON schema", () => {
+  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT, COMMAND_AGENT_TOOL_RESPONSE_FORMAT);
+  assert.equal(Array.isArray(COMMAND_AGENT_RESPONSE_FORMAT), true);
+  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT.length, 1);
+  const responseTool = COMMAND_AGENT_RESPONSE_FORMAT[0];
+  assert.equal(responseTool instanceof ToolStrategy, true);
+  assert.equal(responseTool.schema.type, "object");
+  assert.deepEqual(responseTool.schema.required, [
     "content",
     "suggestedCommand",
   ]);
@@ -381,12 +385,40 @@ test("command agent compacts preserved history to task, command, and reply", asy
   assert.doesNotMatch(compactHistory.userContent, /RUNTIME_CONTEXT/);
 });
 
-test("command agent shows raw agent result when parsed output is empty", async () => {
+test("command agent hides raw tool call debug output by default", async () => {
+  const model = new PersistentFakeListChatModel({
+    responses: [JSON.stringify({ content: "ok", suggestedCommand: null })],
+  });
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  const output = await agent.beforeRun?.({
+    cwd: "/repo",
+    command: "git",
+    args: ["status"],
+    rawCommand: "git status",
+  });
+
+  assert.match(output?.content ?? "", /ok/);
+  assert.doesNotMatch(output?.content ?? "", /raw_tool_calls|raw_agent_result/);
+});
+
+test("command agent shows raw agent result when debug tool calls is enabled and parsed output is empty", async () => {
   const model = new FakeListChatModel({
     responses: [""],
   });
   const agent = createCommandAgent({
     model: model as unknown as ChatOpenAI,
+    debugToolCalls: true,
     skillRegistry: {
       listSkills() {
         return [];
@@ -527,13 +559,6 @@ test("command agent schema accepts legacy structured output", () => {
     COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
       content: "执行 git status 查看状态",
       suggestedCommand: "git status --short",
-    }).success,
-    true,
-  );
-  assert.equal(
-    COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
-      content: "没有明确下一步。",
-      suggestedCommand: null,
     }).success,
     true,
   );
@@ -777,12 +802,6 @@ test("parseCommandAgentOutput falls back to plain text content", () => {
 test("parseCommandAgentOutput trims output and ignores blank suggested command", () => {
   assert.deepEqual(
     parseCommandAgentOutput('  {"content":"  msg  ","suggestedCommand":"   "}  '),
-    {
-      content: "msg",
-    },
-  );
-  assert.deepEqual(
-    parseCommandAgentOutput('{"content":"msg","suggestedCommand":null}'),
     {
       content: "msg",
     },

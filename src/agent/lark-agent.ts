@@ -1,5 +1,5 @@
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
-import { providerStrategy } from "langchain";
+import { toolStrategy } from "langchain";
 import { z } from "zod";
 
 import {
@@ -235,10 +235,7 @@ const LARK_AGENT_RESPONSE_SCHEMA = z
   })
   .strict();
 
-export const LARK_AGENT_RESPONSE_FORMAT = providerStrategy({
-  schema: LARK_AGENT_RESPONSE_SCHEMA,
-  strict: true,
-});
+export const LARK_AGENT_RESPONSE_FORMAT = toolStrategy(LARK_AGENT_RESPONSE_SCHEMA);
 
 export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
   const registry =
@@ -256,7 +253,7 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
     options.model,
     LARK_AGENT_RESPONSE_FORMAT,
   );
-  const debugToolCalls = options.debugToolCalls ?? true;
+  const debugToolCalls = options.debugToolCalls ?? false;
 
   return {
     async authorize(context) {

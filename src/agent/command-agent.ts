@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
-import { providerStrategy } from "langchain";
+import { toolStrategy } from "langchain";
 import { z } from "zod";
 
 import type {
@@ -612,10 +612,9 @@ const COMMAND_AGENT_RESPONSE_SCHEMA = z
   })
   .strict();
 
-export const COMMAND_AGENT_RESPONSE_FORMAT = providerStrategy({
-  schema: COMMAND_AGENT_RESPONSE_SCHEMA,
-  strict: true,
-});
+export const COMMAND_AGENT_TOOL_RESPONSE_FORMAT = toolStrategy(COMMAND_AGENT_RESPONSE_SCHEMA);
+
+export const COMMAND_AGENT_RESPONSE_FORMAT = COMMAND_AGENT_TOOL_RESPONSE_FORMAT;
 
 export function parseCommandAgentOutput(output: string): CommandAgentOutput | undefined {
   const trimmed = output.trim();
@@ -648,7 +647,7 @@ export function parseCommandAgentOutput(output: string): CommandAgentOutput | un
 function withAgentMetadata(
   output: CommandAgentOutput | undefined,
   metadata: AgentRunMetadata,
-  debugToolCalls = true,
+  debugToolCalls = false,
 ): CommandAgentOutput | undefined {
   const rawToolCallsDebugOutput = debugToolCalls
     ? formatRawToolCallsDebugOutput(metadata.rawToolCalls)
@@ -686,7 +685,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       namePrefixes: ["command-"],
     });
   const model = options.model ?? createLangChainChatModel({ modelRole: "command" });
-  const debugToolCalls = options.debugToolCalls ?? true;
+  const debugToolCalls = options.debugToolCalls ?? false;
   const agent = createLangChainAgent({
     name: "Command Agent",
     systemPrompt: COMMAND_AGENT_SYSTEM_PROMPT,
