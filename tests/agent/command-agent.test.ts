@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { ChatOpenAI } from "@langchain/openai";
-import { FakeToolCallingModel } from "langchain";
+import { ProviderStrategy } from "langchain";
 
 import {
   AFTER_FAIL_AGENT_SYSTEM_PROMPT,
@@ -15,7 +15,6 @@ import {
   COMMAND_AGENT_SYSTEM_PROMPT,
   COMMAND_AGENT_OUTPUT_SCHEMA,
   COMMAND_AGENT_RESPONSE_FORMAT,
-  COMMAND_AGENT_TOOL_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOLS,
   COMMAND_AGENT_TASK_SKILLS,
   compactCommandAgentHistoryEntry,
@@ -31,6 +30,12 @@ import {
   routeCommandAgentTask,
   parseCommandAgentOutput,
 } from "../../src/agent/command-agent.js";
+
+class PersistentFakeListChatModel extends FakeListChatModel {
+  bindTools() {
+    return this;
+  }
+}
 
 test("COMMAND_AGENT_TOOLS includes help and git commit context tools", () => {
   assert.deepEqual(COMMAND_AGENT_TOOLS.map((tool) => tool.name), [
@@ -57,11 +62,14 @@ test("after-success tools include git context and lark interaction only", () => 
   ]);
 });
 
-test("command agent structured output uses function calling", () => {
-  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT, COMMAND_AGENT_TOOL_RESPONSE_FORMAT);
-  assert.equal(Array.isArray(COMMAND_AGENT_RESPONSE_FORMAT), true);
-  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT.length, 1);
-  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT[0]?.tool.type, "function");
+test("command agent structured output uses provider JSON schema", () => {
+  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT instanceof ProviderStrategy, true);
+  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT.strict, true);
+  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT.schema.type, "object");
+  assert.deepEqual(COMMAND_AGENT_RESPONSE_FORMAT.schema.required, [
+    "content",
+    "suggestedCommand",
+  ]);
 });
 
 test("command agent routes beforeRun tasks to command skills", () => {
@@ -186,12 +194,10 @@ test("COMMAND_AGENT_SYSTEM_PROMPT describes the unified memory-aware command age
 
 test("command agent reuses one preserved agent across beforeRun and afterFail", async () => {
   const skillLoads: string[] = [];
-  const model = new FakeToolCallingModel({
-    toolCalls: [
-      [{ name: "load_skill", args: { skillName: "command-help" }, id: "call-1" }],
-      [{ name: "extract-1", args: { content: "help reply" }, id: "call-2" }],
-      [{ name: "load_skill", args: { skillName: "command-after-fail" }, id: "call-3" }],
-      [{ name: "extract-1", args: { content: "fail reply" }, id: "call-4" }],
+  const model = new PersistentFakeListChatModel({
+    responses: [
+      JSON.stringify({ content: "help reply", suggestedCommand: null }),
+      JSON.stringify({ content: "fail reply", suggestedCommand: null }),
     ],
   });
   const agent = createCommandAgent({
@@ -228,23 +234,18 @@ test("command agent reuses one preserved agent across beforeRun and afterFail", 
     },
   );
   assert.match(beforeRunOutput?.content ?? "", /help reply/);
-  assert.match(beforeRunOutput?.content ?? "", /raw_tool_calls/);
-  assert.match(beforeRunOutput?.content ?? "", /load_skill/);
   assert.equal(typeof beforeRunOutput?.metadata?.durationMs, "number");
   assert.match(afterFailOutput?.content ?? "", /fail reply/);
-  assert.match(afterFailOutput?.content ?? "", /raw_tool_calls/);
-  assert.match(afterFailOutput?.content ?? "", /command-after-fail/);
   assert.equal(typeof afterFailOutput?.metadata?.durationMs, "number");
-  assert.deepEqual(skillLoads, ["command-help", "command-after-fail"]);
+  assert.equal(afterFailOutput?.metadata?.contextUsage?.messageCount, 4);
+  assert.deepEqual(skillLoads, []);
 });
 
 test("command agent compacts preserved history to task, command, and reply", async () => {
-  const model = new FakeToolCallingModel({
-    toolCalls: [
-      [{ name: "load_skill", args: { skillName: "command-help" }, id: "call-1" }],
-      [{ name: "extract-1", args: { content: "查看当前状态", suggestedCommand: "git status --short" }, id: "call-2" }],
-      [{ name: "load_skill", args: { skillName: "command-after-fail" }, id: "call-3" }],
-      [{ name: "extract-1", args: { content: "设置 upstream" }, id: "call-4" }],
+  const model = new PersistentFakeListChatModel({
+    responses: [
+      JSON.stringify({ content: "查看当前状态", suggestedCommand: "git status --short" }),
+      JSON.stringify({ content: "设置 upstream", suggestedCommand: null }),
     ],
   });
   const agent = createCommandAgent({
@@ -321,11 +322,8 @@ test("command agent compacts preserved history to task, command, and reply", asy
   );
 
   assert.match(beforeRunOutput?.content ?? "", /查看当前状态/);
-  assert.match(beforeRunOutput?.content ?? "", /raw_tool_calls/);
-  assert.match(beforeRunOutput?.content ?? "", /extract-1/);
   assert.equal(beforeRunOutput?.suggestedCommand, "git status --short");
   assert.match(afterFailOutput?.content ?? "", /设置 upstream/);
-  assert.match(afterFailOutput?.content ?? "", /raw_tool_calls/);
   assert.equal(afterFailOutput?.metadata?.contextUsage?.messageCount, 4);
   assert.ok((afterFailOutput?.metadata?.contextUsage?.characterCount ?? 0) < 800);
 
@@ -529,6 +527,13 @@ test("command agent schema accepts legacy structured output", () => {
     COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
       content: "执行 git status 查看状态",
       suggestedCommand: "git status --short",
+    }).success,
+    true,
+  );
+  assert.equal(
+    COMMAND_AGENT_OUTPUT_SCHEMA.safeParse({
+      content: "没有明确下一步。",
+      suggestedCommand: null,
     }).success,
     true,
   );
@@ -772,6 +777,12 @@ test("parseCommandAgentOutput falls back to plain text content", () => {
 test("parseCommandAgentOutput trims output and ignores blank suggested command", () => {
   assert.deepEqual(
     parseCommandAgentOutput('  {"content":"  msg  ","suggestedCommand":"   "}  '),
+    {
+      content: "msg",
+    },
+  );
+  assert.deepEqual(
+    parseCommandAgentOutput('{"content":"msg","suggestedCommand":null}'),
     {
       content: "msg",
     },

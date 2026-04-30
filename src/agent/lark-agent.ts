@@ -1,4 +1,5 @@
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
+import { providerStrategy } from "langchain";
 import { z } from "zod";
 
 import {
@@ -121,14 +122,17 @@ get_context 必须只输出一个 JSON 对象：
 - freshness: "remembered" | "refreshed" | "missing"
 - source 可选，包含 title、url 或 documentId
 - updatedAt 可选，使用 ISO 时间字符串
+- suggestedCommand 输出 null
 
 action 为 "write_development_record" 时，用来写入团队开发记录文档。按 lark-doc-write Skill 搜索、读取并更新文档，输出一个 JSON 对象：
 - content: 字符串，说明文档位置、写入摘要，或未写入原因
-- suggestedCommand 可选，一般省略
+- suggestedCommand 输出 null 或空字符串
+- topic、freshness、source、updatedAt 输出 null
 
 action 为 "send_message" 时，按 lark-im Skill 发送消息，输出一个 JSON 对象：
 - content: 字符串，说明发送结果
-- suggestedCommand 可选，一般省略
+- suggestedCommand 输出 null 或空字符串
+- topic、freshness、source、updatedAt 输出 null
 
 ## 通用要求
 
@@ -212,6 +216,30 @@ export const LARK_AGENT_TOOLS: StructuredToolInterface[] = [
   RUN_LARK_CLI_TOOL,
 ];
 
+const LARK_RESPONSE_SOURCE_SCHEMA = z
+  .object({
+    title: z.string().optional(),
+    url: z.string().optional(),
+    documentId: z.string().optional(),
+  })
+  .strict();
+
+const LARK_AGENT_RESPONSE_SCHEMA = z
+  .object({
+    content: z.string(),
+    suggestedCommand: z.string().nullable(),
+    topic: z.enum(["commit_message_policy", "troubleshooting_reference"]).nullable(),
+    freshness: z.enum(["remembered", "refreshed", "missing"]).nullable(),
+    source: LARK_RESPONSE_SOURCE_SCHEMA.nullable(),
+    updatedAt: z.string().nullable(),
+  })
+  .strict();
+
+export const LARK_AGENT_RESPONSE_FORMAT = providerStrategy({
+  schema: LARK_AGENT_RESPONSE_SCHEMA,
+  strict: true,
+});
+
 export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
   const registry =
     options.skillRegistry ??
@@ -226,6 +254,7 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
       createRunLarkCliTool(options),
     ],
     options.model,
+    LARK_AGENT_RESPONSE_FORMAT,
   );
   const debugToolCalls = options.debugToolCalls ?? true;
 
@@ -249,15 +278,9 @@ const LARK_CONTEXT_PACK_SCHEMA = z
     topic: z.enum(["commit_message_policy", "troubleshooting_reference"]),
     content: z.string(),
     freshness: z.enum(["remembered", "refreshed", "missing"]),
-    source: z
-      .object({
-        title: z.string().optional(),
-        url: z.string().optional(),
-        documentId: z.string().optional(),
-      })
-      .strict()
-      .optional(),
-    updatedAt: z.string().optional(),
+    suggestedCommand: z.string().nullable().optional(),
+    source: LARK_RESPONSE_SOURCE_SCHEMA.nullable().optional(),
+    updatedAt: z.string().nullable().optional(),
   })
   .strict();
 
@@ -301,7 +324,11 @@ function parseLarkContextPack(
 const LARK_COMMAND_OUTPUT_SCHEMA = z
   .object({
     content: z.string(),
-    suggestedCommand: z.string().optional(),
+    suggestedCommand: z.string().nullable().optional(),
+    topic: z.enum(["commit_message_policy", "troubleshooting_reference"]).nullable().optional(),
+    freshness: z.enum(["remembered", "refreshed", "missing"]).nullable().optional(),
+    source: LARK_RESPONSE_SOURCE_SCHEMA.nullable().optional(),
+    updatedAt: z.string().nullable().optional(),
   })
   .strict();
 
@@ -424,12 +451,14 @@ function createLarkPhaseAgent(
   systemPrompt: string,
   tools: StructuredToolInterface[],
   model = createLangChainChatModel({ modelRole: "lark" }),
+  responseFormat = LARK_AGENT_RESPONSE_FORMAT,
 ): LangChainAgent {
   return createLangChainAgent({
     name,
     systemPrompt,
     tools,
     model,
+    responseFormat,
     preserveHistory: true,
     compactHistoryEntry: compactLarkAgentHistoryEntry,
   });

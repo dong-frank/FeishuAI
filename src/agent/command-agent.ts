@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
-import { toolStrategy } from "langchain";
+import { providerStrategy } from "langchain";
 import { z } from "zod";
 
 import type {
@@ -55,7 +55,7 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 - 输出要适合终端阅读：使用纯文本、短段落、短行和简单缩进；不要使用 Markdown 标题、表格、代码围栏、链接语法、复杂列表或终端控制字符。
 - 只能输出一个 JSON 对象，不要输出 JSON 之外的任何文字。
 - JSON 必须包含 content 字段；content 是展示给用户的终端文本。
-- suggestedCommand 可选；如果输出 suggestedCommand，它必须是一条完整命令，不是命令后缀。如果没有明确可执行建议，输出空字符串或省略。
+- suggestedCommand 如果没有明确可执行建议，输出 null 或空字符串；如果输出字符串，它必须是一条完整命令，不是命令后缀。
 - 可以大胆给出 suggestedCommand，用户不一定会接受；它只是 TUI 里的高优先级补全候选。只要有一个合理、完整、可执行的下一步命令，就给出 suggestedCommand；如果当前信息不足或建议可能危险，才输出空字符串。
 - skills里面封装了流程经验，需要参考对应的skills来回答。
 - Command Agent 不直接调用 Lark Agent，不直接执行 Lark CLI，也不输出 callLarkAgent、agent、toolName 等执行字段。
@@ -601,20 +601,21 @@ function getExitCode(error: unknown) {
 export const COMMAND_AGENT_OUTPUT_SCHEMA = z
   .object({
     content: z.string(),
-    suggestedCommand: z.string().optional(),
+    suggestedCommand: z.string().nullable().optional(),
   })
   .strict();
 
 const COMMAND_AGENT_RESPONSE_SCHEMA = z
   .object({
     content: z.string(),
-    suggestedCommand: z.string().optional(),
+    suggestedCommand: z.string().nullable(),
   })
   .strict();
 
-export const COMMAND_AGENT_TOOL_RESPONSE_FORMAT = toolStrategy(COMMAND_AGENT_RESPONSE_SCHEMA);
-
-export const COMMAND_AGENT_RESPONSE_FORMAT = COMMAND_AGENT_TOOL_RESPONSE_FORMAT;
+export const COMMAND_AGENT_RESPONSE_FORMAT = providerStrategy({
+  schema: COMMAND_AGENT_RESPONSE_SCHEMA,
+  strict: true,
+});
 
 export function parseCommandAgentOutput(output: string): CommandAgentOutput | undefined {
   const trimmed = output.trim();
