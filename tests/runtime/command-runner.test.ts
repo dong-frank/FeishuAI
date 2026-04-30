@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { promisify } from "node:util";
 import test from "node:test";
 
 import {
@@ -18,6 +20,12 @@ import {
 
 async function createTempCwd() {
   return mkdtemp(join(tmpdir(), "git-helper-runner-"));
+}
+
+const execFileAsync = promisify(execFile);
+
+async function runGit(args: string[], cwd: string) {
+  await execFileAsync("git", args, { cwd });
 }
 
 test("parseCommandLine splits command and args", () => {
@@ -218,6 +226,9 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
     {
       cwd,
       intent: "init",
+      projectHints: {
+        cwdName: basename(cwd),
+      },
     },
   ]);
   releaseAuthorize?.();
@@ -230,6 +241,47 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
       },
     },
   });
+});
+
+test("runCommandLine passes git project hints to lark init", async () => {
+  const parent = await createTempCwd();
+  const cwd = join(parent, "flowdesk-demo");
+  await mkdir(cwd);
+  await runGit(["init", "-b", "main"], cwd);
+  await runGit(["remote", "add", "origin", "git@github.com:acme/flowdesk-demo.git"], cwd);
+  const gitRoot = await realpath(cwd);
+
+  const contexts: unknown[] = [];
+  const result = await runCommandLine("lark init", {
+    cwd,
+    larkAgent: {
+      authorize(context) {
+        contexts.push(context);
+        return Promise.resolve({ content: "auth ready" });
+      },
+    },
+    executeCommand: async () => {
+      throw new Error("external command should not run");
+    },
+  });
+
+  assert.equal(result.kind, "execute");
+  assert.equal(result.exitCode, 0);
+  await result.afterSuccess;
+  assert.deepEqual(contexts, [
+    {
+      cwd,
+      intent: "init",
+      projectHints: {
+        cwdName: "flowdesk-demo",
+        gitRoot,
+        branch: "main",
+        remoteUrl: "git@github.com:acme/flowdesk-demo.git",
+        webUrl: "https://github.com/acme/flowdesk-demo",
+        repositoryName: "flowdesk-demo",
+      },
+    },
+  ]);
 });
 
 test("runCommandLine reports unsupported lark custom commands without spawning", async () => {

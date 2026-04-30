@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { join } from "node:path";
 
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
 import { toolStrategy } from "langchain";
@@ -21,8 +20,9 @@ import {
   type SkillRegistry,
 } from "./skill-registry.js";
 import { readTldrPage } from "../integrations/tldr.js";
+import { getDefaultSkillRootDir } from "../runtime/project-root.js";
 
-const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
+const DEFAULT_SKILL_ROOT_DIR = getDefaultSkillRootDir(import.meta.url);
 
 export const COMMAND_AGENT_TASK_SKILLS = {
   help: "command-help",

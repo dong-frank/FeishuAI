@@ -15,15 +15,15 @@ roles:
     name: 许嘉宁
     responsibility: 负责 tickets 模块协作 review，并维护整体项目 CI/CD
   new_developer:
-    name: 陈宇航
-    responsibility: 新加入团队的开发者，领取 FD-124 并使用 git-helper 完成任务
+    name: 饶东申
+    responsibility: 新加入团队的开发者，领取 FD-124 并使用 git-helper 完成任务；群聊中使用用户身份发送
 day_story:
-  title: New Dev 陈宇航的一天
+  title: New Dev 饶东申的一天
   standup_context:
     - Scrum Master 周启明主持早上站会，只负责引入任务和协作关系，不触发工具使用。
     - Product Owner 林若澄希望今天推进 FD-124，关注需求是否进入待 Review。
-    - Senior Dev 许嘉宁说明自己正在处理 FD-123 和 CI/CD，需要陈宇航 push 后约 review。
-    - New Dev 陈宇航领取 FD-124，站会结束后回到终端开始实际开发。
+    - Senior Dev 许嘉宁说明自己正在处理 FD-123 和 CI/CD，需要饶东申 push 后约 review。
+    - New Dev 饶东申领取 FD-124，站会结束后回到终端开始实际开发。
 stages:
   fresh:
     case_id: FD-124-FRESH
@@ -36,7 +36,7 @@ stages:
   conflict:
     case_id: FD-124-CONFLICT
     expected_phase: afterFail
-    recommended_command: git pull --rebase origin main
+    recommended_command: git merge origin/main
   upstream:
     case_id: FD-124-UPSTREAM
     expected_phase: afterFail

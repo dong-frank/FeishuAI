@@ -422,10 +422,17 @@ export function App() {
     const agentKind = result.afterSuccessAgentKind ?? "command";
     const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine, "reviewing");
     options.onAgentHistoryEntryCreated?.(agentHistoryId, agentKind);
+    const updateLarkReviewOutput =
+      agentKind === "lark"
+        ? (chunk: CommandOutputChunk) => appendAgentHistoryOutput(agentHistoryId, chunk)
+        : undefined;
     setIsAgentReviewing(true);
     setActiveAgentKind(agentKind);
     setAgentStatusCommand(result.commandLine);
     try {
+      if (updateLarkReviewOutput) {
+        larkOutputHandler.current = updateLarkReviewOutput;
+      }
       const output = normalizeAgentOutput(await result.afterSuccess);
       if (!output) {
         recordExperimentEvent({
@@ -472,6 +479,9 @@ export function App() {
         error: message,
       });
     } finally {
+      if (updateLarkReviewOutput && larkOutputHandler.current === updateLarkReviewOutput) {
+        larkOutputHandler.current = undefined;
+      }
       setIsAgentReviewing(false);
       setActiveAgentKind(undefined);
       setAgentStatusCommand(undefined);
@@ -679,7 +689,9 @@ export function App() {
       setHistory((current) => [...current, entry].slice(-20));
       setHistoryScrollOffset(0);
     } finally {
-      larkOutputHandler.current = undefined;
+      if (larkOutputHandler.current === updateAgentLiveOutput) {
+        larkOutputHandler.current = undefined;
+      }
       setIsRunning(false);
     }
   }

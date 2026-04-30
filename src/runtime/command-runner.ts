@@ -21,6 +21,7 @@ import {
   recordGitCommandFailure,
   recordGitCommandSuccess,
 } from "./git-command-stats.js";
+import { buildLarkProjectHints } from "./lark-project-hints.js";
 import {
   formatTuiSessionGitSummary,
   formatTuiSessionLarkSummary,
@@ -350,6 +351,7 @@ async function runLarkCustomCommand(
     const afterSuccess = getLarkAgent(options).authorize({
       cwd,
       intent: "init",
+      projectHints: await buildLarkProjectHints(cwd),
     });
 
     return {

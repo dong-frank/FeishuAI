@@ -3,6 +3,8 @@ import { Command } from "commander";
 
 import { createLarkAgent } from "../agent/lark-agent.js";
 import type { CommandAgentOutput, LarkAgent } from "../agent/types.js";
+import type { LarkCliOutputChunk } from "../integrations/types.js";
+import { buildLarkProjectHints } from "../runtime/lark-project-hints.js";
 
 export type LarkCommandOptions = {
   agent?: Pick<LarkAgent, "authorize">;
@@ -17,11 +19,14 @@ export function createLarkCommand(options: LarkCommandOptions = {}): Command {
     .command("init")
     .description("Run lark authorization agent phase")
     .action(async () => {
+      const cwd = process.cwd();
+      const projectHints = await buildLarkProjectHints(cwd);
       await runAgentAndForward(
         () =>
           getLarkAgent(options).authorize({
-            cwd: process.cwd(),
+            cwd,
             intent: "init",
+            projectHints,
           }),
         options,
       );
@@ -49,7 +54,19 @@ async function runAgentAndForward(
 }
 
 function getLarkAgent(options: LarkCommandOptions) {
-  return options.agent ?? createLarkAgent();
+  return (
+    options.agent ??
+    createLarkAgent({
+      onLarkCliOutput: createLarkCliOutputForwarder(options),
+    })
+  );
+}
+
+export function createLarkCliOutputForwarder(options: LarkCommandOptions = {}) {
+  return (chunk: LarkCliOutputChunk) => {
+    const target = chunk.stream === "stdout" ? getStdout(options) : getStderr(options);
+    target.write(chunk.text);
+  };
 }
 
 function getStdout(options: LarkCommandOptions) {

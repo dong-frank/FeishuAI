@@ -63,7 +63,7 @@ const STAGE_DETAILS: Record<FlowdeskStage, {
   conflict: {
     caseId: "FD-124-CONFLICT",
     expectedPhase: "afterFail",
-    recommendedCommand: "git pull --rebase origin main",
+    recommendedCommand: "git merge origin/main",
   },
   upstream: {
     caseId: "FD-124-UPSTREAM",

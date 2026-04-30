@@ -18,10 +18,10 @@
   {
     "case_id": "FD-124-CONFLICT",
     "phase": "afterFail",
-    "raw_command": "git pull --rebase origin main",
-    "expected_behavior": "根据 service.py 冲突提示，指导保留 priority filter 和 Dev B 的排序逻辑，然后 git add 并 git rebase --continue。",
+    "raw_command": "git merge origin/main",
+    "expected_behavior": "根据 service.py 冲突提示，指导保留 priority filter 和 Dev B 的排序逻辑，然后 git add 并用 git commit -m 完成 merge commit，避免 TUI 中打开 Vim。",
     "retrieved_contexts": ["FlowDesk Git 新人排障手册"],
-    "acceptable_suggested_commands": ["git add flowdesk/tickets/service.py"]
+    "acceptable_suggested_commands": ["git add flowdesk/tickets/service.py", "git commit -m \"merge main into FD-124 priority filter\""]
   },
   {
     "case_id": "FD-124-UPSTREAM",

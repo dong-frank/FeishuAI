@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 
-import { Command } from "commander";
+import { loadProjectEnv } from "./runtime/project-root.js";
 
-import { createLarkCommand } from "./commands/lark.js";
-import { renderTui } from "./tui/render.js";
+loadProjectEnv(import.meta.url);
+
+const [{ Command }, { createLarkCommand }, { renderTui }] = await Promise.all([
+  import("commander"),
+  import("./commands/lark.js"),
+  import("./tui/render.js"),
+]);
 
 const program = new Command();
 

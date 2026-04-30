@@ -107,6 +107,12 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队 commit message 规范/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队排障参考/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队开发记录文档/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /project_context_index/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /优先从 project_context_index/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /索引缺失/);
+  assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /## authorize 项目知识预热/);
+  assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /project_context_index 必须包含/);
+  assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /development_record、review_process、requirements_status、ci_cd/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /同一个 topic/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把 commit 规范当作排障方法/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把排障资料当作 commit 规范/);
@@ -130,6 +136,60 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /config", "init/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要编造/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /输出要适合终端阅读/);
+});
+
+test("lark authorize skill warms project context with read-only docs commands", () => {
+  const skill = readFileSync(
+    join(process.cwd(), "skills", "lark-authorize", "SKILL.md"),
+    "utf8",
+  );
+
+  assert.match(skill, /Step 5: Project Knowledge Warmup/);
+  assert.match(skill, /project_context_index/);
+  assert.match(skill, /project：项目名或仓库名/);
+  assert.match(skill, /knowledgeBase：知识库名称/);
+  assert.match(skill, /documents：所有可读文档节点/);
+  assert.match(skill, /outlines：docx\/doc 文档的轻量目录/);
+  assert.match(skill, /coverage：已遍历范围/);
+  assert.match(skill, /retrievalHints：后续查询时可按标题/);
+  assert.match(skill, /项目对应知识库/);
+  assert.match(skill, /遍历/);
+  assert.match(skill, /所有可读/);
+  assert.match(skill, /不要只按固定主题/);
+  assert.match(skill, /全量目录索引/);
+  assert.match(skill, /docs \+search/);
+  assert.match(skill, /docs \+fetch/);
+  assert.match(skill, /wiki spaces get_node/);
+  assert.match(skill, /wiki nodes list/);
+  assert.doesNotMatch(skill, /最多选择 3 到 5 个/);
+  assert.doesNotMatch(skill, /优先覆盖这些主题/);
+  assert.match(skill, /禁止/);
+  assert.match(skill, /docs \+create/);
+  assert.match(skill, /docs \+update/);
+});
+
+test("lark doc lookup distinguishes docs search from wiki browsing", () => {
+  const skill = readFileSync(
+    join(process.cwd(), "skills", "lark-doc-lookup", "SKILL.md"),
+    "utf8",
+  );
+
+  assert.match(skill, /docs \+search/);
+  assert.match(skill, /资源发现/);
+  assert.match(skill, /wiki spaces get_node/);
+  assert.match(skill, /wiki nodes list/);
+  assert.match(skill, /project_context_index/);
+  assert.match(skill, /全量目录索引/);
+  assert.match(skill, /不要只依赖固定 topic/);
+  assert.match(skill, /obj_type/);
+  assert.match(skill, /obj_token/);
+  assert.match(skill, /docx\/doc/);
+  assert.match(skill, /sheet/);
+  assert.match(skill, /bitable/);
+  assert.match(skill, /不要把 wiki token 直接当成 doc token/);
+  assert.match(skill, /禁止/);
+  assert.match(skill, /wiki \+node-create/);
+  assert.match(skill, /wiki \+move/);
 });
 
 test("parseLarkInteractionResult keeps get_context structured packs", () => {

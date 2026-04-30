@@ -14,7 +14,7 @@ fatal: The current branch feature/fd-124-priority-filter has no upstream branch
 git push -u origin feature/fd-124-priority-filter
 ```
 
-## Rebase 或 Pull 冲突
+## Merge 冲突
 
 报错特征：
 
@@ -26,7 +26,7 @@ CONFLICT (content): Merge conflict in flowdesk/tickets/service.py
 
 1. 打开冲突文件，保留 Dev A 的 priority filter 和 Dev B 的排序逻辑。
 2. 运行 `git add flowdesk/tickets/service.py`。
-3. 继续执行 `git rebase --continue`。
+3. 运行 `git commit -m "merge main into FD-124 priority filter"` 完成 merge commit，避免 TUI 中打开 Vim。
 
 禁止在未理解冲突的情况下强推。
 

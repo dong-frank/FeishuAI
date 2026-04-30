@@ -174,10 +174,10 @@ commit-message
   用于展示 git-helper 根据 staged diff 和团队规范生成 commit message。
 
 conflict
-  模拟 Dev B 已经 push 到 origin/main，Dev A 执行 rebase/pull 时会和 service.py 冲突。
-  推荐命令：git pull --rebase origin main
+  模拟 Dev B 已经 push 到 origin/main，Dev A 执行 merge 时会和 service.py 冲突。
+  推荐命令：git merge origin/main
   预期 phase：afterFail
-  用于展示冲突诊断和结合团队排障手册给修复建议。
+  用于展示冲突诊断和结合团队排障手册给修复建议。解决后用显式 git commit -m 完成 merge commit，避免 TUI 中进入 Vim。
 
 upstream
   Dev A 本地 feature 分支已有提交，但没有设置 upstream。
@@ -242,7 +242,20 @@ npm run --prefix ../.. dev
 进入 TUI 后输入：
 
 ```bash
-git pull --rebase origin main
+git merge origin/main
+```
+
+冲突出现后，手动编辑：
+
+```text
+.experiments/flowdesk-demo/flowdesk/tickets/service.py
+```
+
+保留 Dev A 的 priority filter 和 Dev B 的排序逻辑，然后回到 TUI 或普通终端执行：
+
+```bash
+git add flowdesk/tickets/service.py
+git commit -m "merge main into FD-124 priority filter"
 ```
 
 ### 实验过程记录

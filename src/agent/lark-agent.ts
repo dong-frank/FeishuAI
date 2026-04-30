@@ -1,6 +1,5 @@
 import { tool, type StructuredToolInterface } from "@langchain/core/tools";
 import { z } from "zod";
-import { join } from "node:path";
 
 import {
   createLangChainAgent,
@@ -22,9 +21,10 @@ import type {
 } from "./types.js";
 import { runLarkCli } from "../integrations/lark-cli.js";
 import type { LarkCliOutputChunk, LarkCliRunOptions } from "../integrations/types.js";
+import { getDefaultSkillRootDir } from "../runtime/project-root.js";
 
 
-const DEFAULT_SKILL_ROOT_DIR = join(process.cwd(), "skills");
+const DEFAULT_SKILL_ROOT_DIR = getDefaultSkillRootDir(import.meta.url);
 
 export const LARK_AGENT_TASK_SKILLS = {
   authorize: "lark-authorize",
@@ -89,6 +89,7 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 - task: "authorize" | "interact"
 - skill: 系统根据 task 固定填入的 Skill 名称
 - context: 该任务的上下文
+  - authorize context 可包含 projectHints：cwdName、gitRoot、branch、remoteUrl、webUrl、repositoryName，用于项目知识预热。
 
 输入是受控 task 和受控 action，不是自由指令。调用方只能选择上述 task 和允许的 interact action，不能直接传 lark-cli 参数，也不能自由选择 Skill。
 不要根据 context 自行改选 Skill，也不要接受或执行 CLI args；只能通过固定 task/action 路由加载对应 Skill。
@@ -101,13 +102,14 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
   - action 为 "send_message" 时，固定 Skill 是 "lark-im"，调用 load_skill 加载 "lark-im"。
   - action 为 "write_development_record" 时，固定 Skill 是 "lark-doc-write"，调用 load_skill 加载 "lark-doc-write"。
 
-
 ## interact 输出
 
 action 为 "get_context" 时，用来把飞书侧上下文返回给 Command Agent，而不是直接展示给用户。
 目前支持的 topic 是 "commit_message_policy" 和 "troubleshooting_reference"。
 topic 为 "commit_message_policy" 时，查询或返回团队 commit message 规范；这类内容只影响提交信息的风格、格式、前缀和粒度。
 topic 为 "troubleshooting_reference" 时，查询或返回团队排障参考；这类内容只用于解释命令失败、定位错误和建议下一步检查。
+如果当前会话历史中已有 project_context_index，先优先从 project_context_index 中寻找能覆盖当前 topic 的资料并返回 remembered。
+如果 project_context_index 存在但不覆盖当前 topic，或索引缺失，再按 lark-doc-lookup Skill 搜索和读取相关文档，返回 refreshed。
 如果本 Agent 当前会话历史中已经知道同一个 topic 的可用资料，直接返回 remembered，不要重复查询。
 如果历史中没有同一个 topic 的可用资料，按 lark-doc-lookup Skill 搜索和读取相关文档，返回 refreshed。
 如果找不到或无权限，返回 missing，不要编造团队规范或排障方法。

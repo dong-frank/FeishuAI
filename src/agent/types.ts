@@ -75,6 +75,16 @@ export type CommandAgent = {
 export type LarkAuthContext = {
   cwd: string;
   intent?: string;
+  projectHints?: LarkProjectHints;
+};
+
+export type LarkProjectHints = {
+  cwdName?: string;
+  gitRoot?: string;
+  branch?: string;
+  remoteUrl?: string;
+  webUrl?: string;
+  repositoryName?: string;
 };
 
 export type LarkContextTopic = "commit_message_policy" | "troubleshooting_reference";

@@ -80,6 +80,22 @@ test("reset writes experiment marker metadata for recorder discovery", async () 
   assert.match(marker.created_at, /^\d{4}-\d{2}-\d{2}T/);
 });
 
+test("experiment marker is ignored by the demo repository status", async () => {
+  const workspaceRoot = await createTempWorkspace();
+
+  const result = await resetFlowdeskExperiment({
+    workspaceRoot,
+    stage: "commit-message",
+  });
+
+  const status = await git(["status", "--short"], result.projectDir);
+
+  assert.doesNotMatch(status.stdout, /\.git-helper-experiment\.json/);
+  assert.match(status.stdout, /^M  flowdesk\/tickets\/filters\.py/m);
+  assert.match(status.stdout, /^M  flowdesk\/tickets\/service\.py/m);
+  assert.match(status.stdout, /^M  tests\/test_ticket_filters\.py/m);
+});
+
 test("fresh reset includes lightweight project history and active sprint context", async () => {
   const workspaceRoot = await createTempWorkspace();
 

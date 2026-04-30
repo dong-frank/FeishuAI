@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { basename } from "node:path";
 import { Writable } from "node:stream";
 import test from "node:test";
 
-import { createLarkCommand } from "../../src/commands/lark.js";
+import { createLarkCliOutputForwarder, createLarkCommand } from "../../src/commands/lark.js";
 
 test("lark init triggers the lark authorization agent phase", async () => {
   let capturedContext: unknown;
@@ -19,11 +20,25 @@ test("lark init triggers the lark authorization agent phase", async () => {
 
   await command.parseAsync(["node", "test", "init"]);
 
-  assert.deepEqual(capturedContext, {
-    cwd: process.cwd(),
-    intent: "init",
-  });
+  assert.equal((capturedContext as { cwd?: string }).cwd, process.cwd());
+  assert.equal((capturedContext as { intent?: string }).intent, "init");
+  assert.equal(
+    (capturedContext as { projectHints?: { cwdName?: string } }).projectHints?.cwdName,
+    basename(process.cwd()),
+  );
   assert.equal(output.text, "auth phase ready\n");
+});
+
+test("lark CLI output forwarder writes tool output to terminal streams", () => {
+  const stdout = createStringWritable();
+  const stderr = createStringWritable();
+  const forward = createLarkCliOutputForwarder({ stdout, stderr });
+
+  forward({ stream: "stdout", text: "Open this login URL\n" });
+  forward({ stream: "stderr", text: "waiting for authorization\n" });
+
+  assert.equal(stdout.text, "Open this login URL\n");
+  assert.equal(stderr.text, "waiting for authorization\n");
 });
 
 function createStringWritable() {
