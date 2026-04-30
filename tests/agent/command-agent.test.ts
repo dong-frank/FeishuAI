@@ -3,16 +3,21 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { ChatOpenAI } from "@langchain/openai";
+import { FakeToolCallingModel } from "langchain";
+
 import {
   AFTER_FAIL_AGENT_SYSTEM_PROMPT,
   AFTER_SUCCESS_AGENT_SYSTEM_PROMPT,
   buildGitCommitContext,
   buildGitRepositoryContext,
+  COMMAND_AGENT_SYSTEM_PROMPT,
   COMMAND_AGENT_OUTPUT_SCHEMA,
   COMMAND_AGENT_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOL_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOLS,
   COMMAND_AGENT_TASK_SKILLS,
+  createCommandAgent,
   createCommandAfterFailTools,
   createCommandAfterSuccessTools,
   formatAfterSuccessAgentSystemPrompt,
@@ -30,6 +35,7 @@ test("COMMAND_AGENT_TOOLS includes help and git commit context tools", () => {
     "load_skill",
     "tldr_git_manual",
     "git_commit_context",
+    "git_repository_context",
     "interact_with_lark_agent",
   ]);
 });
@@ -159,6 +165,71 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
   assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /必须调用 tldr_git_manual/);
   assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /afterSuccess/);
   assert.doesNotMatch(HELP_AGENT_SYSTEM_PROMPT, /generateCommitMessage/);
+});
+
+test("COMMAND_AGENT_SYSTEM_PROMPT describes the unified memory-aware command agent", () => {
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /单一命令 Agent/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /task: "help" \| "commitMessage" \| "afterSuccess" \| "afterFail"/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-help/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-git-commit-message/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-after-success/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-after-fail/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /处理任何 task 前，先调用 load_skill/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /当前会话中过往命令/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /当前命令事实必须以本次 context、result 和工具返回为准/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /不要把历史中的 stdout、stderr 或 git status 当成本次实时状态/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /团队上下文可优先复用历史/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /仓库状态和命令结果必须按需重新读取/);
+});
+
+test("command agent reuses one preserved agent across beforeRun and afterFail", async () => {
+  const skillLoads: string[] = [];
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [{ name: "load_skill", args: { skillName: "command-help" }, id: "call-1" }],
+      [{ name: "extract-1", args: { content: "help reply" }, id: "call-2" }],
+      [{ name: "load_skill", args: { skillName: "command-after-fail" }, id: "call-3" }],
+      [{ name: "extract-1", args: { content: "fail reply" }, id: "call-4" }],
+    ],
+  });
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        skillLoads.push(name);
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  const beforeRunOutput = await agent.beforeRun?.({
+    cwd: "/repo",
+    command: "git",
+    args: ["status"],
+    rawCommand: "git status",
+  });
+
+  const afterFailOutput = await agent.afterFail?.(
+    {
+      cwd: "/repo",
+      command: "git",
+      args: ["push"],
+      rawCommand: "git push",
+    },
+    {
+      exitCode: 128,
+      stdout: "",
+      stderr: "fatal: no upstream",
+    },
+  );
+  assert.equal(beforeRunOutput?.content, "help reply");
+  assert.equal(typeof beforeRunOutput?.metadata?.durationMs, "number");
+  assert.equal(afterFailOutput?.content, "fail reply");
+  assert.equal(typeof afterFailOutput?.metadata?.durationMs, "number");
+  assert.deepEqual(skillLoads, ["command-help", "command-after-fail"]);
 });
 
 test("command task skills contain task-specific instructions", () => {

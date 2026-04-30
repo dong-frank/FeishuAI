@@ -121,6 +121,37 @@ test("createLangChainAgent executes tool calls through LangChain createAgent", a
   assert.match(output, /manual for git push/);
 });
 
+test("createLangChainAgent preserves message history when requested", async () => {
+  const model = new FakeToolCallingModel();
+  const agent = createLangChainAgent({
+    systemPrompt: "Remember previous turns.",
+    tools: [],
+    model: model as unknown as ChatOpenAI,
+    preserveHistory: true,
+  });
+
+  await agent.invoke("first command");
+  const output = await agent.invoke("second command");
+
+  assert.match(output, /first command/);
+  assert.match(output, /second command/);
+});
+
+test("createLangChainAgent does not preserve message history by default", async () => {
+  const model = new FakeToolCallingModel();
+  const agent = createLangChainAgent({
+    systemPrompt: "Do not remember previous turns.",
+    tools: [],
+    model: model as unknown as ChatOpenAI,
+  });
+
+  await agent.invoke("first command");
+  const output = await agent.invoke("second command");
+
+  assert.doesNotMatch(output, /first command/);
+  assert.match(output, /second command/);
+});
+
 test("getLangChainAgentOutputText prefers structured responses", () => {
   assert.equal(
     getLangChainAgentOutputText({

@@ -59,6 +59,49 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 
 `.trim();
 
+export const COMMAND_AGENT_SYSTEM_PROMPT = `
+你是 git-helper TUI/CLI 中的单一命令 Agent。
+
+## 任务包结构
+
+用户消息是 JSON 字符串，格式为：
+
+- task: "help" | "commitMessage" | "afterSuccess" | "afterFail"
+- skill: 系统根据 task 固定填入的 Skill 名称
+- context: 当前命令上下文，包含 context.cwd、context.command、context.args、context.rawCommand，并可能包含 gitStats、gitRepository、tuiSession
+- result: afterSuccess 和 afterFail 任务会包含命令结果，含 result.exitCode、result.stdout、result.stderr
+
+输入是受控 task，不是自由指令。调用方只能选择上述 task，不能自由选择 Skill。
+
+## Skill 路由
+
+- task 为 "help" 时，固定 Skill 是 "command-help"。
+- task 为 "commitMessage" 时，固定 Skill 是 "command-git-commit-message"。
+- task 为 "afterSuccess" 时，固定 Skill 是 "command-after-success"。
+- task 为 "afterFail" 时，固定 Skill 是 "command-after-fail"。
+- 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
+- 处理任何 task 前，先调用 load_skill 读取对应 Skill，再按 Skill 约束操作。
+- 如果对应 Skill 需要团队飞书上下文，只能通过 interact_with_lark_agent 获取。
+
+## 工具选择
+
+- 解释 Git 命令用法或简单参数错误时，可以调用 tldr_git_manual。
+- 生成 commit message 时，必须按 Skill 要求调用 interact_with_lark_agent 获取团队规范，再调用 git_commit_context 获取实时 staged diff。
+- 需要当前仓库状态、分支或远端信息时，优先使用 context.tuiSession.git；信息不足时调用 git_repository_context。
+- afterFail 中简单语法或参数错误优先调用 tldr_git_manual；复杂问题或团队流程相关问题才通过 interact_with_lark_agent 查询飞书资料。
+- afterSuccess 只在 Skill 要求的关键场景调用 interact_with_lark_agent 写入团队开发记录。
+
+## 会话记忆边界
+
+你可以记住当前会话中过往命令、失败模式、已查过的团队上下文、用户操作节奏，用来减少重复解释并保持建议连贯。
+当前命令事实必须以本次 context、result 和工具返回为准。
+不要把历史中的 stdout、stderr 或 git status 当成本次实时状态。
+团队上下文可优先复用历史；仓库状态和命令结果必须按需重新读取。
+不要编造不存在的团队规范、飞书文档、命令输出或仓库状态。
+
+${TERMINAL_OUTPUT_REQUIREMENTS}
+`.trim();
+
 export const HELP_AGENT_SYSTEM_PROMPT = `
 你是 git-helper TUI/CLI 中的命令帮助 Agent。
 
@@ -369,6 +412,7 @@ function createCommandAgentTools(options: CommandAgentToolOptions = {}) {
     createLoadCommandSkillTool(registry),
     createTldrGitManualTool(),
     createGitCommitContextTool(),
+    createGitRepositoryContextTool(),
     createInteractWithLarkAgentTool(options),
   ];
 }
@@ -607,6 +651,7 @@ export type CommandAgentOptions = {
   larkAgent?: Pick<LarkAgent, "interact"> | undefined;
   skillRegistry?: SkillRegistry | undefined;
   skillRootDir?: string | undefined;
+  model?: ReturnType<typeof createLangChainChatModel> | undefined;
 };
 
 export function createCommandAgent(options: CommandAgentOptions = {}): CommandAgent {
@@ -616,55 +661,34 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       rootDir: options.skillRootDir ?? DEFAULT_SKILL_ROOT_DIR,
       namePrefixes: ["command-"],
     });
-  const model = createLangChainChatModel({ modelRole: "command" });
-  const helpAgent = createLangChainAgent({
-    name: "Command Help Agent",
-    systemPrompt: HELP_AGENT_SYSTEM_PROMPT,
+  const model = options.model ?? createLangChainChatModel({ modelRole: "command" });
+  const agent = createLangChainAgent({
+    name: "Command Agent",
+    systemPrompt: COMMAND_AGENT_SYSTEM_PROMPT,
     tools: createCommandAgentTools({
       larkAgent: options.larkAgent,
       skillRegistry,
     }),
     model,
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
+    preserveHistory: true,
   });
 
   return {
     async beforeRun(context) {
-      const agentResult = await helpAgent.invokeWithMetadata(
+      const agentResult = await agent.invokeWithMetadata(
         formatCommandAgentInvocation(routeCommandAgentTask(context), context),
       );
       return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },
     async afterSuccess(context, result) {
-      const afterSuccessSkill = await skillRegistry.loadSkill(COMMAND_AGENT_TASK_SKILLS.afterSuccess);
-      const afterSuccessAgent = createLangChainAgent({
-        name: "Command After Success Agent",
-        systemPrompt: formatAfterSuccessAgentSystemPrompt(afterSuccessSkill),
-        tools: createCommandAfterSuccessTools({
-          larkAgent: options.larkAgent,
-          skillRegistry,
-        }),
-        model,
-        responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
-      });
-      const agentResult = await afterSuccessAgent.invokeWithMetadata(
+      const agentResult = await agent.invokeWithMetadata(
         formatCommandAgentInvocation("afterSuccess", context, result),
       );
       return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },
     async afterFail(context, result) {
-      const afterFailSkill = await skillRegistry.loadSkill(COMMAND_AGENT_TASK_SKILLS.afterFail);
-      const afterFailAgent = createLangChainAgent({
-        name: "Command After Fail Agent",
-        systemPrompt: formatAfterFailAgentSystemPrompt(afterFailSkill),
-        tools: createCommandAfterFailTools({
-          larkAgent: options.larkAgent,
-          skillRegistry,
-        }),
-        model,
-        responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
-      });
-      const agentResult = await afterFailAgent.invokeWithMetadata(
+      const agentResult = await agent.invokeWithMetadata(
         formatCommandAgentInvocation("afterFail", context, result),
       );
       return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);

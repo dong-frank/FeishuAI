@@ -93,13 +93,17 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     const result = await agent.invoke({
       messages,
     });
-    if (options.preserveHistory && isRecord(result) && Array.isArray(result.messages)) {
-      messageHistory = result.messages;
+    const content = getLangChainAgentOutputText(result);
+    if (options.preserveHistory) {
+      messageHistory = [
+        ...messages,
+        { role: "assistant", content },
+      ];
     }
     const durationMs = Date.now() - startedAt;
 
     return {
-      content: getLangChainAgentOutputText(result),
+      content,
       metadata: extractLangChainAgentMetadata(result, durationMs),
     };
   };
