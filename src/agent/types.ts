@@ -47,9 +47,16 @@ export type AgentTokenUsage = {
   totalTokens: number;
 };
 
+export type AgentContextUsage = {
+  messageCount: number;
+  characterCount: number;
+  estimatedTokens: number;
+};
+
 export type AgentRunMetadata = {
   durationMs: number;
   tokenUsage?: AgentTokenUsage;
+  contextUsage?: AgentContextUsage;
 };
 
 export type CommandAgentOutput = {

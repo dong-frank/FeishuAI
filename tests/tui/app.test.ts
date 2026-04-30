@@ -868,6 +868,11 @@ test("help output is rendered in a banner instead of normal history text", () =>
           tokenUsage: {
             totalTokens: 1031,
           },
+          contextUsage: {
+            messageCount: 6,
+            characterCount: 4120,
+            estimatedTokens: 1030,
+          },
         },
       },
     },
@@ -878,7 +883,7 @@ test("help output is rendered in a banner instead of normal history text", () =>
   assert.equal(gitAgentTitle?.rightText, "[✓ 1.2s · 456 tokens]");
   assert.equal(gitAgentTitle?.rightColor, "cyan");
   const larkAgentTitle = rows.find((row) => row.text === "Lark Agent");
-  assert.equal(larkAgentTitle?.rightText, "[✓ 2.5s · 1031 tokens]");
+  assert.equal(larkAgentTitle?.rightText, "[✓ 2.5s · 1031 tokens · ctx 1030 tokens]");
   assert.equal(larkAgentTitle?.rightColor, "cyan");
   assert.equal(
     isHelpOutput({
@@ -913,6 +918,11 @@ test("agent history entries render pending, success, failed, and empty states", 
         durationMs: 2500,
         tokenUsage: {
           totalTokens: 1031,
+        },
+        contextUsage: {
+          messageCount: 6,
+          characterCount: 4120,
+          estimatedTokens: 1030,
         },
       },
     },
@@ -963,7 +973,7 @@ test("agent history entries render pending, success, failed, and empty states", 
 
   const larkAgentTitles = rows.filter((row) => row.text === "Lark Agent");
   const larkAgentTitle = larkAgentTitles[0];
-  assert.equal(larkAgentTitle?.rightText, "[✓ 2.5s · 1031 tokens]");
+  assert.equal(larkAgentTitle?.rightText, "[✓ 2.5s · 1031 tokens · ctx 1030 tokens]");
   assert.equal(larkAgentTitle?.rightColor, "cyan");
   assert.equal(larkAgentTitles[1]?.rightText, "[正在处理 lark init ...]");
   assert.equal(larkAgentTitles[1]?.rightColor, "yellow");

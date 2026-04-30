@@ -266,6 +266,10 @@ function formatAgentMetadata(metadata: AgentRunMetadata | undefined) {
   if (typeof tokenCount === "number") {
     parts.push(`${tokenCount} tokens`);
   }
+  const contextTokenCount = metadata.contextUsage?.estimatedTokens;
+  if (typeof contextTokenCount === "number") {
+    parts.push(`ctx ${contextTokenCount} tokens`);
+  }
 
   return `[${parts.join(" · ")}]`;
 }

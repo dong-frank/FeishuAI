@@ -137,6 +137,28 @@ test("createLangChainAgent preserves message history when requested", async () =
   assert.match(output, /second command/);
 });
 
+test("createLangChainAgent reports current preserved context size", async () => {
+  const model = new FakeToolCallingModel();
+  const agent = createLangChainAgent({
+    systemPrompt: "Track context size.",
+    tools: [],
+    model: model as unknown as ChatOpenAI,
+    preserveHistory: true,
+  });
+
+  const first = await agent.invokeWithMetadata("first command");
+  const second = await agent.invokeWithMetadata("second command");
+
+  assert.equal(first.metadata.contextUsage?.messageCount, 2);
+  assert.equal(second.metadata.contextUsage?.messageCount, 4);
+  assert.equal(typeof second.metadata.contextUsage?.characterCount, "number");
+  assert.equal(typeof second.metadata.contextUsage?.estimatedTokens, "number");
+  assert.ok(
+    (second.metadata.contextUsage?.characterCount ?? 0) >
+      (first.metadata.contextUsage?.characterCount ?? 0),
+  );
+});
+
 test("createLangChainAgent does not preserve message history by default", async () => {
   const model = new FakeToolCallingModel();
   const agent = createLangChainAgent({

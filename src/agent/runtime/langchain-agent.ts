@@ -3,7 +3,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, type ResponseFormat, type TypedToolStrategy } from "langchain";
 import { traceable } from "langsmith/traceable";
 
-import type { AgentRunMetadata, AgentTokenUsage } from "../types.js";
+import type { AgentContextUsage, AgentRunMetadata, AgentTokenUsage } from "../types.js";
 
 export type LangChainChatModelConfig = {
   apiKey?: string;
@@ -100,11 +100,20 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
         { role: "assistant", content },
       ];
     }
+    const contextMessages = options.preserveHistory
+      ? messageHistory
+      : [
+          ...messages,
+          { role: "assistant", content },
+        ];
     const durationMs = Date.now() - startedAt;
 
     return {
       content,
-      metadata: extractLangChainAgentMetadata(result, durationMs),
+      metadata: {
+        ...extractLangChainAgentMetadata(result, durationMs),
+        contextUsage: summarizeAgentContextUsage(contextMessages),
+      },
     };
   };
   const invoke = async (input: string) => {
@@ -160,6 +169,19 @@ export function extractLangChainAgentMetadata(
   return {
     durationMs: Math.max(0, Math.round(durationMs)),
     ...(tokenUsage ? { tokenUsage } : {}),
+  };
+}
+
+export function summarizeAgentContextUsage(messages: unknown[]): AgentContextUsage {
+  const characterCount = messages
+    .filter(isRecord)
+    .map((message) => stringifyContent(message.content))
+    .reduce((total, content) => total + content.length, 0);
+
+  return {
+    messageCount: messages.length,
+    characterCount,
+    estimatedTokens: Math.ceil(characterCount / 4),
   };
 }
 
