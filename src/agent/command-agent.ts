@@ -672,6 +672,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     model,
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
     preserveHistory: true,
+    compactHistoryEntry: compactCommandAgentHistoryEntry,
   });
 
   return {
@@ -694,4 +695,50 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
     },
   };
+}
+
+export function compactCommandAgentHistoryEntry(input: string, output: string) {
+  const invocation = parseCommandAgentInvocation(input);
+  const response = parseCommandAgentOutput(output);
+  if (!invocation) {
+    return {
+      userContent: input,
+      assistantContent: output,
+    };
+  }
+
+  return {
+    userContent: JSON.stringify({
+      task: invocation.task,
+      skill: invocation.skill,
+      command: invocation.context.command,
+      rawCommand: invocation.context.rawCommand,
+      ...(invocation.result
+        ? { result: { exitCode: invocation.result.exitCode } }
+        : {}),
+    }),
+    assistantContent: JSON.stringify({
+      content: response?.content ?? output.trim(),
+      ...(response?.suggestedCommand ? { suggestedCommand: response.suggestedCommand } : {}),
+    }),
+  };
+}
+
+function parseCommandAgentInvocation(input: string): CommandAgentInvocation | undefined {
+  try {
+    const parsed = JSON.parse(input) as CommandAgentInvocation;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.task !== "string" ||
+      typeof parsed.skill !== "string" ||
+      !parsed.context ||
+      typeof parsed.context !== "object"
+    ) {
+      return undefined;
+    }
+    return parsed;
+  } catch {
+    return undefined;
+  }
 }

@@ -146,6 +146,7 @@ export type LarkAgentOptions = {
   }>;
   skillRootDir?: string;
   skillRegistry?: SkillRegistry;
+  model?: ReturnType<typeof createLangChainChatModel> | undefined;
 };
 
 export function createRunLarkCliTool(
@@ -215,10 +216,15 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
     createSkillRegistry({
       rootDir: options.skillRootDir ?? DEFAULT_SKILL_ROOT_DIR,
     });
-  const agent = createLarkPhaseAgent("Lark Agent", LARK_AGENT_SYSTEM_PROMPT, [
-    createLoadSkillTool(registry),
-    createRunLarkCliTool(options),
-  ]);
+  const agent = createLarkPhaseAgent(
+    "Lark Agent",
+    LARK_AGENT_SYSTEM_PROMPT,
+    [
+      createLoadSkillTool(registry),
+      createRunLarkCliTool(options),
+    ],
+    options.model,
+  );
 
   return {
     async authorize(context) {
@@ -392,12 +398,121 @@ function createLarkPhaseAgent(
   name: string,
   systemPrompt: string,
   tools: StructuredToolInterface[],
+  model = createLangChainChatModel({ modelRole: "lark" }),
 ): LangChainAgent {
   return createLangChainAgent({
     name,
     systemPrompt,
     tools,
-    model: createLangChainChatModel({ modelRole: "lark" }),
+    model,
     preserveHistory: true,
+    compactHistoryEntry: compactLarkAgentHistoryEntry,
   });
+}
+
+export function compactLarkAgentHistoryEntry(input: string, output: string) {
+  const invocation = parseLarkAgentInvocation(input);
+  if (!invocation) {
+    return {
+      userContent: input,
+      assistantContent: output,
+    };
+  }
+
+  return {
+    userContent: JSON.stringify(compactLarkInvocation(invocation)),
+    assistantContent: compactLarkAgentOutput(output),
+  };
+}
+
+function parseLarkAgentInvocation(input: string): LarkAgentInvocation | undefined {
+  try {
+    const parsed = JSON.parse(input) as LarkAgentInvocation;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      typeof parsed.task !== "string" ||
+      typeof parsed.skill !== "string" ||
+      !parsed.context ||
+      typeof parsed.context !== "object"
+    ) {
+      return undefined;
+    }
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+function compactLarkInvocation(invocation: LarkAgentInvocation) {
+  if (invocation.task === "authorize") {
+    const hints = invocation.context.projectHints;
+    return {
+      task: invocation.task,
+      skill: invocation.skill,
+      cwd: invocation.context.cwd,
+      ...(hints
+        ? {
+            projectHints: {
+              ...(hints.cwdName ? { cwdName: hints.cwdName } : {}),
+              ...(hints.gitRoot ? { gitRoot: hints.gitRoot } : {}),
+              ...(hints.branch ? { branch: hints.branch } : {}),
+              ...(hints.repositoryName ? { repositoryName: hints.repositoryName } : {}),
+            },
+          }
+        : {}),
+    };
+  }
+
+  return {
+    task: invocation.task,
+    skill: invocation.skill,
+    action: invocation.context.action,
+    cwd: invocation.context.cwd,
+    ...("topic" in invocation.context ? { topic: invocation.context.topic } : {}),
+    ...("command" in invocation.context && invocation.context.command
+      ? { command: invocation.context.command }
+      : {}),
+    ...("rawCommand" in invocation.context && invocation.context.rawCommand
+      ? { rawCommand: invocation.context.rawCommand }
+      : {}),
+  };
+}
+
+function compactLarkAgentOutput(output: string) {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed === "object" && parsed !== null) {
+      return JSON.stringify(compactLarkOutputObject(parsed as Record<string, unknown>));
+    }
+  } catch {
+    // Keep plain-text outputs as-is.
+  }
+
+  return trimmed;
+}
+
+function compactLarkOutputObject(output: Record<string, unknown>) {
+  return {
+    ...(typeof output.topic === "string" ? { topic: output.topic } : {}),
+    ...(typeof output.freshness === "string" ? { freshness: output.freshness } : {}),
+    ...(typeof output.content === "string" ? { content: output.content } : {}),
+    ...(typeof output.suggestedCommand === "string"
+      ? { suggestedCommand: output.suggestedCommand }
+      : {}),
+    ...(isCompactSource(output.source) ? { source: compactLarkContextSource(output.source) } : {}),
+  };
+}
+
+function isCompactSource(value: unknown): value is {
+  title?: string | undefined;
+  url?: string | undefined;
+  documentId?: string | undefined;
+} {
+  return typeof value === "object" && value !== null;
 }

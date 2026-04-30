@@ -17,6 +17,7 @@ import {
   COMMAND_AGENT_TOOL_RESPONSE_FORMAT,
   COMMAND_AGENT_TOOLS,
   COMMAND_AGENT_TASK_SKILLS,
+  compactCommandAgentHistoryEntry,
   createCommandAgent,
   createCommandAfterFailTools,
   createCommandAfterSuccessTools,
@@ -230,6 +231,148 @@ test("command agent reuses one preserved agent across beforeRun and afterFail", 
   assert.equal(afterFailOutput?.content, "fail reply");
   assert.equal(typeof afterFailOutput?.metadata?.durationMs, "number");
   assert.deepEqual(skillLoads, ["command-help", "command-after-fail"]);
+});
+
+test("command agent compacts preserved history to task, command, and reply", async () => {
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [{ name: "load_skill", args: { skillName: "command-help" }, id: "call-1" }],
+      [{ name: "extract-1", args: { content: "查看当前状态", suggestedCommand: "git status --short" }, id: "call-2" }],
+      [{ name: "load_skill", args: { skillName: "command-after-fail" }, id: "call-3" }],
+      [{ name: "extract-1", args: { content: "设置 upstream" }, id: "call-4" }],
+    ],
+  });
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+  const repeatedRuntimeContext = "RUNTIME_CONTEXT_SHOULD_NOT_BE_REMEMBERED".repeat(80);
+
+  const beforeRunOutput = await agent.beforeRun?.({
+    cwd: "/repo",
+    command: "git",
+    args: ["status"],
+    rawCommand: "git status",
+    gitStats: {
+      successCount: 3,
+      failures: [
+        {
+          count: 1,
+          exitCode: 128,
+          stdout: repeatedRuntimeContext,
+          stderr: repeatedRuntimeContext,
+          occurredAt: "2026-04-30T00:00:00.000Z",
+        },
+      ],
+    },
+    tuiSession: {
+      cwd: "/repo",
+      git: {
+        isRepository: true,
+        root: "/repo",
+        branch: "main",
+        status: { staged: 0, unstaged: 0, untracked: 0, dirty: false },
+        branches: { local: ["main"], remote: ["origin/main"] },
+        remotes: [
+          {
+            name: "origin",
+            fetchUrl: repeatedRuntimeContext,
+            pushUrl: repeatedRuntimeContext,
+          },
+        ],
+      },
+      lark: {
+        isInstalled: true,
+        isConnected: true,
+        name: repeatedRuntimeContext,
+      },
+      header: {
+        cwd: "/repo",
+        gitSummary: repeatedRuntimeContext,
+        larkSummary: repeatedRuntimeContext,
+      },
+    },
+  });
+
+  const afterFailOutput = await agent.afterFail?.(
+    {
+      cwd: "/repo",
+      command: "git",
+      args: ["push"],
+      rawCommand: "git push",
+    },
+    {
+      exitCode: 128,
+      stdout: repeatedRuntimeContext,
+      stderr: repeatedRuntimeContext,
+    },
+  );
+
+  assert.equal(beforeRunOutput?.content, "查看当前状态");
+  assert.equal(beforeRunOutput?.suggestedCommand, "git status --short");
+  assert.equal(afterFailOutput?.content, "设置 upstream");
+  assert.equal(afterFailOutput?.metadata?.contextUsage?.messageCount, 4);
+  assert.ok((afterFailOutput?.metadata?.contextUsage?.characterCount ?? 0) < 800);
+
+  const compactHistory = compactCommandAgentHistoryEntry(
+    formatCommandAgentInvocation(
+      "afterFail",
+      {
+        cwd: "/repo",
+        command: "git",
+        args: ["push"],
+        rawCommand: "git push",
+        gitStats: {
+          successCount: 0,
+          failures: [],
+        },
+        tuiSession: {
+          cwd: "/repo",
+          git: {
+            isRepository: true,
+            root: "/repo",
+            branch: "main",
+            status: { staged: 0, unstaged: 1, untracked: 0, dirty: true },
+            branches: { local: ["main"], remote: ["origin/main"] },
+            remotes: [],
+          },
+          lark: { isInstalled: true, isConnected: true },
+          header: {
+            cwd: "/repo",
+            gitSummary: repeatedRuntimeContext,
+            larkSummary: repeatedRuntimeContext,
+          },
+        },
+      },
+      {
+        exitCode: 128,
+        stdout: repeatedRuntimeContext,
+        stderr: repeatedRuntimeContext,
+      },
+    ),
+    JSON.stringify({ content: "设置 upstream", suggestedCommand: "git push -u origin main" }),
+  );
+
+  assert.deepEqual(JSON.parse(compactHistory.userContent), {
+    task: "afterFail",
+    skill: "command-after-fail",
+    command: "git",
+    rawCommand: "git push",
+    result: { exitCode: 128 },
+  });
+  assert.deepEqual(JSON.parse(compactHistory.assistantContent), {
+    content: "设置 upstream",
+    suggestedCommand: "git push -u origin main",
+  });
+  assert.doesNotMatch(compactHistory.userContent, /stdout|stderr|gitStats|tuiSession/);
+  assert.doesNotMatch(compactHistory.userContent, /RUNTIME_CONTEXT/);
 });
 
 test("command task skills contain task-specific instructions", () => {

@@ -159,6 +159,31 @@ test("createLangChainAgent reports current preserved context size", async () => 
   );
 });
 
+test("createLangChainAgent can compact preserved history after each response", async () => {
+  const agent = createLangChainAgent({
+    systemPrompt: "Compact history.",
+    tools: [],
+    model: new FakeToolCallingModel() as unknown as ChatOpenAI,
+    preserveHistory: true,
+    compactHistoryEntry(input, output) {
+      return {
+        userContent: `compact user: ${input.includes("first") ? "first" : "second"}`,
+        assistantContent: `compact assistant: ${output.includes("first") ? "first" : "second"}`,
+      };
+    },
+  });
+
+  const first = await agent.invokeWithMetadata("first command RAW_SECRET_TOOL_CONTEXT");
+  const second = await agent.invokeWithMetadata("second command");
+
+  assert.match(first.content, /RAW_SECRET_TOOL_CONTEXT/);
+  assert.match(second.content, /compact user: first/);
+  assert.match(second.content, /compact assistant: first/);
+  assert.equal(second.metadata.contextUsage?.messageCount, 4);
+  assert.ok((second.metadata.contextUsage?.characterCount ?? 0) < 120);
+  assert.doesNotMatch(second.content, /RAW_SECRET_TOOL_CONTEXT/);
+});
+
 test("createLangChainAgent does not preserve message history by default", async () => {
   const model = new FakeToolCallingModel();
   const agent = createLangChainAgent({

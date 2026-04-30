@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { FakeListChatModel } from "@langchain/core/utils/testing";
+import { ChatOpenAI } from "@langchain/openai";
+
 import {
+  compactLarkAgentHistoryEntry,
+  createLarkAgent,
   formatLarkAgentInvocation,
   createRunLarkCliTool,
   LARK_AGENT_INTERACTION_SKILLS,
@@ -231,6 +236,122 @@ test("parseLarkInteractionResult returns command output for write_development_re
       content: "已写入团队开发记录：研发记录 / repo",
     },
   );
+});
+
+test("lark agent compacts preserved history to task, action, topic, and reply", async () => {
+  const repeatedRuntimeContext = "LARK_RUNTIME_CONTEXT_SHOULD_NOT_BE_REMEMBERED".repeat(80);
+  const agent = createLarkAgent({
+    model: new FakeListChatModel({
+      responses: [
+        JSON.stringify({ content: "auth ready" }),
+      ],
+    }) as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+    runLarkCli: async () => ({
+      exitCode: 0,
+      stdout: repeatedRuntimeContext,
+      stderr: repeatedRuntimeContext,
+    }),
+  });
+
+  const authorizeOutput = await agent.authorize({
+    cwd: "/repo",
+    intent: repeatedRuntimeContext,
+    projectHints: {
+      cwdName: "repo",
+      gitRoot: "/repo",
+      branch: "main",
+      remoteUrl: repeatedRuntimeContext,
+      webUrl: repeatedRuntimeContext,
+      repositoryName: "repo",
+    },
+  });
+  const compactAuthorizeHistory = compactLarkAgentHistoryEntry(
+    formatLarkAgentInvocation("authorize", {
+      cwd: "/repo",
+      intent: repeatedRuntimeContext,
+      projectHints: {
+        cwdName: "repo",
+        gitRoot: "/repo",
+        branch: "main",
+        remoteUrl: repeatedRuntimeContext,
+        webUrl: repeatedRuntimeContext,
+        repositoryName: "repo",
+      },
+    }),
+    JSON.stringify({ content: "auth ready" }),
+  );
+  const compactContextHistory = compactLarkAgentHistoryEntry(
+    formatLarkAgentInvocation("interact", {
+      action: "get_context",
+      cwd: "/repo",
+      topic: "commit_message_policy",
+      reason: repeatedRuntimeContext,
+      command: "git",
+      rawCommand: "git commit",
+      repository: {
+        root: "/repo",
+        remoteUrl: repeatedRuntimeContext,
+        webUrl: repeatedRuntimeContext,
+      },
+    }),
+    JSON.stringify({
+      topic: "commit_message_policy",
+      content: "团队使用 conventional commits。",
+      freshness: "refreshed",
+      source: {
+        title: "FlowDesk Git 协作规范",
+        url: "https://example.com/doc",
+      },
+    }),
+  );
+
+  assert.equal(authorizeOutput.content, JSON.stringify({ content: "auth ready" }));
+  assert.deepEqual(JSON.parse(compactAuthorizeHistory.userContent), {
+    task: "authorize",
+    skill: "lark-authorize",
+    cwd: "/repo",
+    projectHints: {
+      cwdName: "repo",
+      gitRoot: "/repo",
+      branch: "main",
+      repositoryName: "repo",
+    },
+  });
+  assert.deepEqual(JSON.parse(compactAuthorizeHistory.assistantContent), {
+    content: "auth ready",
+  });
+  assert.deepEqual(JSON.parse(compactContextHistory.userContent), {
+    task: "interact",
+    skill: "lark-doc-lookup",
+    action: "get_context",
+    cwd: "/repo",
+    topic: "commit_message_policy",
+    command: "git",
+    rawCommand: "git commit",
+  });
+  assert.deepEqual(JSON.parse(compactContextHistory.assistantContent), {
+    topic: "commit_message_policy",
+    freshness: "refreshed",
+    content: "团队使用 conventional commits。",
+    source: {
+      title: "FlowDesk Git 协作规范",
+      url: "https://example.com/doc",
+    },
+  });
+  assert.doesNotMatch(compactAuthorizeHistory.userContent, /remoteUrl|webUrl|intent/);
+  assert.doesNotMatch(compactAuthorizeHistory.userContent, /LARK_RUNTIME_CONTEXT/);
+  assert.doesNotMatch(compactContextHistory.userContent, /LARK_RUNTIME_CONTEXT/);
+  assert.doesNotMatch(compactContextHistory.assistantContent, /LARK_RUNTIME_CONTEXT/);
+  assert.ok(authorizeOutput.metadata.contextUsage?.characterCount);
+  assert.ok((authorizeOutput.metadata.contextUsage?.characterCount ?? 0) < 300);
 });
 
 test("lark doc write skill constrains document writes", () => {

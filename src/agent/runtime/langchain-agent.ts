@@ -23,6 +23,7 @@ export type LangChainAgentOptions = {
   name?: string;
   responseFormat?: LangChainResponseFormat | undefined;
   preserveHistory?: boolean;
+  compactHistoryEntry?: LangChainHistoryCompactor | undefined;
 };
 
 export type LangChainAgent = {
@@ -38,6 +39,14 @@ export type LangChainResponseFormat = ResponseFormat | TypedToolStrategy<unknown
 export type LangChainAgentInvokeResult = {
   content: string;
   metadata: AgentRunMetadata;
+};
+
+export type LangChainHistoryCompactor = (
+  input: string,
+  output: string,
+) => {
+  userContent: string;
+  assistantContent: string;
 };
 
 export function createLangChainChatModel(config: LangChainChatModelConfig = {}) {
@@ -95,9 +104,11 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     });
     const content = getLangChainAgentOutputText(result);
     if (options.preserveHistory) {
+      const historyEntry = compactLangChainHistoryEntry(input, content, options.compactHistoryEntry);
       messageHistory = [
-        ...messages,
-        { role: "assistant", content },
+        ...messageHistory,
+        { role: "user", content: historyEntry.userContent },
+        { role: "assistant", content: historyEntry.assistantContent },
       ];
     }
     const contextMessages = options.preserveHistory
@@ -137,6 +148,17 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
           run_type: "chain",
         })
       : invokeWithMetadata,
+  };
+}
+
+function compactLangChainHistoryEntry(
+  input: string,
+  output: string,
+  compactor: LangChainHistoryCompactor | undefined,
+) {
+  return compactor?.(input, output) ?? {
+    userContent: input,
+    assistantContent: output,
   };
 }
 
