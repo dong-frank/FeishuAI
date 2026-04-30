@@ -188,9 +188,12 @@ export function extractLangChainAgentMetadata(
   durationMs: number,
 ): AgentRunMetadata {
   const tokenUsage = extractLangChainTokenUsage(result);
+  const rawToolCalls = extractLangChainAgentToolCalls(result);
   return {
     durationMs: Math.max(0, Math.round(durationMs)),
     ...(tokenUsage ? { tokenUsage } : {}),
+    ...(rawToolCalls.length > 0 ? { rawToolCalls } : {}),
+    rawAgentResult: formatRawAgentResult(result),
   };
 }
 
@@ -216,6 +219,112 @@ function extractLangChainTokenUsage(result: unknown): AgentTokenUsage | undefine
     .map(readMessageTokenUsage)
     .filter((usage): usage is AgentTokenUsage => Boolean(usage))
     .reduce<AgentTokenUsage | undefined>(sumTokenUsage, undefined);
+}
+
+export function extractLangChainAgentToolCalls(result: unknown): unknown[] {
+  const messages = isRecord(result) && Array.isArray(result.messages)
+    ? result.messages
+    : [];
+
+  return messages.flatMap((message) => {
+    if (!isRecord(message)) {
+      return [];
+    }
+
+    const toolCalls = Array.isArray(message.tool_calls)
+      ? message.tool_calls
+      : Array.isArray(message.toolCalls)
+        ? message.toolCalls
+        : Array.isArray(getNested(message, ["additional_kwargs", "tool_calls"]))
+          ? getNested(message, ["additional_kwargs", "tool_calls"])
+          : [];
+
+    return Array.isArray(toolCalls) ? toolCalls : [];
+  });
+}
+
+export function formatRawToolCallsDebugOutput(
+  rawToolCalls: unknown[] | undefined,
+  rawAgentResult?: string | undefined,
+) {
+  if (!rawToolCalls?.length && !rawAgentResult) {
+    return "";
+  }
+
+  try {
+    const rawToolCallsText = JSON.stringify(rawToolCalls ?? [], null, 2);
+    return [
+      `raw_tool_calls:\n${rawToolCallsText}`,
+      rawAgentResult ? `raw_agent_result:\n${rawAgentResult}` : "",
+    ].filter(Boolean).join("\n\n");
+  } catch {
+    return `raw_tool_calls:\n${String(rawToolCalls)}`;
+  }
+}
+
+function formatRawAgentResult(result: unknown) {
+  return truncateDebugText(safeStringify(summarizeAgentResult(result), 2), 12_000);
+}
+
+function summarizeAgentResult(result: unknown) {
+  if (!isRecord(result)) {
+    return result;
+  }
+
+  return {
+    ...(result.structuredResponse !== undefined
+      ? { structuredResponse: result.structuredResponse }
+      : {}),
+    ...(Array.isArray(result.messages)
+      ? { messages: result.messages.map(summarizeAgentMessage) }
+      : {}),
+    keys: Object.keys(result),
+  };
+}
+
+function summarizeAgentMessage(message: unknown) {
+  if (!isRecord(message)) {
+    return message;
+  }
+
+  return {
+    ...(message.id !== undefined ? { id: message.id } : {}),
+    ...(message.name !== undefined ? { name: message.name } : {}),
+    ...(message.content !== undefined ? { content: message.content } : {}),
+    ...(message.tool_calls !== undefined ? { tool_calls: message.tool_calls } : {}),
+    ...(message.toolCalls !== undefined ? { toolCalls: message.toolCalls } : {}),
+    ...(message.additional_kwargs !== undefined
+      ? { additional_kwargs: message.additional_kwargs }
+      : {}),
+    ...(message.response_metadata !== undefined
+      ? { response_metadata: message.response_metadata }
+      : {}),
+    ...(message.usage_metadata !== undefined ? { usage_metadata: message.usage_metadata } : {}),
+    keys: Object.keys(message),
+  };
+}
+
+function safeStringify(value: unknown, space?: number) {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(
+    value,
+    (_key, nestedValue) => {
+      if (typeof nestedValue === "object" && nestedValue !== null) {
+        if (seen.has(nestedValue)) {
+          return "[Circular]";
+        }
+        seen.add(nestedValue);
+      }
+      return nestedValue;
+    },
+    space,
+  );
+}
+
+function truncateDebugText(text: string, limit: number) {
+  return text.length > limit
+    ? `${text.slice(0, limit)}\n... [truncated ${text.length - limit} chars]`
+    : text;
 }
 
 function readMessageTokenUsage(message: Record<string, unknown>): AgentTokenUsage | undefined {

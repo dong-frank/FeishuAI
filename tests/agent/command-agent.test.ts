@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
+import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { ChatOpenAI } from "@langchain/openai";
 import { FakeToolCallingModel } from "langchain";
 
@@ -226,9 +227,13 @@ test("command agent reuses one preserved agent across beforeRun and afterFail", 
       stderr: "fatal: no upstream",
     },
   );
-  assert.equal(beforeRunOutput?.content, "help reply");
+  assert.match(beforeRunOutput?.content ?? "", /help reply/);
+  assert.match(beforeRunOutput?.content ?? "", /raw_tool_calls/);
+  assert.match(beforeRunOutput?.content ?? "", /load_skill/);
   assert.equal(typeof beforeRunOutput?.metadata?.durationMs, "number");
-  assert.equal(afterFailOutput?.content, "fail reply");
+  assert.match(afterFailOutput?.content ?? "", /fail reply/);
+  assert.match(afterFailOutput?.content ?? "", /raw_tool_calls/);
+  assert.match(afterFailOutput?.content ?? "", /command-after-fail/);
   assert.equal(typeof afterFailOutput?.metadata?.durationMs, "number");
   assert.deepEqual(skillLoads, ["command-help", "command-after-fail"]);
 });
@@ -315,9 +320,12 @@ test("command agent compacts preserved history to task, command, and reply", asy
     },
   );
 
-  assert.equal(beforeRunOutput?.content, "查看当前状态");
+  assert.match(beforeRunOutput?.content ?? "", /查看当前状态/);
+  assert.match(beforeRunOutput?.content ?? "", /raw_tool_calls/);
+  assert.match(beforeRunOutput?.content ?? "", /extract-1/);
   assert.equal(beforeRunOutput?.suggestedCommand, "git status --short");
-  assert.equal(afterFailOutput?.content, "设置 upstream");
+  assert.match(afterFailOutput?.content ?? "", /设置 upstream/);
+  assert.match(afterFailOutput?.content ?? "", /raw_tool_calls/);
   assert.equal(afterFailOutput?.metadata?.contextUsage?.messageCount, 4);
   assert.ok((afterFailOutput?.metadata?.contextUsage?.characterCount ?? 0) < 800);
 
@@ -373,6 +381,34 @@ test("command agent compacts preserved history to task, command, and reply", asy
   });
   assert.doesNotMatch(compactHistory.userContent, /stdout|stderr|gitStats|tuiSession/);
   assert.doesNotMatch(compactHistory.userContent, /RUNTIME_CONTEXT/);
+});
+
+test("command agent shows raw agent result when parsed output is empty", async () => {
+  const model = new FakeListChatModel({
+    responses: [""],
+  });
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  const output = await agent.beforeRun?.({
+    cwd: "/repo",
+    command: "git",
+    args: ["status"],
+    rawCommand: "git status",
+  });
+
+  assert.match(output?.content ?? "", /raw_tool_calls:\n\[\]/);
+  assert.match(output?.content ?? "", /raw_agent_result:/);
+  assert.match(output?.content ?? "", /git status/);
 });
 
 test("command task skills contain task-specific instructions", () => {

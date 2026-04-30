@@ -57,6 +57,8 @@ export type AgentRunMetadata = {
   durationMs: number;
   tokenUsage?: AgentTokenUsage;
   contextUsage?: AgentContextUsage;
+  rawToolCalls?: unknown[];
+  rawAgentResult?: string;
 };
 
 export type CommandAgentOutput = {

@@ -121,6 +121,36 @@ test("createLangChainAgent executes tool calls through LangChain createAgent", a
   assert.match(output, /manual for git push/);
 });
 
+test("createLangChainAgent reports raw tool calls in metadata", async () => {
+  const lookupTool = tool(
+    async ({ query }) => `manual for ${query}`,
+    {
+      name: "lookup_manual",
+      description: "Lookup a manual page.",
+      schema: z.object({
+        query: z.string(),
+      }),
+    },
+  );
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [{ name: "lookup_manual", args: { query: "git push" }, id: "call-1" }],
+      [],
+    ],
+  });
+  const agent = createLangChainAgent({
+    systemPrompt: "Use tools when helpful.",
+    tools: [lookupTool],
+    model: model as unknown as ChatOpenAI,
+  });
+
+  const output = await agent.invokeWithMetadata("Explain git push");
+
+  assert.match(JSON.stringify(output.metadata.rawToolCalls), /lookup_manual/);
+  assert.match(JSON.stringify(output.metadata.rawToolCalls), /git push/);
+  assert.match(output.metadata.rawAgentResult ?? "", /lookup_manual/);
+});
+
 test("createLangChainAgent preserves message history when requested", async () => {
   const model = new FakeToolCallingModel();
   const agent = createLangChainAgent({
@@ -213,92 +243,80 @@ test("getLangChainAgentOutputText prefers structured responses", () => {
 });
 
 test("extractLangChainAgentMetadata reads duration and token usage", () => {
-  assert.deepEqual(
-    extractLangChainAgentMetadata(
-      {
-        messages: [
-          {
-            content: "hello",
-            usage_metadata: {
-              input_tokens: 12,
-              output_tokens: 8,
-              total_tokens: 20,
-            },
-          },
-        ],
-      },
-      1234,
-    ),
+  const metadata = extractLangChainAgentMetadata(
     {
-      durationMs: 1234,
-      tokenUsage: {
-        totalTokens: 20,
-      },
+      messages: [
+        {
+          content: "hello",
+          usage_metadata: {
+            input_tokens: 12,
+            output_tokens: 8,
+            total_tokens: 20,
+          },
+        },
+      ],
     },
+    1234,
   );
+
+  assert.equal(metadata.durationMs, 1234);
+  assert.deepEqual(metadata.tokenUsage, { totalTokens: 20 });
+  assert.match(metadata.rawAgentResult ?? "", /hello/);
 });
 
 test("extractLangChainAgentMetadata supports OpenAI tokenUsage metadata", () => {
-  assert.deepEqual(
-    extractLangChainAgentMetadata(
-      {
-        messages: [
-          {
-            content: "hello",
-            response_metadata: {
-              tokenUsage: {
-                promptTokens: 10,
-                completionTokens: 5,
-                totalTokens: 15,
-              },
+  const metadata = extractLangChainAgentMetadata(
+    {
+      messages: [
+        {
+          content: "hello",
+          response_metadata: {
+            tokenUsage: {
+              promptTokens: 10,
+              completionTokens: 5,
+              totalTokens: 15,
             },
           },
-        ],
-      },
-      42,
-    ),
-    {
-      durationMs: 42,
-      tokenUsage: {
-        totalTokens: 15,
-      },
+        },
+      ],
     },
+    42,
   );
+
+  assert.equal(metadata.durationMs, 42);
+  assert.deepEqual(metadata.tokenUsage, { totalTokens: 15 });
+  assert.match(metadata.rawAgentResult ?? "", /tokenUsage/);
 });
 
 test("extractLangChainAgentMetadata sums token usage across agent turns", () => {
-  assert.deepEqual(
-    extractLangChainAgentMetadata(
-      {
-        messages: [
-          {
-            content: "tool call",
-            usage_metadata: {
-              input_tokens: 100,
-              output_tokens: 20,
-              total_tokens: 120,
-            },
-          },
-          {
-            content: "tool result",
-          },
-          {
-            content: "final",
-            usage_metadata: {
-              input_tokens: 80,
-              output_tokens: 30,
-              total_tokens: 110,
-            },
-          },
-        ],
-      },
-      2000,
-    ),
+  const metadata = extractLangChainAgentMetadata(
     {
-      durationMs: 2000,
-      tokenUsage: {
-        totalTokens: 230,
-      },
+      messages: [
+        {
+          content: "tool call",
+          usage_metadata: {
+            input_tokens: 100,
+            output_tokens: 20,
+            total_tokens: 120,
+          },
+        },
+        {
+          content: "tool result",
+        },
+        {
+          content: "final",
+          usage_metadata: {
+            input_tokens: 80,
+            output_tokens: 30,
+            total_tokens: 110,
+          },
+        },
+      ],
     },
+    2000,
   );
+
+  assert.equal(metadata.durationMs, 2000);
+  assert.deepEqual(metadata.tokenUsage, { totalTokens: 230 });
+  assert.match(metadata.rawAgentResult ?? "", /tool call/);
 });

@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   createLangChainAgent,
   createLangChainChatModel,
+  formatRawToolCallsDebugOutput,
   type LangChainAgent,
 } from "./runtime/langchain-agent.js";
 import {
@@ -147,6 +148,7 @@ export type LarkAgentOptions = {
   skillRootDir?: string;
   skillRegistry?: SkillRegistry;
   model?: ReturnType<typeof createLangChainChatModel> | undefined;
+  debugToolCalls?: boolean | undefined;
 };
 
 export function createRunLarkCliTool(
@@ -225,14 +227,19 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
     ],
     options.model,
   );
+  const debugToolCalls = options.debugToolCalls ?? true;
 
   return {
     async authorize(context) {
-      return invokeLarkAgentWithMetadata(agent, formatLarkAgentInvocation("authorize", context));
+      return invokeLarkAgentWithMetadata(
+        agent,
+        formatLarkAgentInvocation("authorize", context),
+        debugToolCalls,
+      );
     },
     async interact(context) {
       const result = await agent.invokeWithMetadata(formatLarkAgentInvocation("interact", context));
-      return parseLarkInteractionResult(context, result.content, result.metadata);
+      return parseLarkInteractionResult(context, result.content, result.metadata, debugToolCalls);
     },
   };
 }
@@ -302,15 +309,22 @@ export function parseLarkInteractionResult(
   context: LarkInteractionRequest,
   output: string,
   metadata?: CommandAgentOutput["metadata"],
+  debugToolCalls = false,
 ) {
   if (context.action === "get_context") {
     return parseLarkContextPack(output, context.topic);
   }
 
+  const rawToolCallsDebugOutput = debugToolCalls
+    ? formatRawToolCallsDebugOutput(metadata?.rawToolCalls)
+    : "";
   const trimmed = output.trim();
   if (!trimmed) {
+    const emptyOutputDebug = debugToolCalls
+      ? formatRawToolCallsDebugOutput(metadata?.rawToolCalls, metadata?.rawAgentResult)
+      : "";
     return {
-      content: "",
+      content: emptyOutputDebug,
       ...(metadata ? { metadata } : {}),
     };
   }
@@ -322,7 +336,7 @@ export function parseLarkInteractionResult(
       const content = validated.data.content.trim();
       const suggestedCommand = validated.data.suggestedCommand?.trim() ?? "";
       return {
-        content,
+        content: appendDebugOutput(content, rawToolCallsDebugOutput),
         ...(suggestedCommand ? { suggestedCommand } : {}),
         ...(metadata ? { metadata } : {}),
       };
@@ -332,7 +346,7 @@ export function parseLarkInteractionResult(
   }
 
   return {
-    content: trimmed,
+    content: appendDebugOutput(trimmed, rawToolCallsDebugOutput),
     ...(metadata ? { metadata } : {}),
   };
 }
@@ -378,12 +392,23 @@ export function formatLarkAgentInvocation(
   return JSON.stringify(invocation);
 }
 
-async function invokeLarkAgentWithMetadata(agent: LangChainAgent, input: string) {
+async function invokeLarkAgentWithMetadata(
+  agent: LangChainAgent,
+  input: string,
+  debugToolCalls: boolean,
+) {
   const result = await agent.invokeWithMetadata(input);
+  const rawToolCallsDebugOutput = debugToolCalls
+    ? formatRawToolCallsDebugOutput(result.metadata.rawToolCalls)
+    : "";
   return {
-    content: result.content.trim(),
+    content: appendDebugOutput(result.content, rawToolCallsDebugOutput),
     metadata: result.metadata,
   };
+}
+
+function appendDebugOutput(content: string, debugOutput: string) {
+  return [content.trim(), debugOutput.trim()].filter(Boolean).join("\n\n");
 }
 
 function formatLarkCliResult(result: {

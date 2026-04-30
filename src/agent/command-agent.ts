@@ -13,7 +13,11 @@ import type {
   LarkAgent,
   LarkInteractionRequest,
 } from "./types.js";
-import { createLangChainAgent, createLangChainChatModel } from "./runtime/langchain-agent.js";
+import {
+  createLangChainAgent,
+  createLangChainChatModel,
+  formatRawToolCallsDebugOutput,
+} from "./runtime/langchain-agent.js";
 import {
   createSkillRegistry,
   formatAvailableSkills,
@@ -643,8 +647,26 @@ export function parseCommandAgentOutput(output: string): CommandAgentOutput | un
 function withAgentMetadata(
   output: CommandAgentOutput | undefined,
   metadata: AgentRunMetadata,
+  debugToolCalls = true,
 ): CommandAgentOutput | undefined {
-  return output ? { ...output, metadata } : undefined;
+  const rawToolCallsDebugOutput = debugToolCalls
+    ? formatRawToolCallsDebugOutput(metadata.rawToolCalls)
+    : "";
+
+  if (!output) {
+    const emptyOutputDebug = debugToolCalls
+      ? formatRawToolCallsDebugOutput(metadata.rawToolCalls, metadata.rawAgentResult)
+      : "";
+    return emptyOutputDebug
+      ? { content: emptyOutputDebug, metadata }
+      : undefined;
+  }
+
+  return {
+    ...output,
+    content: appendDebugOutput(output.content, rawToolCallsDebugOutput),
+    metadata,
+  };
 }
 
 export type CommandAgentOptions = {
@@ -652,6 +674,7 @@ export type CommandAgentOptions = {
   skillRegistry?: SkillRegistry | undefined;
   skillRootDir?: string | undefined;
   model?: ReturnType<typeof createLangChainChatModel> | undefined;
+  debugToolCalls?: boolean | undefined;
 };
 
 export function createCommandAgent(options: CommandAgentOptions = {}): CommandAgent {
@@ -662,6 +685,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       namePrefixes: ["command-"],
     });
   const model = options.model ?? createLangChainChatModel({ modelRole: "command" });
+  const debugToolCalls = options.debugToolCalls ?? true;
   const agent = createLangChainAgent({
     name: "Command Agent",
     systemPrompt: COMMAND_AGENT_SYSTEM_PROMPT,
@@ -680,21 +704,37 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       const agentResult = await agent.invokeWithMetadata(
         formatCommandAgentInvocation(routeCommandAgentTask(context), context),
       );
-      return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
+      return withAgentMetadata(
+        parseCommandAgentOutput(agentResult.content),
+        agentResult.metadata,
+        debugToolCalls,
+      );
     },
     async afterSuccess(context, result) {
       const agentResult = await agent.invokeWithMetadata(
         formatCommandAgentInvocation("afterSuccess", context, result),
       );
-      return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
+      return withAgentMetadata(
+        parseCommandAgentOutput(agentResult.content),
+        agentResult.metadata,
+        debugToolCalls,
+      );
     },
     async afterFail(context, result) {
       const agentResult = await agent.invokeWithMetadata(
         formatCommandAgentInvocation("afterFail", context, result),
       );
-      return withAgentMetadata(parseCommandAgentOutput(agentResult.content), agentResult.metadata);
+      return withAgentMetadata(
+        parseCommandAgentOutput(agentResult.content),
+        agentResult.metadata,
+        debugToolCalls,
+      );
     },
   };
+}
+
+function appendDebugOutput(content: string, debugOutput: string) {
+  return [content.trim(), debugOutput.trim()].filter(Boolean).join("\n\n");
 }
 
 export function compactCommandAgentHistoryEntry(input: string, output: string) {

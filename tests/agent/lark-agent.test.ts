@@ -313,7 +313,7 @@ test("lark agent compacts preserved history to task, action, topic, and reply", 
     }),
   );
 
-  assert.equal(authorizeOutput.content, JSON.stringify({ content: "auth ready" }));
+  assert.match(authorizeOutput.content, /\{"content":"auth ready"\}/);
   assert.deepEqual(JSON.parse(compactAuthorizeHistory.userContent), {
     task: "authorize",
     skill: "lark-authorize",
