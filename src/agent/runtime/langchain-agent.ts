@@ -24,6 +24,7 @@ export type LangChainAgentOptions = {
   responseFormat?: LangChainResponseFormat | undefined;
   preserveHistory?: boolean;
   compactHistoryEntry?: LangChainHistoryCompactor | undefined;
+  validateOutput?: LangChainOutputValidator | undefined;
 };
 
 export type LangChainAgent = {
@@ -48,6 +49,11 @@ export type LangChainHistoryCompactor = (
   userContent: string;
   assistantContent: string;
 };
+
+export type LangChainOutputValidator = (
+  input: string,
+  output: string,
+) => string | undefined;
 
 export function createLangChainChatModel(config: LangChainChatModelConfig = {}) {
   const disableThinking = config.disableThinking ?? true;
@@ -102,7 +108,12 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     const result = await agent.invoke({
       messages,
     });
-    const content = getLangChainAgentOutputText(result);
+    const retry = await retryIfOutputInvalid(agent, input, messages, result, options.validateOutput);
+    const finalResult = retry?.result ?? result;
+    const content = getLangChainAgentOutputText(finalResult);
+    const metadataResult = retry
+      ? combineLangChainAgentResults(result, retry.result)
+      : result;
     if (options.preserveHistory) {
       const historyEntry = compactLangChainHistoryEntry(input, content, options.compactHistoryEntry);
       messageHistory = [
@@ -122,7 +133,7 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     return {
       content,
       metadata: {
-        ...extractLangChainAgentMetadata(result, durationMs),
+        ...extractLangChainAgentMetadata(metadataResult, durationMs),
         contextUsage: summarizeAgentContextUsage(contextMessages),
       },
     };
@@ -148,6 +159,74 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
           run_type: "chain",
         })
       : invokeWithMetadata,
+  };
+}
+
+async function retryIfOutputInvalid(
+  agent: ReturnType<typeof createAgent>,
+  input: string,
+  inputMessages: any[],
+  result: unknown,
+  validateOutput: LangChainOutputValidator | undefined,
+) {
+  const content = getLangChainAgentOutputText(result);
+  const feedback = getOutputValidationFeedback(input, content, validateOutput);
+  if (!feedback) {
+    return undefined;
+  }
+
+  const resultMessages = getLangChainAgentMessages(result);
+  const retryMessages = [
+    ...(resultMessages.length > 0
+      ? resultMessages
+      : [
+          ...inputMessages,
+          { role: "assistant", content },
+        ]),
+    { role: "user", content: feedback },
+  ];
+  return {
+    result: await agent.invoke({
+      messages: retryMessages,
+    }),
+    feedback,
+  };
+}
+
+function getOutputValidationFeedback(
+  input: string,
+  output: string,
+  validateOutput: LangChainOutputValidator | undefined,
+) {
+  const feedback = validateOutput?.(input, output);
+  if (feedback !== undefined) {
+    return feedback.trim() ? feedback : undefined;
+  }
+
+  if (output.trim()) {
+    return undefined;
+  }
+
+  return "上一次最终输出为空。请重新生成一个非空的最终回复；如果需要结构化输出，必须让 content 字段为非空文本。";
+}
+
+function getLangChainAgentMessages(result: unknown) {
+  return isRecord(result) && Array.isArray(result.messages)
+    ? result.messages
+    : [];
+}
+
+function combineLangChainAgentResults(first: unknown, second: unknown) {
+  return {
+    ...(isRecord(second) && "structuredResponse" in second
+      ? { structuredResponse: second.structuredResponse }
+      : {}),
+    messages: [
+      ...getLangChainAgentMessages(first),
+      ...getLangChainAgentMessages(second),
+    ],
+    firstResult: first,
+    secondResult: second,
   };
 }
 

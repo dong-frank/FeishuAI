@@ -412,6 +412,35 @@ test("command agent hides raw tool call debug output by default", async () => {
   assert.doesNotMatch(output?.content ?? "", /raw_tool_calls|raw_agent_result/);
 });
 
+test("command agent feeds back when parsed output content is empty", async () => {
+  const model = new PersistentFakeListChatModel({
+    responses: [
+      JSON.stringify({ content: "", suggestedCommand: null }),
+      JSON.stringify({ content: "重新生成的建议", suggestedCommand: null }),
+    ],
+  });
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  const output = await agent.beforeRun?.({
+    cwd: "/repo",
+    command: "git",
+    args: ["status"],
+    rawCommand: "git status",
+  });
+
+  assert.match(output?.content ?? "", /重新生成的建议/);
+});
+
 test("command agent shows raw agent result when debug tool calls is enabled and parsed output is empty", async () => {
   const model = new FakeListChatModel({
     responses: [""],

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { tool } from "@langchain/core/tools";
+import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { ChatOpenAI } from "@langchain/openai";
 import { FakeToolCallingModel } from "langchain";
 import { z } from "zod";
@@ -14,6 +15,19 @@ import {
   resolveLangChainModelName,
   shouldTraceLangChainAgent,
 } from "../../../src/agent/runtime/langchain-agent.js";
+
+class FeedbackAwareFakeListChatModel extends FakeListChatModel {
+  seenMessages: string[][] = [];
+
+  bindTools() {
+    return this;
+  }
+
+  async _generate(messages: any[], options?: any) {
+    this.seenMessages.push(messages.map((message) => String(message.content ?? "")));
+    return super._generate(messages, options);
+  }
+}
 
 test("createLangChainChatModel reads model configuration", () => {
   const model = createLangChainChatModel({
@@ -212,6 +226,26 @@ test("createLangChainAgent can compact preserved history after each response", a
   assert.equal(second.metadata.contextUsage?.messageCount, 4);
   assert.ok((second.metadata.contextUsage?.characterCount ?? 0) < 120);
   assert.doesNotMatch(second.content, /RAW_SECRET_TOOL_CONTEXT/);
+});
+
+test("createLangChainAgent feeds back and retries when validated output is empty", async () => {
+  const model = new FeedbackAwareFakeListChatModel({
+    responses: ["", "regenerated answer"],
+  });
+  const agent = createLangChainAgent({
+    systemPrompt: "Retry empty output.",
+    tools: [],
+    model: model as unknown as ChatOpenAI,
+    preserveHistory: true,
+  });
+
+  const output = await agent.invokeWithMetadata("need answer");
+
+  assert.equal(output.content, "regenerated answer");
+  assert.equal(model.seenMessages.length, 2);
+  assert.match(model.seenMessages[1].join("\n"), /上一次最终输出为空/);
+  assert.equal(output.metadata.contextUsage?.messageCount, 2);
+  assert.match(JSON.stringify(output.metadata.rawAgentResult), /regenerated answer/);
 });
 
 test("createLangChainAgent does not preserve message history by default", async () => {

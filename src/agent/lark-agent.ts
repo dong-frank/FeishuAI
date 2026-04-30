@@ -458,7 +458,32 @@ function createLarkPhaseAgent(
     responseFormat,
     preserveHistory: true,
     compactHistoryEntry: compactLarkAgentHistoryEntry,
+    validateOutput: validateLarkAgentOutput,
   });
+}
+
+function validateLarkAgentOutput(_input: string, output: string) {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "content" in parsed &&
+      typeof parsed.content === "string" &&
+      !parsed.content.trim()
+    ) {
+      return "上一次最终输出解析后 content 为空。请重新生成一个 JSON 对象，content 字段必须是非空文本；不适用的结构化字段请输出 null。";
+    }
+  } catch {
+    // Plain non-empty text remains acceptable for legacy compatibility.
+  }
+
+  return undefined;
 }
 
 export function compactLarkAgentHistoryEntry(input: string, output: string) {

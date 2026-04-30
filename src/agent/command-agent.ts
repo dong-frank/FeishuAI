@@ -697,6 +697,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
     preserveHistory: true,
     compactHistoryEntry: compactCommandAgentHistoryEntry,
+    validateOutput: validateCommandAgentOutput,
   });
 
   return {
@@ -731,6 +732,12 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       );
     },
   };
+}
+
+function validateCommandAgentOutput(_input: string, output: string) {
+  return parseCommandAgentOutput(output)
+    ? undefined
+    : "上一次最终输出为空或解析后没有可展示内容。请重新生成一个 JSON 对象，content 字段必须是非空文本；如果没有 suggestedCommand，请输出 null 或空字符串。";
 }
 
 function appendDebugOutput(content: string, debugOutput: string) {
