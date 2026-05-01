@@ -1,4 +1,8 @@
-import type { CommandContext, CommandTuiSessionContext } from "../agent/types.js";
+import type {
+  CommandChatContext,
+  CommandContext,
+  CommandTuiSessionContext,
+} from "../agent/types.js";
 import { classifyCommand } from "../runtime/command-registry.js";
 import { parseCommandLine, type CommandRunOutput } from "../runtime/command-runner.js";
 import { getGitCommandStats } from "../runtime/git-command-stats.js";
@@ -48,6 +52,56 @@ export function buildBeforeRunContext(
     },
     ...(session ? { tuiSession: buildCommandTuiSessionContext(session) } : {}),
   }));
+}
+
+export type ParsedChatCommand = {
+  rawCommand: string;
+  message: string;
+};
+
+export function parseChatCommand(input: string): ParsedChatCommand | undefined {
+  const rawCommand = input.trim();
+  if (!isChatCommandInput(rawCommand)) {
+    return undefined;
+  }
+
+  const message = rawCommand.slice("/chat".length).trim();
+  if (!message) {
+    return undefined;
+  }
+
+  return {
+    rawCommand,
+    message,
+  };
+}
+
+export function isChatCommandInput(input: string): boolean {
+  return /^\/chat(?:\s|$)/.test(input.trim());
+}
+
+export function buildChatCommandContext({
+  input,
+  cwd = process.cwd(),
+  session,
+}: {
+  input: string;
+  cwd?: string | undefined;
+  session?: TuiSessionInfo | undefined;
+}): CommandChatContext | undefined {
+  const parsed = parseChatCommand(input);
+  if (!parsed) {
+    return undefined;
+  }
+
+  return {
+    cwd,
+    command: "/chat",
+    args: [parsed.message],
+    rawCommand: parsed.rawCommand,
+    message: parsed.message,
+    ...(session ? { tuiSession: buildCommandTuiSessionContext(session) } : {}),
+  };
 }
 
 function buildCommandTuiSessionContext(session: TuiSessionInfo): CommandTuiSessionContext {

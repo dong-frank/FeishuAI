@@ -26,6 +26,10 @@ export type CommandContext = {
   tuiSession?: CommandTuiSessionContext;
 };
 
+export type CommandChatContext = CommandContext & {
+  message: string;
+};
+
 export type CommandTuiSessionContext = {
   cwd: string;
   git: TuiSessionGitInfo;
@@ -68,6 +72,9 @@ export type CommandAgentOutput = {
 };
 
 export type CommandAgent = {
+  chat?: (
+    context: CommandChatContext,
+  ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
   beforeRun?: (
     context: CommandContext,
   ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;

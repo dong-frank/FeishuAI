@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useApp, useInput, useStdout } from "ink";
 
-import type { CommandAgent, CommandAgentOutput, CommandContext, LarkAgent } from "../agent/types.js";
+import type {
+  CommandAgent,
+  CommandAgentOutput,
+  CommandChatContext,
+  CommandContext,
+  LarkAgent,
+} from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
 import { createLarkAgent } from "../agent/lark-agent.js";
 import { classifyCommand } from "../runtime/command-registry.js";
@@ -49,7 +55,9 @@ import {
 } from "./render.js";
 import {
   buildBeforeRunContext,
+  buildChatCommandContext,
   getSessionHeaderParts,
+  isChatCommandInput,
   shouldRefreshSessionAfterCommand,
   shouldIgnoreTabAgentTrigger,
   shouldTriggerBeforeRunOnTab,
@@ -572,6 +580,25 @@ export function App() {
       return;
     }
 
+    if (isChatCommandInput(commandLine)) {
+      const chatContext = buildChatCommandContext({
+        input: commandLine,
+        cwd: currentCwd,
+        session,
+      });
+      if (!chatContext) {
+        setHistory((current) => [
+          ...current,
+          { type: "system" as const, text: "Usage: /chat <message>" },
+        ].slice(-20));
+        setHistoryScrollOffset(0);
+        return;
+      }
+
+      void triggerChat(chatContext);
+      return;
+    }
+
     const executionCwd = currentCwd;
     recordExperimentEvent({
       type: "command_submitted",
@@ -693,6 +720,65 @@ export function App() {
         larkOutputHandler.current = undefined;
       }
       setIsRunning(false);
+    }
+  }
+
+  async function triggerChat(context: CommandChatContext) {
+    const agentHistoryId = appendPendingAgentHistoryEntry("command", context.rawCommand, "waiting");
+    setIsAgentWaiting(true);
+    setActiveAgentKind("command");
+    setAgentStatusCommand(context.rawCommand);
+    try {
+      const message = await commandAgent.current?.chat?.(context);
+      if (!message) {
+        recordExperimentEvent({
+          type: "agent_completed",
+          cwd: context.cwd,
+          command: context.rawCommand,
+          phase: "chat",
+          agentKind: "command",
+          content: "",
+        });
+        updateAgentHistoryEntry(agentHistoryId, { state: "empty" });
+        return;
+      }
+      recordExperimentEvent({
+        type: "agent_completed",
+        cwd: context.cwd,
+        command: context.rawCommand,
+        phase: "chat",
+        agentKind: "command",
+        content: message.content,
+        ...(message.suggestedCommand ? { suggestedCommand: message.suggestedCommand } : {}),
+        ...(message.metadata ? { metadata: message.metadata } : {}),
+      });
+      setAgentSuggestedCommand(message.suggestedCommand);
+
+      updateAgentHistoryEntry(agentHistoryId, {
+        state: "success",
+        content: message.content,
+        ...(message.metadata ? { metadata: message.metadata } : {}),
+      });
+      setHistoryScrollOffset(0);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      recordExperimentEvent({
+        type: "agent_failed",
+        cwd: context.cwd,
+        command: context.rawCommand,
+        phase: "chat",
+        agentKind: "command",
+        error: message,
+      });
+      updateAgentHistoryEntry(agentHistoryId, {
+        state: "failed",
+        error: message,
+      });
+      setHistoryScrollOffset(0);
+    } finally {
+      setIsAgentWaiting(false);
+      setActiveAgentKind(undefined);
+      setAgentStatusCommand(undefined);
     }
   }
 

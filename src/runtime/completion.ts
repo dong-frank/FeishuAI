@@ -8,7 +8,7 @@ export type CommandCompletion = {
   suffix: string;
 };
 
-const TOP_LEVEL_COMMANDS = ["exit", "lark"] as const;
+const TOP_LEVEL_COMMANDS = ["/chat", "exit", "lark init"] as const;
 const LARK_SUBCOMMANDS = ["init"] as const;
 
 export function getCompletion(

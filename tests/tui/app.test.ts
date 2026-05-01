@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  buildChatCommandContext,
   buildBeforeRunContext,
   COMPLETION_GHOST_STYLE,
   CURSOR_STYLE,
@@ -34,9 +35,11 @@ import {
   getStatusPaneWidths,
   getTerminalTextWidth,
   INPUT_HISTORY_MARGIN_BOTTOM,
+  isChatCommandInput,
   isHelpOutput,
   getOutputTextParts,
   parseAnsiTextParts,
+  parseChatCommand,
   shouldRefreshSessionAfterCommand,
   shouldIgnoreTabAgentTrigger,
   shouldShowClassificationLine,
@@ -345,6 +348,98 @@ test("mouse wheel input maps SGR mouse events to history scroll actions", () => 
     kind: "ignored",
   });
   assert.equal(getTuiMouseInputAction("\u001b[A"), undefined);
+});
+
+test("slash chat command parser extracts non-empty chat messages", () => {
+  assert.deepEqual(parseChatCommand("/chat 怎么解决 upstream 报错"), {
+    rawCommand: "/chat 怎么解决 upstream 报错",
+    message: "怎么解决 upstream 报错",
+  });
+  assert.deepEqual(parseChatCommand("   /chat   git commit 前应该检查什么   "), {
+    rawCommand: "/chat   git commit 前应该检查什么",
+    message: "git commit 前应该检查什么",
+  });
+  assert.equal(parseChatCommand("/chat"), undefined);
+  assert.equal(parseChatCommand("/chat   "), undefined);
+  assert.equal(parseChatCommand("/chatty hello"), undefined);
+  assert.equal(parseChatCommand("git status"), undefined);
+  assert.equal(isChatCommandInput("/chat\thello"), true);
+  assert.equal(isChatCommandInput("/chatty hello"), false);
+});
+
+test("slash chat builds command agent context without git command stats", () => {
+  const context = buildChatCommandContext({
+    input: "/chat 怎么解决 upstream 报错",
+    cwd: "/repo/worktree",
+    session: {
+      startedAt: "2026-04-25T12:00:00.000Z",
+      cwd: "/repo/worktree",
+      git: {
+        isRepository: true,
+        root: "/repo",
+        branch: "main",
+        head: "abc1234",
+        upstream: "origin/main",
+        status: {
+          staged: 1,
+          unstaged: 0,
+          untracked: 2,
+          dirty: true,
+        },
+      },
+      lark: {
+        isInstalled: true,
+        isConnected: true,
+        identity: "user",
+        name: "Dong",
+      },
+    },
+  });
+
+  assert.deepEqual(context, {
+    cwd: "/repo/worktree",
+    command: "/chat",
+    args: ["怎么解决 upstream 报错"],
+    rawCommand: "/chat 怎么解决 upstream 报错",
+    message: "怎么解决 upstream 报错",
+    tuiSession: {
+      cwd: "/repo/worktree",
+      git: {
+        isRepository: true,
+        root: "/repo",
+        branch: "main",
+        head: "abc1234",
+        upstream: "origin/main",
+        status: {
+          staged: 1,
+          unstaged: 0,
+          untracked: 2,
+          dirty: true,
+        },
+      },
+      lark: {
+        isInstalled: true,
+        isConnected: true,
+        identity: "user",
+        name: "Dong",
+      },
+      header: {
+        cwd: "/repo/worktree",
+        gitSummary: "git: main abc1234 -> origin/main dirty S1 U0 ?2",
+        larkSummary: "lark: connected user Dong",
+      },
+    },
+  });
+});
+
+test("slash chat is not treated as beforeRun git help", () => {
+  assert.equal(
+    shouldTriggerBeforeRunOnTab({
+      input: "/chat git status 是什么",
+      isRunning: false,
+    }),
+    false,
+  );
 });
 
 test("session refresh is triggered after real git or lark command execution", () => {

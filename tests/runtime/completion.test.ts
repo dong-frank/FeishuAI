@@ -21,10 +21,22 @@ test("getCompletion keeps trailing args after completed subcommand", () => {
   assert.equal(getCompletion("git status --short"), undefined);
 });
 
-test("getCompletion suggests custom top-level commands", () => {
+test("getCompletion suggests top-level commands", () => {
+  assert.deepEqual(getCompletion("l"), {
+    completion: "lark init",
+    suffix: "ark init",
+  });
   assert.deepEqual(getCompletion("la"), {
-    completion: "lark",
-    suffix: "rk",
+    completion: "lark init",
+    suffix: "rk init",
+  });
+  assert.deepEqual(getCompletion("lark"), {
+    completion: "lark init",
+    suffix: " init",
+  });
+  assert.deepEqual(getCompletion("/c"), {
+    completion: "/chat",
+    suffix: "hat",
   });
   assert.deepEqual(getCompletion("ex"), {
     completion: "exit",
@@ -32,13 +44,25 @@ test("getCompletion suggests custom top-level commands", () => {
   });
 });
 
-test("getCompletion suggests lark init subcommand", () => {
+test("getCompletion suggests only lark init as a lark subcommand", () => {
   assert.deepEqual(getCompletion("lark in"), {
     completion: "lark init",
     suffix: "it",
   });
+  assert.equal(getCompletion("lark lo"), undefined);
+  assert.equal(getCompletion("lark st"), undefined);
   assert.equal(getCompletion("lark init"), undefined);
   assert.equal(getCompletion("lark nope"), undefined);
+});
+
+test("getCompletion suggests slash chat command without completing message text", () => {
+  assert.deepEqual(getCompletion("/cha"), {
+    completion: "/chat",
+    suffix: "t",
+  });
+  assert.equal(getCompletion("/chat"), undefined);
+  assert.equal(getCompletion("/chat "), undefined);
+  assert.equal(getCompletion("/chat hello"), undefined);
 });
 
 test("getCompletion suggests a unique filesystem path after a git subcommand", async () => {

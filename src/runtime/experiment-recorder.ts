@@ -48,7 +48,7 @@ export type ExperimentRecordInput =
       type: "agent_completed";
       cwd: string;
       command: string;
-      phase: "beforeRun" | "afterSuccess" | "afterFail";
+      phase: "beforeRun" | "afterSuccess" | "afterFail" | "chat";
       agentKind: string;
       content: string;
       suggestedCommand?: string | undefined;
@@ -58,7 +58,7 @@ export type ExperimentRecordInput =
       type: "agent_failed";
       cwd: string;
       command: string;
-      phase: "beforeRun" | "afterSuccess" | "afterFail";
+      phase: "beforeRun" | "afterSuccess" | "afterFail" | "chat";
       agentKind: string;
       error: string;
     };

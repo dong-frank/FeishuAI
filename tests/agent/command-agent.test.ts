@@ -82,6 +82,7 @@ test("command agent routes beforeRun tasks to command skills", () => {
     commitMessage: "command-git-commit-message",
     afterFail: "command-after-fail",
     afterSuccess: "command-after-success",
+    chat: "command-chat",
   });
 
   assert.equal(
@@ -155,6 +156,27 @@ test("formatCommandAgentInvocation builds task envelopes with fixed skills", () 
       },
     }),
   );
+
+  assert.equal(
+    formatCommandAgentInvocation("chat", {
+      cwd: "/repo",
+      command: "/chat",
+      args: ["怎么解决 upstream 报错"],
+      rawCommand: "/chat 怎么解决 upstream 报错",
+      message: "怎么解决 upstream 报错",
+    }),
+    JSON.stringify({
+      task: "chat",
+      skill: "command-chat",
+      context: {
+        cwd: "/repo",
+        command: "/chat",
+        args: ["怎么解决 upstream 报错"],
+        rawCommand: "/chat 怎么解决 upstream 报错",
+        message: "怎么解决 upstream 报错",
+      },
+    }),
+  );
 });
 
 test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
@@ -183,11 +205,12 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
 
 test("COMMAND_AGENT_SYSTEM_PROMPT describes the unified memory-aware command agent", () => {
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /单一命令 Agent/);
-  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /task: "help" \| "commitMessage" \| "afterSuccess" \| "afterFail"/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /task: "help" \| "commitMessage" \| "afterSuccess" \| "afterFail" \| "chat"/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-help/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-git-commit-message/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-after-success/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-after-fail/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-chat/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /处理任何 task 前，先调用 load_skill/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /当前会话中过往命令/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /当前命令事实必须以本次 context、result 和工具返回为准/);
@@ -243,6 +266,46 @@ test("command agent reuses one preserved agent across beforeRun and afterFail", 
   assert.equal(typeof afterFailOutput?.metadata?.durationMs, "number");
   assert.equal(afterFailOutput?.metadata?.contextUsage?.messageCount, 4);
   assert.deepEqual(skillLoads, []);
+});
+
+test("command agent handles direct chat messages with preserved history", async () => {
+  const model = new PersistentFakeListChatModel({
+    responses: [
+      JSON.stringify({ content: "先看当前分支 upstream。", suggestedCommand: "git branch -vv" }),
+      JSON.stringify({ content: "再设置 upstream。", suggestedCommand: "git push -u origin main" }),
+    ],
+  });
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  const firstOutput = await agent.chat?.({
+    cwd: "/repo",
+    command: "/chat",
+    args: ["怎么解决 upstream 报错"],
+    rawCommand: "/chat 怎么解决 upstream 报错",
+    message: "怎么解决 upstream 报错",
+  });
+  const secondOutput = await agent.chat?.({
+    cwd: "/repo",
+    command: "/chat",
+    args: ["继续"],
+    rawCommand: "/chat 继续",
+    message: "继续",
+  });
+
+  assert.equal(firstOutput?.content, "先看当前分支 upstream。");
+  assert.equal(firstOutput?.suggestedCommand, "git branch -vv");
+  assert.equal(secondOutput?.content, "再设置 upstream。");
+  assert.equal(secondOutput?.metadata?.contextUsage?.messageCount, 4);
 });
 
 test("command agent compacts preserved history to task, command, and reply", async () => {
@@ -385,6 +448,48 @@ test("command agent compacts preserved history to task, command, and reply", asy
   assert.doesNotMatch(compactHistory.userContent, /RUNTIME_CONTEXT/);
 });
 
+test("command agent compacts chat history to message only", () => {
+  const repeatedRuntimeContext = "RUNTIME_CONTEXT_SHOULD_NOT_BE_REMEMBERED".repeat(80);
+  const compactHistory = compactCommandAgentHistoryEntry(
+    formatCommandAgentInvocation("chat", {
+      cwd: "/repo",
+      command: "/chat",
+      args: ["怎么解决 upstream 报错"],
+      rawCommand: "/chat 怎么解决 upstream 报错",
+      message: "怎么解决 upstream 报错",
+      tuiSession: {
+        cwd: "/repo",
+        git: {
+          isRepository: true,
+          root: "/repo",
+          branch: "main",
+          status: { staged: 0, unstaged: 1, untracked: 0, dirty: true },
+          branches: { local: ["main"], remote: ["origin/main"] },
+          remotes: [],
+        },
+        lark: { isInstalled: true, isConnected: true },
+        header: {
+          cwd: "/repo",
+          gitSummary: repeatedRuntimeContext,
+          larkSummary: repeatedRuntimeContext,
+        },
+      },
+    }),
+    JSON.stringify({ content: "设置 upstream", suggestedCommand: "git push -u origin main" }),
+  );
+
+  assert.deepEqual(JSON.parse(compactHistory.userContent), {
+    task: "chat",
+    skill: "command-chat",
+    message: "怎么解决 upstream 报错",
+  });
+  assert.deepEqual(JSON.parse(compactHistory.assistantContent), {
+    content: "设置 upstream",
+    suggestedCommand: "git push -u origin main",
+  });
+  assert.doesNotMatch(compactHistory.userContent, /tuiSession|RUNTIME_CONTEXT/);
+});
+
 test("command agent hides raw tool call debug output by default", async () => {
   const model = new PersistentFakeListChatModel({
     responses: [JSON.stringify({ content: "ok", suggestedCommand: null })],
@@ -475,6 +580,7 @@ test("command task skills contain task-specific instructions", () => {
   const commitSkill = readSkill("command-git-commit-message");
   const afterFailSkill = readSkill("command-after-fail");
   const afterSuccessSkill = readSkill("command-after-success");
+  const chatSkill = readSkill("command-chat");
 
   assert.match(helpSkill, /tldr_git_manual/);
   assert.match(helpSkill, /successCount 较高/);
@@ -505,6 +611,11 @@ test("command task skills contain task-specific instructions", () => {
   assert.match(afterSuccessSkill, /不要复述成功输出/);
   assert.match(afterSuccessSkill, /suggestedCommand/);
   assert.match(afterSuccessSkill, /不要建议破坏工作区/);
+
+  assert.match(chatSkill, /\/chat/);
+  assert.match(chatSkill, /不要执行命令/);
+  assert.match(chatSkill, /suggestedCommand/);
+  assert.match(chatSkill, /终端/);
 });
 
 test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT describes injected after-success skill behavior", () => {

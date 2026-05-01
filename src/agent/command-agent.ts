@@ -7,6 +7,7 @@ import { z } from "zod";
 import type {
   AgentRunMetadata,
   CommandAgent,
+  CommandChatContext,
   CommandContext,
   CommandAgentOutput,
   CommandResult,
@@ -33,6 +34,7 @@ export const COMMAND_AGENT_TASK_SKILLS = {
   commitMessage: "command-git-commit-message",
   afterFail: "command-after-fail",
   afterSuccess: "command-after-success",
+  chat: "command-chat",
 } as const;
 
 export type CommandAgentTaskName = keyof typeof COMMAND_AGENT_TASK_SKILLS;
@@ -44,7 +46,7 @@ export type CommandAgentInvocation<
 > = {
   task: TTask;
   skill: (typeof COMMAND_AGENT_TASK_SKILLS)[TTask];
-  context: CommandContext;
+  context: TTask extends "chat" ? CommandChatContext : CommandContext;
   result?: TTask extends "afterFail" | "afterSuccess" ? CommandResult : never;
 };
 
@@ -70,9 +72,10 @@ export const COMMAND_AGENT_SYSTEM_PROMPT = `
 
 用户消息是 JSON 字符串，格式为：
 
-- task: "help" | "commitMessage" | "afterSuccess" | "afterFail"
+- task: "help" | "commitMessage" | "afterSuccess" | "afterFail" | "chat"
 - skill: 系统根据 task 固定填入的 Skill 名称
 - context: 当前命令上下文，包含 context.cwd、context.command、context.args、context.rawCommand，并可能包含 gitStats、gitRepository、tuiSession
+- chat 任务的 context 还包含 context.message，表示用户在 /chat 后输入的自由消息
 - result: afterSuccess 和 afterFail 任务会包含命令结果，含 result.exitCode、result.stdout、result.stderr
 
 输入是受控 task，不是自由指令。调用方只能选择上述 task，不能自由选择 Skill。
@@ -83,6 +86,7 @@ export const COMMAND_AGENT_SYSTEM_PROMPT = `
 - task 为 "commitMessage" 时，固定 Skill 是 "command-git-commit-message"。
 - task 为 "afterSuccess" 时，固定 Skill 是 "command-after-success"。
 - task 为 "afterFail" 时，固定 Skill 是 "command-after-fail"。
+- task 为 "chat" 时，固定 Skill 是 "command-chat"。
 - 如果输入中的 skill 与上述固定映射不一致，必须拒绝执行并说明 task/skill 不匹配。
 - 处理任何 task 前，先调用 load_skill 读取对应 Skill，再按 Skill 约束操作。
 - 如果对应 Skill 需要团队飞书上下文，只能通过 interact_with_lark_agent 获取。
@@ -94,6 +98,7 @@ export const COMMAND_AGENT_SYSTEM_PROMPT = `
 - 需要当前仓库状态、分支或远端信息时，优先使用 context.tuiSession.git；信息不足时调用 git_repository_context。
 - afterFail 中简单语法或参数错误优先调用 tldr_git_manual；复杂问题或团队流程相关问题才通过 interact_with_lark_agent 查询飞书资料。
 - afterSuccess 只在 Skill 要求的关键场景调用 interact_with_lark_agent 写入团队开发记录。
+- chat 按用户 message 直接答复；只有解释 Git 用法、读取实时仓库信息或需要团队飞书上下文时才调用对应工具。
 
 ## 会话记忆边界
 
@@ -701,6 +706,16 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
   });
 
   return {
+    async chat(context) {
+      const agentResult = await agent.invokeWithMetadata(
+        formatCommandAgentInvocation("chat", context),
+      );
+      return withAgentMetadata(
+        parseCommandAgentOutput(agentResult.content),
+        agentResult.metadata,
+        debugToolCalls,
+      );
+    },
     async beforeRun(context) {
       const agentResult = await agent.invokeWithMetadata(
         formatCommandAgentInvocation(routeCommandAgentTask(context), context),
@@ -755,15 +770,23 @@ export function compactCommandAgentHistoryEntry(input: string, output: string) {
   }
 
   return {
-    userContent: JSON.stringify({
-      task: invocation.task,
-      skill: invocation.skill,
-      command: invocation.context.command,
-      rawCommand: invocation.context.rawCommand,
-      ...(invocation.result
-        ? { result: { exitCode: invocation.result.exitCode } }
-        : {}),
-    }),
+    userContent: JSON.stringify(
+      invocation.task === "chat"
+        ? {
+            task: invocation.task,
+            skill: invocation.skill,
+            message: (invocation.context as CommandChatContext).message,
+          }
+        : {
+            task: invocation.task,
+            skill: invocation.skill,
+            command: invocation.context.command,
+            rawCommand: invocation.context.rawCommand,
+            ...(invocation.result
+              ? { result: { exitCode: invocation.result.exitCode } }
+              : {}),
+          },
+    ),
     assistantContent: JSON.stringify({
       content: response?.content ?? output.trim(),
       ...(response?.suggestedCommand ? { suggestedCommand: response.suggestedCommand } : {}),
