@@ -1,10 +1,10 @@
-# git-helper
+# GITX
 
-飞书 AI 校园挑战赛项目。目标是做一个面向开发者 Git 工作流的智能 CLI/TUI 工具：用户像使用 Git Bash 一样输入命令，`git-helper` 负责理解命令上下文、查询通用 Git 手册和飞书组织知识库，并在合适的阶段给出帮助、报错修复建议或协作通知。
+飞书 AI 校园挑战赛项目。目标是做一个面向开发者 Git 工作流的智能 CLI/TUI 工具：用户像使用 Git Bash 一样输入命令，`GITX` 负责理解命令上下文、查询通用 Git 手册和飞书组织知识库，并在合适的阶段给出帮助、报错修复建议或协作通知。
 
 ## 项目目标
 
-`git-helper` 希望解决三个核心场景：
+`GITX` 希望解决三个核心场景：
 
 1. **命令使用帮助**
    用户输入完整命令后按 `Tab` 时，Agent 不实际执行命令，而是根据命令内容查询通用 Git 手册和团队规范，返回简短、可执行的使用说明。
@@ -21,7 +21,7 @@
 
 已完成：
 
-- CLI 名称设为 `git-helper`。
+- CLI 名称设为 `GITX`。
 - 无参数启动时进入 TUI，形成类似 Git Bash 的交互入口。
 - runtime 层完成命令解析、命令分类和命令执行流程。
 - 所有 `git` 子命令都会按 Git 命令分类，并交给真实 Git 执行与报错。
@@ -133,7 +133,7 @@ npm run dev -- lark init
 
 ## FlowDesk 可复现实验
 
-FlowDesk 是当前项目内置的一组可重复运行的演示与评估 fixture，用来模拟一个新人开发者在团队 Git 工作流中遇到 commit message、冲突、upstream、push 后协作通知等场景。生成的模拟项目和裸远端仓库都放在 `.experiments/` 下，不会和 `git-helper` 源码混在一起。
+FlowDesk 是当前项目内置的一组可重复运行的演示与评估 fixture，用来模拟一个新人开发者在团队 Git 工作流中遇到 commit message、冲突、upstream、push 后协作通知等场景。生成的模拟项目和裸远端仓库都放在 `.experiments/` 下，不会和 `GITX` 源码混在一起。
 
 实验入口：
 
@@ -171,7 +171,7 @@ commit-message
   切到 feature/fd-124-priority-filter，并写入 Dev A 的 staged diff。
   推荐命令：git commit
   预期 phase：beforeRun
-  用于展示 git-helper 根据 staged diff 和团队规范生成 commit message。
+  用于展示 GITX 根据 staged diff 和团队规范生成 commit message。
 
 conflict
   模拟 Dev B 已经 push 到 origin/main，Dev A 执行 merge 时会和 service.py 冲突。
@@ -208,7 +208,7 @@ npm run --prefix ../.. dev
 git push
 ```
 
-这个命令会因为当前 feature 分支没有 upstream 而失败，随后 `git-helper` 应进入 `afterFail`，解释错误并给出类似下面的建议命令：
+这个命令会因为当前 feature 分支没有 upstream 而失败，随后 `GITX` 应进入 `afterFail`，解释错误并给出类似下面的建议命令：
 
 ```bash
 git push -u origin feature/fd-124-priority-filter
