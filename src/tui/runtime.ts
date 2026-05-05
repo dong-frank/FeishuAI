@@ -16,6 +16,23 @@ import {
   formatTuiSessionLarkDisplay,
   type TuiSessionInfo,
 } from "../runtime/tui-session.js";
+
+export type CtrlCAction = "interruptAgent" | "exit";
+
+export function getCtrlCAction({
+  hasActiveAgent,
+  isAgentWaiting,
+  isAgentReviewing,
+}: {
+  hasActiveAgent: boolean;
+  isAgentWaiting: boolean;
+  isAgentReviewing: boolean;
+}): CtrlCAction {
+  return hasActiveAgent && (isAgentWaiting || isAgentReviewing)
+    ? "interruptAgent"
+    : "exit";
+}
+
 export function shouldTriggerBeforeRunOnTab({
   input,
   isRunning,

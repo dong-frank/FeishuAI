@@ -52,6 +52,7 @@ import {
   loadPersistedContextMeters,
   parseAnsiTextParts,
   parseChatCommand,
+  getCtrlCAction,
   shouldRefreshSessionAfterCommand,
   shouldIgnoreTabAgentTrigger,
   shouldShowClassificationLine,
@@ -1099,6 +1100,41 @@ test("session refresh is triggered after real git or lark command execution", ()
   );
 });
 
+test("Ctrl+C interrupts an active agent before exiting the TUI", () => {
+  assert.equal(
+    getCtrlCAction({
+      hasActiveAgent: true,
+      isAgentWaiting: true,
+      isAgentReviewing: false,
+    }),
+    "interruptAgent",
+  );
+  assert.equal(
+    getCtrlCAction({
+      hasActiveAgent: true,
+      isAgentWaiting: false,
+      isAgentReviewing: true,
+    }),
+    "interruptAgent",
+  );
+  assert.equal(
+    getCtrlCAction({
+      hasActiveAgent: false,
+      isAgentWaiting: true,
+      isAgentReviewing: false,
+    }),
+    "exit",
+  );
+  assert.equal(
+    getCtrlCAction({
+      hasActiveAgent: false,
+      isAgentWaiting: false,
+      isAgentReviewing: false,
+    }),
+    "exit",
+  );
+});
+
 test("cursor style uses inverse video so the input position is visible", () => {
   assert.deepEqual(CURSOR_STYLE, {
     inverse: true,
@@ -1812,6 +1848,23 @@ test("agent history title shows the command that triggered the agent", () => {
   assert.equal(titleRow?.color, "yellow");
   assert.equal(titleRow?.bold, true);
   assert.equal(rows.some((row) => row.text === "GITX"), false);
+});
+
+test("cancelled agent history renders an interrupted state", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "command",
+      commandLine: "git status",
+      state: "cancelled",
+    },
+  ]);
+
+  const titleRow = rows.find((row) => row.text === "git status");
+  assert.equal(titleRow?.rightText, "[cancelled]");
+  assert.equal(titleRow?.rightColor, "gray");
+  assert.ok(rows.some((row) => row.text === "Agent interrupted by Ctrl+C."));
 });
 
 test("output sections strip terminal control characters before rendering", () => {

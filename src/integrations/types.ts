@@ -11,6 +11,7 @@ export type LarkCliOutputChunk = {
 
 export type LarkCliExecutionOptions = {
   onOutput?: (chunk: LarkCliOutputChunk) => void;
+  signal?: AbortSignal;
 };
 
 export type LarkCliRunner = {
@@ -24,4 +25,5 @@ export type LarkCliRunner = {
 export type LarkCliRunOptions = {
   runner?: LarkCliRunner;
   onOutput?: (chunk: LarkCliOutputChunk) => void;
+  signal?: AbortSignal;
 };

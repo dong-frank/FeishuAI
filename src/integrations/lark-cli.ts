@@ -23,6 +23,7 @@ export async function runLarkCli(
   const runner = options.runner ?? { run: execLarkCli };
   const executionOptions: LarkCliExecutionOptions = {
     ...(options.onOutput ? { onOutput: options.onOutput } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   };
 
   try {
@@ -42,6 +43,11 @@ function execLarkCli(
   options: LarkCliExecutionOptions = {},
 ): Promise<LarkCliResult> {
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+
     const child = spawn(command, args, {
       cwd: process.cwd(),
       env: process.env,
@@ -49,6 +55,23 @@ function execLarkCli(
     });
     let stdout = "";
     let stderr = "";
+    let settled = false;
+
+    const settle = (callback: () => void) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      options.signal?.removeEventListener("abort", abortChild);
+      callback();
+    };
+
+    const abortChild = () => {
+      child.kill();
+      settle(() => reject(createAbortError()));
+    };
+
+    options.signal?.addEventListener("abort", abortChild, { once: true });
 
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
@@ -62,16 +85,26 @@ function execLarkCli(
       options.onOutput?.({ stream: "stderr", text });
     });
 
-    child.on("error", reject);
+    child.on("error", (error) => {
+      settle(() => reject(error));
+    });
 
     child.on("close", (code) => {
-      resolve({
-        exitCode: code ?? 1,
-        stdout,
-        stderr,
-      });
+      settle(() =>
+        resolve({
+          exitCode: code ?? 1,
+          stdout,
+          stderr,
+        }),
+      );
     });
   });
+}
+
+function createAbortError() {
+  const error = new Error("Operation aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 function isCommandMissing(error: unknown): boolean {

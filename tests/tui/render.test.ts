@@ -55,6 +55,7 @@ test("mouse wheel reporting can be disabled for terminal compatibility", () => {
 test("TUI render options preserve terminal scrollback for text selection", () => {
   assert.deepEqual(getTuiRenderOptions(), {
     alternateScreen: false,
+    exitOnCtrlC: false,
     incrementalRendering: true,
   });
 });

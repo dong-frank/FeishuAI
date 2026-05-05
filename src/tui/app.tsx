@@ -63,6 +63,7 @@ import {
 import {
   buildBeforeRunContext,
   buildChatCommandContext,
+  getCtrlCAction,
   getSessionHeaderParts,
   isChatCommandInput,
   shouldRefreshSessionAfterCommand,
@@ -93,6 +94,12 @@ type AppProps = {
   ) => Promise<CommandRunOutput>;
 };
 
+type ActiveAgentRun = {
+  id: string;
+  agentKind: AgentKind;
+  controller: AbortController;
+};
+
 export function App({
   autoRunLarkInit = true,
   initialCwd = process.cwd(),
@@ -120,6 +127,7 @@ export function App({
   const larkAgent = useRef<LarkAgent | undefined>(undefined);
   const commandAgent = useRef<CommandAgent | undefined>(undefined);
   const experimentRecorder = useRef<ExperimentRecorder | undefined>(undefined);
+  const activeAgentRun = useRef<ActiveAgentRun | undefined>(undefined);
   const nextAgentHistoryId = useRef(1);
   const didAutoRunLarkInit = useRef(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -277,6 +285,43 @@ export function App({
     });
   }
 
+  function beginAgentRun(
+    id: string,
+    agentKind: AgentKind,
+    controller: AbortController = new AbortController(),
+  ) {
+    activeAgentRun.current = {
+      id,
+      agentKind,
+      controller,
+    };
+    return controller;
+  }
+
+  function interruptActiveAgentRun() {
+    const activeRun = activeAgentRun.current;
+    if (!activeRun) {
+      return;
+    }
+
+    activeRun.controller.abort();
+    updateAgentHistoryEntry(activeRun.id, { state: "cancelled" });
+    setIsAgentWaiting(false);
+    setIsAgentReviewing(false);
+    setActiveAgentKind(undefined);
+    setAgentStatusCommand(undefined);
+    setAgentSuggestedCommand(undefined);
+    agentToolProgressHandler.current = undefined;
+    larkOutputHandler.current = undefined;
+    setHistoryScrollOffset(0);
+  }
+
+  function finishAgentRun(controller: AbortController) {
+    if (activeAgentRun.current?.controller === controller) {
+      activeAgentRun.current = undefined;
+    }
+  }
+
   useInput((character, key) => {
     const mouseAction = getTuiMouseInputAction(character);
     if (mouseAction) {
@@ -287,6 +332,17 @@ export function App({
     }
 
     if (key.ctrl && character === "c") {
+      if (
+        getCtrlCAction({
+          hasActiveAgent: Boolean(activeAgentRun.current),
+          isAgentWaiting,
+          isAgentReviewing,
+        }) === "interruptAgent"
+      ) {
+        interruptActiveAgentRun();
+        return;
+      }
+
       exit();
       return;
     }
@@ -429,13 +485,20 @@ export function App({
 
   async function triggerBeforeRun(context: CommandContext) {
     const agentHistoryId = appendPendingAgentHistoryEntry("command", context.rawCommand, "waiting");
+    const controller = beginAgentRun(agentHistoryId, "command");
     const updateToolProgress = createAgentToolProgressHandler(agentHistoryId);
     setIsAgentWaiting(true);
     setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
     try {
       agentToolProgressHandler.current = updateToolProgress;
-      const message = await commandAgent.current?.beforeRun?.(context);
+      const message = await commandAgent.current?.beforeRun?.(context, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "cancelled" });
+        return;
+      }
       if (!message) {
         recordExperimentEvent({
           type: "agent_completed",
@@ -469,6 +532,11 @@ export function App({
       setHistoryScrollOffset(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (controller.signal.aborted || isAbortError(error)) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "cancelled" });
+        setHistoryScrollOffset(0);
+        return;
+      }
       recordExperimentEvent({
         type: "agent_failed",
         cwd: context.cwd,
@@ -483,12 +551,15 @@ export function App({
       });
       setHistoryScrollOffset(0);
     } finally {
+      finishAgentRun(controller);
       if (agentToolProgressHandler.current === updateToolProgress) {
         agentToolProgressHandler.current = undefined;
       }
-      setIsAgentWaiting(false);
-      setActiveAgentKind(undefined);
-      setAgentStatusCommand(undefined);
+      if (!controller.signal.aborted) {
+        setIsAgentWaiting(false);
+        setActiveAgentKind(undefined);
+        setAgentStatusCommand(undefined);
+      }
     }
   }
 
@@ -499,6 +570,7 @@ export function App({
       afterSuccessAgentKind?: "command" | "lark";
     },
     options: {
+      controller?: AbortController | undefined;
       onAgentHistoryEntryCreated?: (
         id: string,
         agentKind: AgentKind,
@@ -507,6 +579,7 @@ export function App({
   ) {
     const agentKind = result.afterSuccessAgentKind ?? "command";
     const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine, "reviewing");
+    const controller = beginAgentRun(agentHistoryId, agentKind, options.controller);
     const updateToolProgress = createAgentToolProgressHandler(agentHistoryId);
     options.onAgentHistoryEntryCreated?.(agentHistoryId, agentKind);
     const updateLarkReviewOutput =
@@ -522,6 +595,10 @@ export function App({
         larkOutputHandler.current = updateLarkReviewOutput;
       }
       const output = normalizeAgentOutput(await result.afterSuccess);
+      if (controller.signal.aborted) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "cancelled" });
+        return;
+      }
       if (!output) {
         recordExperimentEvent({
           type: "agent_completed",
@@ -555,6 +632,11 @@ export function App({
       setHistoryScrollOffset(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (controller.signal.aborted || isAbortError(error)) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "cancelled" });
+        setHistoryScrollOffset(0);
+        return;
+      }
       recordExperimentEvent({
         type: "agent_failed",
         cwd: currentCwd,
@@ -568,15 +650,18 @@ export function App({
         error: message,
       });
     } finally {
+      finishAgentRun(controller);
       if (agentToolProgressHandler.current === updateToolProgress) {
         agentToolProgressHandler.current = undefined;
       }
       if (updateLarkReviewOutput && larkOutputHandler.current === updateLarkReviewOutput) {
         larkOutputHandler.current = undefined;
       }
-      setIsAgentReviewing(false);
-      setActiveAgentKind(undefined);
-      setAgentStatusCommand(undefined);
+      if (!controller.signal.aborted) {
+        setIsAgentReviewing(false);
+        setActiveAgentKind(undefined);
+        setAgentStatusCommand(undefined);
+      }
     }
   }
 
@@ -587,11 +672,13 @@ export function App({
       afterFailAgentKind?: "command";
     },
     options: {
+      controller?: AbortController | undefined;
       onAgentHistoryEntryCreated?: (id: string, agentKind: AgentKind) => void;
     } = {},
   ) {
     const agentKind = result.afterFailAgentKind ?? "command";
     const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine, "reviewing");
+    const controller = beginAgentRun(agentHistoryId, agentKind, options.controller);
     const updateToolProgress = createAgentToolProgressHandler(agentHistoryId);
     options.onAgentHistoryEntryCreated?.(agentHistoryId, agentKind);
     setIsAgentReviewing(true);
@@ -600,6 +687,10 @@ export function App({
     try {
       agentToolProgressHandler.current = updateToolProgress;
       const output = normalizeAgentOutput(await result.afterFail);
+      if (controller.signal.aborted) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "cancelled" });
+        return;
+      }
       if (!output) {
         recordExperimentEvent({
           type: "agent_completed",
@@ -633,6 +724,11 @@ export function App({
       setHistoryScrollOffset(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (controller.signal.aborted || isAbortError(error)) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "cancelled" });
+        setHistoryScrollOffset(0);
+        return;
+      }
       recordExperimentEvent({
         type: "agent_failed",
         cwd: currentCwd,
@@ -646,12 +742,15 @@ export function App({
         error: message,
       });
     } finally {
+      finishAgentRun(controller);
       if (agentToolProgressHandler.current === updateToolProgress) {
         agentToolProgressHandler.current = undefined;
       }
-      setIsAgentReviewing(false);
-      setActiveAgentKind(undefined);
-      setAgentStatusCommand(undefined);
+      if (!controller.signal.aborted) {
+        setIsAgentReviewing(false);
+        setActiveAgentKind(undefined);
+        setAgentStatusCommand(undefined);
+      }
     }
   }
 
@@ -722,6 +821,7 @@ export function App({
     const bufferedLarkAgentChunks: CommandOutputChunk[] = [];
     let reviewAgentHistoryId: string | undefined;
     const bufferedAgentToolProgressEvents: AgentToolProgressEvent[] = [];
+    const agentController = new AbortController();
 
     function updateLiveOutput(chunk: CommandOutputChunk, source: "user" | "agent" = "user") {
       if (chunk.stream === "stdout") {
@@ -787,6 +887,7 @@ export function App({
         cwd: executionCwd,
         ...(commandAgent.current ? { agent: commandAgent.current } : {}),
         ...(larkAgent.current ? { larkAgent: larkAgent.current } : {}),
+        agentSignal: agentController.signal,
         onOutput: updateUserLiveOutput,
       });
       if (result.kind === "execute") {
@@ -818,6 +919,7 @@ export function App({
       }
       if (hasAfterSuccessReview(result)) {
         void triggerAfterSuccessReview(result, {
+          controller: agentController,
           onAgentHistoryEntryCreated(id, agentKind) {
             bindReviewAgentHistoryEntry(id);
             if (agentKind !== "lark") {
@@ -833,6 +935,7 @@ export function App({
       }
       if (hasAfterFailReview(result)) {
         void triggerAfterFailReview(result, {
+          controller: agentController,
           onAgentHistoryEntryCreated(id) {
             bindReviewAgentHistoryEntry(id);
           },
@@ -856,13 +959,20 @@ export function App({
 
   async function triggerChat(context: CommandChatContext) {
     const agentHistoryId = appendPendingAgentHistoryEntry("command", context.rawCommand, "waiting");
+    const controller = beginAgentRun(agentHistoryId, "command");
     const updateToolProgress = createAgentToolProgressHandler(agentHistoryId);
     setIsAgentWaiting(true);
     setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
     try {
       agentToolProgressHandler.current = updateToolProgress;
-      const message = await commandAgent.current?.chat?.(context);
+      const message = await commandAgent.current?.chat?.(context, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "cancelled" });
+        return;
+      }
       if (!message) {
         recordExperimentEvent({
           type: "agent_completed",
@@ -896,6 +1006,11 @@ export function App({
       setHistoryScrollOffset(0);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (controller.signal.aborted || isAbortError(error)) {
+        updateAgentHistoryEntry(agentHistoryId, { state: "cancelled" });
+        setHistoryScrollOffset(0);
+        return;
+      }
       recordExperimentEvent({
         type: "agent_failed",
         cwd: context.cwd,
@@ -910,12 +1025,15 @@ export function App({
       });
       setHistoryScrollOffset(0);
     } finally {
+      finishAgentRun(controller);
       if (agentToolProgressHandler.current === updateToolProgress) {
         agentToolProgressHandler.current = undefined;
       }
-      setIsAgentWaiting(false);
-      setActiveAgentKind(undefined);
-      setAgentStatusCommand(undefined);
+      if (!controller.signal.aborted) {
+        setIsAgentWaiting(false);
+        setActiveAgentKind(undefined);
+        setAgentStatusCommand(undefined);
+      }
     }
   }
 
@@ -1091,5 +1209,12 @@ function normalizeAgentOutput(
           : {}),
         ...(output.metadata ? { metadata: output.metadata } : {}),
       }
-    : undefined;
+      : undefined;
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || /aborted|abort/i.test(error.message))
+  );
 }

@@ -788,9 +788,10 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
   });
 
   return {
-    async chat(context) {
+    async chat(context, options) {
       const agentResult = await agent.invokeWithMetadata(
         await formatCommandAgentInvocationWithMemory("chat", context),
+        options,
       );
       return withAgentMetadata(
         parseCommandAgentOutput(agentResult.content),
@@ -798,9 +799,10 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
         debugToolCalls,
       );
     },
-    async beforeRun(context) {
+    async beforeRun(context, options) {
       const agentResult = await agent.invokeWithMetadata(
         await formatCommandAgentInvocationWithMemory(routeCommandAgentTask(context), context),
+        options,
       );
       return withAgentMetadata(
         parseCommandAgentOutput(agentResult.content),
@@ -808,9 +810,10 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
         debugToolCalls,
       );
     },
-    async afterSuccess(context, result) {
+    async afterSuccess(context, result, options) {
       const agentResult = await agent.invokeWithMetadata(
         await formatCommandAgentInvocationWithMemory("afterSuccess", context, result),
+        options,
       );
       return withAgentMetadata(
         parseCommandAgentOutput(agentResult.content),
@@ -818,9 +821,10 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
         debugToolCalls,
       );
     },
-    async afterFail(context, result) {
+    async afterFail(context, result, options) {
       const agentResult = await agent.invokeWithMetadata(
         await formatCommandAgentInvocationWithMemory("afterFail", context, result),
+        options,
       );
       return withAgentMetadata(
         parseCommandAgentOutput(agentResult.content),

@@ -71,6 +71,7 @@ export type RunCommandLineOptions = {
   executeCommand?: typeof executeCommand;
   initializeSession?: typeof initializeTuiSession;
   onOutput?: (chunk: CommandOutputChunk) => void;
+  agentSignal?: AbortSignal;
 };
 
 export type CommandOutputChunk = {
@@ -297,6 +298,7 @@ export async function runCommandLine(
                   tuiSession,
                 },
                 result,
+                options.agentSignal ? { signal: options.agentSignal } : undefined,
               ),
             ),
         );
@@ -308,7 +310,11 @@ export async function runCommandLine(
   if (exitCode !== 0 && agent?.afterFail) {
     afterFail = Promise.resolve(
       buildCommandContext(parsed, cwd, statsCwd).then((context) =>
-        agent.afterFail?.(context, result),
+        agent.afterFail?.(
+          context,
+          result,
+          options.agentSignal ? { signal: options.agentSignal } : undefined,
+        ),
       ),
     );
   }
@@ -355,7 +361,7 @@ async function runLarkCustomCommand(
       cwd,
       intent: "init",
       projectHints: await buildLarkProjectHints(cwd),
-    });
+    }, options.agentSignal ? { signal: options.agentSignal } : undefined);
 
     return {
       commandLine,

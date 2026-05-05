@@ -88,20 +88,28 @@ export type CommandAgentOutput = {
   metadata?: AgentRunMetadata;
 };
 
+export type AgentRunOptions = {
+  signal?: AbortSignal;
+};
+
 export type CommandAgent = {
   chat?: (
     context: CommandChatContext,
+    options?: AgentRunOptions,
   ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
   beforeRun?: (
     context: CommandContext,
+    options?: AgentRunOptions,
   ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
   afterSuccess?: (
     context: CommandContext,
     result: CommandResult,
+    options?: AgentRunOptions,
   ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
   afterFail?: (
     context: CommandContext,
     result: CommandResult,
+    options?: AgentRunOptions,
   ) => CommandAgentOutput | void | Promise<CommandAgentOutput | void>;
 };
 
@@ -184,6 +192,12 @@ export type LarkInteractionRequest =
 export type LarkInteractionResult = LarkContextPack | CommandAgentOutput;
 
 export type LarkAgent = {
-  authorize: (context: LarkAuthContext) => Promise<CommandAgentOutput>;
-  interact: (context: LarkInteractionRequest) => Promise<LarkInteractionResult>;
+  authorize: (
+    context: LarkAuthContext,
+    options?: AgentRunOptions,
+  ) => Promise<CommandAgentOutput>;
+  interact: (
+    context: LarkInteractionRequest,
+    options?: AgentRunOptions,
+  ) => Promise<LarkInteractionResult>;
 };

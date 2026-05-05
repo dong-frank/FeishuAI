@@ -516,6 +516,28 @@ test("runCommandLine triggers afterSuccess even after repeated key command succe
   });
 });
 
+test("runCommandLine passes the agent abort signal to afterSuccess", async () => {
+  const statsCwd = await createTempCwd();
+  const controller = new AbortController();
+  const seenSignals: Array<AbortSignal | undefined> = [];
+
+  const result = await runCommandLine("git push origin main", {
+    statsCwd,
+    executeCommand: async () => 0,
+    agentSignal: controller.signal,
+    agent: {
+      afterSuccess(_context, _result, options) {
+        seenSignals.push(options?.signal);
+      },
+    },
+  });
+
+  assert.equal(result.kind, "execute");
+  assert.ok(result.afterSuccess);
+  await result.afterSuccess;
+  assert.equal(seenSignals[0], controller.signal);
+});
+
 test("runCommandLine skips afterSuccess for non-key successes and failures", async () => {
   const statsCwd = await createTempCwd();
   const events: string[] = [];

@@ -40,8 +40,15 @@ export type LangChainAgent = {
   systemPrompt: string;
   tools: StructuredToolInterface[];
   responseFormat?: LangChainResponseFormat | undefined;
-  invoke: (input: string) => Promise<string>;
-  invokeWithMetadata: (input: string) => Promise<LangChainAgentInvokeResult>;
+  invoke: (input: string, options?: LangChainAgentInvokeOptions) => Promise<string>;
+  invokeWithMetadata: (
+    input: string,
+    options?: LangChainAgentInvokeOptions,
+  ) => Promise<LangChainAgentInvokeResult>;
+};
+
+export type LangChainAgentInvokeOptions = {
+  signal?: AbortSignal;
 };
 
 export type LangChainResponseFormat = ResponseFormat | TypedToolStrategy<unknown>;
@@ -164,11 +171,16 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
   const name = options.name ?? "LangChain Agent";
   let messageHistory: LangChainHistoryMessage[] = [];
   let historyContextUsage: AgentContextUsage | undefined;
-  const invokeWithMetadata = async (input: string) => {
+  const invokeWithMetadata = async (
+    input: string,
+    invokeOptions: LangChainAgentInvokeOptions = {},
+  ) => {
     failedToolError = undefined;
     const startedAt = Date.now();
+    throwIfAborted(invokeOptions.signal);
     if (options.preserveHistory && options.historyStore && messageHistory.length === 0) {
       const loadedHistory = await options.historyStore.load(input);
+      throwIfAborted(invokeOptions.signal);
       messageHistory = loadedHistory.messages;
       if (loadedHistory.contextUsage || messageHistory.length > 0) {
         historyContextUsage =
@@ -198,6 +210,7 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
           totalTokens: preflightTokens,
         },
       );
+      throwIfAborted(invokeOptions.signal);
       await options.historyStore?.save(input, {
         messages: messageHistory,
         contextUsage: historyContextUsage,
@@ -205,18 +218,29 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
       options.onContextUsage?.(historyContextUsage);
       compressedHistoryBeforeInvoke = true;
     }
+    const invokeConfig = {
+      recursionLimit: LANGGRAPH_RECURSION_LIMIT,
+      ...(invokeOptions.signal ? { signal: invokeOptions.signal } : {}),
+    };
     const result = await agent.invoke(
       {
         messages,
       },
-      {
-        recursionLimit: LANGGRAPH_RECURSION_LIMIT,
-      },
+      invokeConfig,
     );
+    throwIfAborted(invokeOptions.signal);
     if (failedToolError) {
       throw failedToolError;
     }
-    const retry = await retryIfOutputInvalid(agent, input, messages, result, options.validateOutput);
+    const retry = await retryIfOutputInvalid(
+      agent,
+      input,
+      messages,
+      result,
+      options.validateOutput,
+      invokeConfig,
+    );
+    throwIfAborted(invokeOptions.signal);
     if (failedToolError) {
       throw failedToolError;
     }
@@ -241,6 +265,7 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
         );
       }
       historyContextUsage = summarizeAgentContextUsage(messageHistory, metadata.tokenUsage);
+      throwIfAborted(invokeOptions.signal);
       await options.historyStore?.save(input, {
         messages: messageHistory,
         contextUsage: historyContextUsage,
@@ -264,8 +289,8 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
       },
     };
   };
-  const invoke = async (input: string) => {
-    const result = await invokeWithMetadata(input);
+  const invoke = async (input: string, invokeOptions?: LangChainAgentInvokeOptions) => {
+    const result = await invokeWithMetadata(input, invokeOptions);
     return result.content;
   };
 
@@ -449,6 +474,7 @@ async function retryIfOutputInvalid(
   inputMessages: any[],
   result: unknown,
   validateOutput: LangChainOutputValidator | undefined,
+  invokeConfig: { recursionLimit: number; signal?: AbortSignal },
 ) {
   const content = getLangChainAgentOutputText(result);
   const feedback = getOutputValidationFeedback(input, content, validateOutput);
@@ -471,12 +497,24 @@ async function retryIfOutputInvalid(
       {
         messages: retryMessages,
       },
-      {
-        recursionLimit: LANGGRAPH_RECURSION_LIMIT,
-      },
+      invokeConfig,
     ),
     feedback,
   };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined) {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  throw createAbortError();
+}
+
+function createAbortError() {
+  const error = new Error("Operation aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 function getOutputValidationFeedback(

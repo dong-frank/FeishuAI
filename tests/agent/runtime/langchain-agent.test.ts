@@ -24,6 +24,7 @@ import {
 
 class FeedbackAwareFakeListChatModel extends FakeListChatModel {
   seenMessages: string[][] = [];
+  seenSignals: Array<AbortSignal | undefined> = [];
 
   bindTools() {
     return this;
@@ -31,6 +32,29 @@ class FeedbackAwareFakeListChatModel extends FakeListChatModel {
 
   async _generate(messages: any[], options?: any) {
     this.seenMessages.push(messages.map((message) => String(message.content ?? "")));
+    this.seenSignals.push(options?.signal);
+    return super._generate(messages, options);
+  }
+}
+
+class AbortAwareFakeListChatModel extends FeedbackAwareFakeListChatModel {
+  onGenerate?: (() => void) | undefined;
+
+  async _generate(messages: any[], options?: any) {
+    this.seenMessages.push(messages.map((message) => String(message.content ?? "")));
+    this.seenSignals.push(options?.signal);
+    this.onGenerate?.();
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, 100);
+      options?.signal?.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(new Error("model aborted"));
+        },
+        { once: true },
+      );
+    });
     return super._generate(messages, options);
   }
 }
@@ -138,7 +162,7 @@ test("createLangChainAgent invokes LangGraph with recursion limit 50", () => {
   assert.match(source, /const LANGGRAPH_RECURSION_LIMIT = 50;/);
   assert.equal(
     [...source.matchAll(/recursionLimit: LANGGRAPH_RECURSION_LIMIT/g)].length,
-    2,
+    1,
   );
 });
 
@@ -574,6 +598,57 @@ test("createLangChainAgent reports stored context usage on load and saves update
   assert.equal((savedState as { messages: unknown[] }).messages.length, 4);
   assert.deepEqual(contextUsages[1], (savedState as { contextUsage: unknown }).contextUsage);
   assert.deepEqual(output.metadata.contextUsage, (savedState as { contextUsage: unknown }).contextUsage);
+});
+
+test("createLangChainAgent passes abort signals to model invocations", async () => {
+  const model = new AbortAwareFakeListChatModel({
+    responses: ["ok"],
+  });
+  const controller = new AbortController();
+  const generateStarted = new Promise<void>((resolve) => {
+    model.onGenerate = resolve;
+  });
+  const agent = createLangChainAgent({
+    systemPrompt: "Forward signal.",
+    tools: [],
+    model: model as unknown as ChatOpenAI,
+  });
+
+  const output = agent.invokeWithMetadata("current command", { signal: controller.signal });
+  await generateStarted;
+  controller.abort();
+
+  await assert.rejects(() => output, /aborted|abort/i);
+  assert.equal(model.seenSignals[0]?.aborted, true);
+});
+
+test("createLangChainAgent does not save preserved history when aborted", async () => {
+  const model = new FeedbackAwareFakeListChatModel({
+    responses: ["should not be saved"],
+  });
+  const controller = new AbortController();
+  controller.abort();
+  let didSave = false;
+  const agent = createLangChainAgent({
+    systemPrompt: "Abort before save.",
+    tools: [],
+    model: model as unknown as ChatOpenAI,
+    preserveHistory: true,
+    historyStore: {
+      async load() {
+        return { messages: [] };
+      },
+      async save() {
+        didSave = true;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => agent.invokeWithMetadata("current command", { signal: controller.signal }),
+    /aborted|abort/i,
+  );
+  assert.equal(didSave, false);
 });
 
 test("createLangChainAgent keeps preserved history when preflight context is below threshold", async () => {

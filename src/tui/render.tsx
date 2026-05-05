@@ -32,6 +32,7 @@ export function shouldEnableMouseWheelReporting(
 export function getTuiRenderOptions(): RenderOptions {
   return {
     alternateScreen: false,
+    exitOnCtrlC: false,
     incrementalRendering: true,
   };
 }

@@ -1,4 +1,4 @@
-import { tool, type StructuredToolInterface } from "@langchain/core/tools";
+import { tool, type StructuredToolInterface, type ToolRuntime } from "@langchain/core/tools";
 import { toolStrategy } from "langchain";
 import { z } from "zod";
 
@@ -23,6 +23,7 @@ import {
   type AgentMemoryHint,
 } from "./memory-tools.js";
 import type {
+  AgentRunOptions,
   AgentContextUsage,
   AgentToolProgressHandler,
   CommandAgentOutput,
@@ -197,12 +198,17 @@ export function createRunLarkCliTool(
 ): StructuredToolInterface {
   return withTuiDisplay(
     tool(
-      async ({ args, showOutputInTui = false }) => {
+      async (
+        { args, showOutputInTui = false }: { args: string[]; showOutputInTui?: boolean },
+        runtime?: ToolRuntime,
+      ) => {
         const executeRunLarkCli = options.runLarkCli ?? runLarkCli;
+        const signal = readAbortSignal(runtime);
         const result = await executeRunLarkCli(args, {
           ...(showOutputInTui && options.onLarkCliOutput
             ? { onOutput: options.onLarkCliOutput }
             : {}),
+          ...(signal ? { signal } : {}),
         });
         return formatLarkCliResult(result);
       },
@@ -340,16 +346,18 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
   const debugToolCalls = options.debugToolCalls ?? false;
 
   return {
-    async authorize(context) {
+    async authorize(context, options) {
       return invokeLarkAgentWithMetadata(
         agent,
         await formatLarkAgentInvocationWithMemory("authorize", context),
         debugToolCalls,
+        options,
       );
     },
-    async interact(context) {
+    async interact(context, options) {
       const result = await agent.invokeWithMetadata(
         await formatLarkAgentInvocationWithMemory("interact", context),
+        options,
       );
       return parseLarkInteractionResult(context, result.content, result.metadata, debugToolCalls);
     },
@@ -553,8 +561,9 @@ async function invokeLarkAgentWithMetadata(
   agent: LangChainAgent,
   input: string,
   debugToolCalls: boolean,
+  options?: AgentRunOptions,
 ) {
-  const result = await agent.invokeWithMetadata(input);
+  const result = await agent.invokeWithMetadata(input, options);
   const rawToolCallsDebugOutput = debugToolCalls
     ? formatRawToolCallsDebugOutput(result.metadata.rawToolCalls)
     : "";
@@ -564,6 +573,31 @@ async function invokeLarkAgentWithMetadata(
     ...(output.suggestedCommand ? { suggestedCommand: output.suggestedCommand } : {}),
     metadata: result.metadata,
   };
+}
+
+function readAbortSignal(config: unknown): AbortSignal | undefined {
+  if (
+    typeof config === "object" &&
+    config !== null &&
+    "signal" in config &&
+    config.signal instanceof AbortSignal
+  ) {
+    return config.signal;
+  }
+
+  if (
+    typeof config === "object" &&
+    config !== null &&
+    "config" in config &&
+    typeof config.config === "object" &&
+    config.config !== null &&
+    "signal" in config.config &&
+    config.config.signal instanceof AbortSignal
+  ) {
+    return config.config.signal;
+  }
+
+  return undefined;
 }
 
 function parseLarkCommandOutput(output: string): {

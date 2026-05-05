@@ -23,7 +23,7 @@ import { getAgentDisplayName, getTerminalTextWidth } from "./status.js";
 type HistoryColor = NonNullable<OutputTextPart["color"]>;
 type OutputSource = "user" | "agent";
 type AgentHistoryKind = "command" | "lark";
-type AgentHistoryState = "pending" | "success" | "failed" | "empty";
+type AgentHistoryState = "pending" | "success" | "failed" | "empty" | "cancelled";
 type AgentHistoryActivity = "waiting" | "reviewing";
 const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH_FALLBACK = 50;
 const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH_RATIO = 0.65;
@@ -461,6 +461,10 @@ function getAgentHistoryBodyRows(
     return splitPlainTextRows("No agent suggestion generated.", { color: "gray" }, wrapWidth);
   }
 
+  if (entry.state === "cancelled") {
+    return splitPlainTextRows("Agent interrupted by Ctrl+C.", { color: "gray" }, wrapWidth);
+  }
+
   if (entry.content?.trim()) {
     return splitPlainTextRows(entry.content.trim(), { color: "gray" }, wrapWidth);
   }
@@ -488,6 +492,10 @@ function getAgentHistoryRightText(entry: AgentHistoryEntry) {
     return "[done]";
   }
 
+  if (entry.state === "cancelled") {
+    return "[cancelled]";
+  }
+
   return formatAgentMetadata(entry.metadata) ?? "[done]";
 }
 
@@ -501,6 +509,10 @@ function getAgentHistoryRightColor(entry: AgentHistoryEntry): HistoryColor {
   }
 
   if (entry.state === "empty") {
+    return "gray";
+  }
+
+  if (entry.state === "cancelled") {
     return "gray";
   }
 
