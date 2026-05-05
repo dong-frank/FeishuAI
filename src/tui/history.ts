@@ -1,6 +1,5 @@
 import type {
   AgentRunMetadata,
-  AgentTokenUsage,
   AgentToolProgressEvent,
 } from "../agent/types.js";
 import type { CommandRunOutput } from "../runtime/command-runner.js";
@@ -292,17 +291,7 @@ function formatAgentMetadata(metadata: AgentRunMetadata | undefined) {
     return undefined;
   }
 
-  const parts = [`✓ ${formatCommandDuration(metadata.durationMs)}`];
-  const tokenCount = getAgentTokenCount(metadata.tokenUsage);
-  if (typeof tokenCount === "number") {
-    parts.push(`${tokenCount} tokens`);
-  }
-  const contextTokenCount = metadata.contextUsage?.estimatedTokens;
-  if (typeof contextTokenCount === "number") {
-    parts.push(`ctx ${contextTokenCount} tokens`);
-  }
-
-  return `[${parts.join(" · ")}]`;
+  return `[✓ ${formatCommandDuration(metadata.durationMs)}]`;
 }
 
 function getAgentHistoryEntryRows(
@@ -457,7 +446,7 @@ function getAgentHistoryBodyRows(
 
 function getAgentHistoryRightText(entry: AgentHistoryEntry) {
   if (entry.state === "pending") {
-    return undefined;
+    return "[...]";
   }
 
   if (entry.state === "failed") {
@@ -497,10 +486,6 @@ function getAgentToolProgressAgentTitle(agentKind: "command" | "lark" | undefine
   }
 
   return "Git Agent";
-}
-
-function getAgentTokenCount(tokenUsage: AgentTokenUsage | undefined) {
-  return tokenUsage?.totalTokens;
 }
 
 function attachCommandStatus(

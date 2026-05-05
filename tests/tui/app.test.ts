@@ -1342,9 +1342,9 @@ test("help output is rendered in a banner instead of normal history text", () =>
   const agentTitles = rows.filter((row) => row.text === "GITX");
   const firstAgentTitleIndex = rows.findIndex((row) => row.text === "GITX");
   assert.equal(rows[firstAgentTitleIndex - 1]?.text, "");
-  assert.equal(agentTitles[0]?.rightText, "[✓ 1.2s · 456 tokens]");
+  assert.equal(agentTitles[0]?.rightText, "[✓ 1.2s]");
   assert.equal(agentTitles[0]?.rightColor, "cyan");
-  assert.equal(agentTitles[1]?.rightText, "[✓ 2.5s · 1031 tokens · ctx 1030 tokens]");
+  assert.equal(agentTitles[1]?.rightText, "[✓ 2.5s]");
   assert.equal(agentTitles[1]?.rightColor, "cyan");
   assert.equal(
     isHelpOutput({
@@ -1421,18 +1421,21 @@ test("agent history entries render pending, success, failed, and empty states", 
   ]);
 
   const agentTitles = rows.filter((row) => row.text === "GITX");
-  assert.equal(agentTitles[0]?.rightText, undefined);
+  assert.equal(agentTitles[0]?.rightText, "[...]");
+  assert.equal(agentTitles[0]?.rightColor, "yellow");
   assert.equal(agentTitles[2]?.rightText, "[failed]");
   assert.equal(agentTitles[2]?.rightColor, "red");
   assert.equal(agentTitles[3]?.rightText, "[done]");
   assert.equal(agentTitles[3]?.rightColor, "gray");
-  assert.equal(agentTitles[4]?.rightText, undefined);
+  assert.equal(agentTitles[4]?.rightText, "[...]");
+  assert.equal(agentTitles[4]?.rightColor, "yellow");
   assert.ok(rows.some((row) => row.text === "model timeout"));
   assert.ok(rows.some((row) => row.text === "No agent suggestion generated."));
 
-  assert.equal(agentTitles[1]?.rightText, "[✓ 2.5s · 1031 tokens · ctx 1030 tokens]");
+  assert.equal(agentTitles[1]?.rightText, "[✓ 2.5s]");
   assert.equal(agentTitles[1]?.rightColor, "cyan");
-  assert.equal(agentTitles[5]?.rightText, undefined);
+  assert.equal(agentTitles[5]?.rightText, "[...]");
+  assert.equal(agentTitles[5]?.rightColor, "yellow");
   assert.ok(rows.some((row) => row.text === "auth ready"));
   assert.equal(rows.some((row) => row.text === "Waiting for agent response..."), false);
 });
