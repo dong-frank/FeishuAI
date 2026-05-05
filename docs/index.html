@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>GITX | GitHub Pages</title>
+    <meta
+      name="description"
+      content="GITX 项目 GitHub Pages 使用介绍页框架。"
+    >
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="site-nav" aria-label="主导航">
+        <a class="brand" href="#top" aria-label="回到 GITX 首页">GITX</a>
+        <div class="nav-links">
+          <a href="#quick-start">快速使用</a>
+          <a href="#demo">Demo 演示</a>
+          <a href="https://github.com/dong-frank/FeishuAI">GitHub</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero section-band" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow">Feishu AI Git Workflow CLI</p>
+          <h1 id="hero-title">GITX 项目介绍页</h1>
+          <p class="hero-summary">
+            这里预留一句话介绍：说明 GITX 如何结合 Git 工作流、Agent 能力与飞书协作场景。
+          </p>
+          <div class="hero-actions" aria-label="主要操作">
+            <a class="button button-primary" href="#quick-start">查看快速使用</a>
+            <a class="button button-secondary" href="#demo">查看 Demo 演示</a>
+          </div>
+        </div>
+
+        <div class="terminal-preview" aria-label="CLI 预览占位">
+          <div class="terminal-topbar">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="terminal-body">
+            <p><span class="prompt">$</span> npm run dev</p>
+            <p><span class="prompt">GITX</span> git status</p>
+            <p class="muted-line">按 Tab 获取命令帮助、规范提示或下一步建议</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="quick-start" class="section-band section-light" aria-labelledby="quick-start-title">
+        <div class="section-inner">
+          <p class="eyebrow">Quick Start</p>
+          <h2 id="quick-start-title">快速使用</h2>
+          <p class="section-intro">这里保留快速上手说明的结构，后续补充完整命令、环境变量和注意事项。</p>
+
+          <div class="step-grid">
+            <article class="step-card">
+              <span class="step-number">01</span>
+              <h3>安装依赖</h3>
+              <pre><code>npm install</code></pre>
+            </article>
+
+            <article class="step-card">
+              <span class="step-number">02</span>
+              <h3>启动 CLI</h3>
+              <pre><code>npm run dev</code></pre>
+            </article>
+
+            <article class="step-card">
+              <span class="step-number">03</span>
+              <h3>进入 TUI</h3>
+              <pre><code>GITX</code></pre>
+            </article>
+
+            <article class="step-card">
+              <span class="step-number">04</span>
+              <h3>触发帮助</h3>
+              <pre><code>git status
+# 按 Tab</code></pre>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="demo" class="section-band" aria-labelledby="demo-title">
+        <div class="section-inner">
+          <p class="eyebrow">Demo</p>
+          <h2 id="demo-title">Demo 演示</h2>
+          <p class="section-intro">这里预留截图、GIF 或终端录屏区域，用于展示 GITX 在不同 Git 阶段中的辅助能力。</p>
+
+          <div class="demo-layout">
+            <div class="media-placeholder" aria-label="Demo 媒体占位">
+              <div class="play-mark" aria-hidden="true"></div>
+              <p>截图 / GIF / 终端录屏占位</p>
+            </div>
+
+            <div class="demo-card-list">
+              <article class="demo-card">
+                <p class="phase">beforeRun</p>
+                <h3>命令执行前帮助</h3>
+                <p>预留说明：展示按 Tab 后返回命令解释、风险提示或团队规范。</p>
+              </article>
+
+              <article class="demo-card">
+                <p class="phase">afterFail</p>
+                <h3>Git 报错诊断</h3>
+                <p>预留说明：展示命令失败后结合飞书知识库给出原因和修复步骤。</p>
+              </article>
+
+              <article class="demo-card">
+                <p class="phase">afterSuccess</p>
+                <h3>协作通知建议</h3>
+                <p>预留说明：展示命令成功后生成 PR 摘要、review 通知或下一步动作。</p>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>GITX GitHub Pages 框架页。后续补充正式内容、媒体素材和发布说明。</p>
+    </footer>
+  </body>
+</html>
