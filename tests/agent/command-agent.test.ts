@@ -517,6 +517,60 @@ test("command agent hides raw tool call debug output by default", async () => {
   assert.doesNotMatch(output?.content ?? "", /raw_tool_calls|raw_agent_result/);
 });
 
+test("command agent forwards compact tool progress events", async () => {
+  const events: unknown[] = [];
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [{ name: "load_skill", args: { skillName: "command-help" }, id: "call-1" }],
+      [],
+    ],
+  });
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+    onToolProgress(event) {
+      events.push(event);
+    },
+  });
+
+  await agent.beforeRun?.({
+    cwd: "/repo",
+    command: "git",
+    args: ["status"],
+    rawCommand: "git status",
+  });
+
+  assert.deepEqual(
+    events.map((event) => ({
+      toolName: (event as { toolName: string }).toolName,
+      state: (event as { state: string }).state,
+      agentKind: (event as { agentKind?: string }).agentKind,
+      inputSummary: (event as { inputSummary?: string }).inputSummary,
+    })),
+    [
+      {
+        toolName: "load_skill",
+        state: "running",
+        agentKind: "command",
+        inputSummary: "skillName=command-help",
+      },
+      {
+        toolName: "load_skill",
+        state: "success",
+        agentKind: "command",
+        inputSummary: "skillName=command-help",
+      },
+    ],
+  );
+});
+
 test("command agent feeds back when parsed output content is empty", async () => {
   const model = new PersistentFakeListChatModel({
     responses: [

@@ -10,6 +10,7 @@ import {
   COMPLETION_GHOST_STYLE,
   CURSOR_STYLE,
   DEFAULT_AGENT_STATUS_WIDTH,
+  TUI_FOOTER_TIPS,
   TUI_USAGE_TIPS,
   getAgentStatusWidth,
   getNextEditableInput,
@@ -23,6 +24,8 @@ import {
   getHistoryViewportHeight,
   getHistoryRows,
   replaceAgentHistoryEntry,
+  omitCompletedAgentToolProgress,
+  upsertAgentToolProgress,
   getSessionHeaderParts,
   getStatusBarParts,
   getStatusLine,
@@ -45,6 +48,7 @@ import {
   shouldShowClassificationLine,
   sanitizeTuiText,
   shouldTriggerBeforeRunOnTab,
+  WELCOME_BANNER_LINES,
   WELCOME_SUBTITLE,
   WELCOME_TITLE,
 } from "../../src/tui/app.js";
@@ -52,6 +56,7 @@ import {
   recordGitCommandFailure,
   recordGitCommandSuccess,
 } from "../../src/runtime/git-command-stats.js";
+import { formatTuiSessionCwdDisplay } from "../../src/runtime/tui-session.js";
 
 async function createTempCwd() {
   return mkdtemp(join(tmpdir(), "git-helper-tui-"));
@@ -72,14 +77,21 @@ test("usage tips are recorded in one place for the status bar", () => {
   assert.ok(TUI_USAGE_TIPS.includes("按 PageUp/PageDown 滚动输出历史"));
 });
 
-test("welcome copy is split into prominent banner text", () => {
-  assert.equal(WELCOME_TITLE, "Welcome to git-helper TUI");
-  assert.equal(WELCOME_SUBTITLE, "Type a command, or type exit to quit.");
+test("welcome copy uses terminal character art for the brand", () => {
+  assert.equal(WELCOME_TITLE, "GITX");
+  assert.deepEqual(WELCOME_BANNER_LINES, [
+    "  ____ ___ _____ __  __",
+    " / ___|_ _|_   _|\\ \\/ /",
+    "| |  _ | |  | |   \\  / ",
+    "| |_| || |  | |   /  \\ ",
+    " \\____|___| |_|  /_/\\_\\",
+  ]);
+  assert.equal(WELCOME_SUBTITLE, "Git workflow assistant · 输入命令，或输入 exit 退出");
 });
 
 test("welcome copy scrolls as part of the history rows", () => {
-  assert.deepEqual(getVisibleHistoryRows([], 4).map((row) => row.text), [
-    WELCOME_TITLE,
+  assert.deepEqual(getVisibleHistoryRows([], 7).map((row) => row.text), [
+    ...WELCOME_BANNER_LINES,
     WELCOME_SUBTITLE,
     "",
   ]);
@@ -142,6 +154,20 @@ test("session header includes initialized workspace and git information", () => 
       cwd: "/repo/worktree",
       gitSummary: "git: main abc1234 -> origin/main dirty S1 U0 ?2",
       larkSummary: "lark: connected user Dong",
+      display: {
+        cwd: "/r/worktree",
+        git: [
+          { text: "main", tone: "primary" },
+          { text: "abc1234", tone: "muted" },
+          { text: "origin/main", tone: "info" },
+          { text: "已暂存 1", tone: "warning" },
+          { text: "新文件 2", tone: "warning" },
+        ],
+        lark: [
+          { text: "已连接", tone: "success" },
+          { text: "user Dong", tone: "muted" },
+        ],
+      },
     },
   );
 });
@@ -215,6 +241,332 @@ test("agent command output is visually distinct from user input commands", () =>
 
   const agentOutputRow = rows.find((row) => row.text === "ready");
   assert.equal(agentOutputRow?.parts?.[0]?.color, "magenta");
+});
+
+test("pending agent history renders compact tool progress", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "command",
+      commandLine: "git status",
+      state: "pending",
+      activity: "waiting",
+      toolProgress: [
+        {
+          id: "tool-1",
+          toolName: "load_skill",
+          state: "success",
+          agentKind: "command",
+          inputSummary: "skillName=command-help",
+          durationMs: 42,
+        },
+        {
+          id: "tool-2",
+          toolName: "interact_with_lark_agent",
+          state: "success",
+          agentKind: "command",
+          inputSummary: "action=get_context",
+        },
+        {
+          id: "tool-3",
+          toolName: "run_lark_cli",
+          state: "running",
+          agentKind: "lark",
+          inputSummary: "auth status",
+        },
+      ],
+    },
+  ]);
+
+  assert.ok(rows.some((row) => row.text === "GITX"));
+  assert.equal(rows.some((row) => row.text === "Git Agent"), false);
+  assert.equal(rows.some((row) => row.text === "Lark Agent"), false);
+
+  const toolRows = rows.filter((row) => row.text.includes("─ "));
+  assert.deepEqual(
+    toolRows.map((row) => ({
+      text: row.text,
+      rightText: row.rightText,
+    })),
+    [
+      { text: "  ├─ load_skill skillName=c...", rightText: "[Git Agent]" },
+      { text: "  ├─ interact_with_lark_age...", rightText: "[Git Agent]" },
+      { text: "  └─ run_lark_cli auth status", rightText: "[Lark Agent]" },
+    ],
+  );
+
+  const completedRow = rows.find((row) => row.text === "    ├─ load_skill");
+  assert.equal(completedRow, undefined);
+
+  const firstToolRow = rows.find(
+    (row) => row.text === "  ├─ load_skill skillName=c...",
+  );
+  assert.equal(firstToolRow?.rightText, "[Git Agent]");
+  assert.equal(firstToolRow?.color, "gray");
+  assert.equal(firstToolRow?.rightColor, "cyan");
+
+  const larkCallRow = rows.find(
+    (row) => row.text === "  ├─ interact_with_lark_age...",
+  );
+  assert.equal(larkCallRow?.rightText, "[Git Agent]");
+  assert.equal(larkCallRow?.color, "gray");
+  assert.equal(larkCallRow?.rightColor, "cyan");
+
+  const runningRow = rows.find((row) => row.text === "  └─ run_lark_cli auth status");
+  assert.equal(runningRow?.rightText, "[Lark Agent]");
+  assert.equal(runningRow?.color, "magenta");
+  assert.equal(runningRow?.rightColor, "magenta");
+  assert.equal(runningRow?.rightText, "[Lark Agent]");
+});
+
+test("agent tool progress truncates tool name and params to 25 characters", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "lark",
+      commandLine: "git push",
+      state: "pending",
+      toolProgress: [
+        {
+          id: "tool-1",
+          toolName: "run_lark_cli",
+          state: "running",
+          agentKind: "lark",
+          inputSummary: "docs fetch really-long-document-title",
+        },
+      ],
+    },
+  ]);
+
+  const toolRow = rows.find((row) => row.text.includes("run_lark_cli"));
+  assert.equal(toolRow?.text, "  └─ run_lark_cli docs fetc...");
+  assert.equal(getTerminalTextWidth(toolRow?.text.replace(/^  └─ /, "") ?? ""), 25);
+});
+
+test("agent tool progress keeps call order when returning from lark to git", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "command",
+      commandLine: "git commit",
+      state: "pending",
+      toolProgress: [
+        {
+          id: "tool-1",
+          toolName: "load_skill",
+          state: "success",
+          agentKind: "command",
+        },
+        {
+          id: "tool-2",
+          toolName: "interact_with_lark_agent",
+          state: "success",
+          agentKind: "command",
+        },
+        {
+          id: "tool-3",
+          toolName: "load_skill",
+          state: "success",
+          agentKind: "lark",
+        },
+        {
+          id: "tool-4",
+          toolName: "git_commit_context",
+          state: "running",
+          agentKind: "command",
+        },
+      ],
+    },
+  ]);
+
+  assert.deepEqual(
+    rows
+      .filter((row) => row.text.includes("─ "))
+      .map((row) => `${row.rightText} ${row.text}`),
+    [
+      "[Git Agent]   ├─ load_skill",
+      "[Git Agent]   ├─ interact_with_lark_agent",
+      "[Lark Agent]   ├─ load_skill",
+      "[Git Agent]   └─ git_commit_context",
+    ],
+  );
+});
+
+test("agent tool progress upsert keeps git and lark events with colliding ids", () => {
+  const progress = [
+    {
+      id: "tool-1",
+      toolName: "load_skill",
+      state: "running" as const,
+      agentKind: "command" as const,
+    },
+  ];
+
+  const withLarkEvent = upsertAgentToolProgress(progress, {
+    id: "tool-1",
+    toolName: "load_skill",
+    state: "running",
+    agentKind: "lark",
+  });
+  const afterGitUpdate = upsertAgentToolProgress(withLarkEvent, {
+    id: "tool-1",
+    toolName: "load_skill",
+    state: "success",
+    agentKind: "command",
+  });
+
+  assert.deepEqual(
+    afterGitUpdate.map((event) => ({
+      id: event.id,
+      state: event.state,
+      agentKind: event.agentKind,
+    })),
+    [
+      { id: "tool-1", state: "success", agentKind: "command" },
+      { id: "tool-1", state: "running", agentKind: "lark" },
+    ],
+  );
+});
+
+test("agent tool progress upsert keeps every distinct tool event", () => {
+  const progress = Array.from({ length: 10 }, (_, index) => ({
+      id: `tool-${index + 1}`,
+      toolName: "run_lark_cli",
+      state: "success" as const,
+      agentKind: "lark" as const,
+      inputSummary: `command-${index + 1}`,
+    })).reduce((current, event) => upsertAgentToolProgress(current, event), []);
+
+  const next = upsertAgentToolProgress(progress, {
+    id: "tool-11",
+    toolName: "run_lark_cli",
+    state: "running",
+    agentKind: "lark",
+    inputSummary: "command-11",
+  });
+
+  assert.equal(next.length, 11);
+  assert.equal(next[0]?.inputSummary, "command-1");
+  assert.equal(next.at(-1)?.inputSummary, "command-11");
+});
+
+test("agent history replacement keeps progress after success or empty output", () => {
+  const history = [
+    {
+      type: "agent" as const,
+      id: "agent-1",
+      agentKind: "command" as const,
+      commandLine: "git status",
+      state: "pending" as const,
+      toolProgress: [
+        {
+          id: "tool-1",
+          toolName: "load_skill",
+          state: "success" as const,
+          durationMs: 42,
+        },
+      ],
+    },
+  ];
+
+  const successRows = getHistoryRows(
+    replaceAgentHistoryEntry(history, "agent-1", {
+      state: "success",
+      content: "最终建议",
+    }),
+  );
+  const emptyRows = getHistoryRows(
+    replaceAgentHistoryEntry(history, "agent-1", {
+      state: "empty",
+    }),
+  );
+
+  assert.equal(successRows.some((row) => row.text.includes("load_skill")), true);
+  assert.equal(successRows.some((row) => row.text === "最终建议"), true);
+  assert.equal(emptyRows.some((row) => row.text.includes("load_skill")), true);
+  assert.equal(emptyRows.some((row) => row.text === "No agent suggestion generated."), true);
+});
+
+test("completed agent tool progress is omitted when the next command is submitted", () => {
+  const history = omitCompletedAgentToolProgress([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "command",
+      commandLine: "git status",
+      state: "success",
+      content: "最终建议",
+      toolProgress: [
+        {
+          id: "tool-1",
+          toolName: "load_skill",
+          state: "success",
+        },
+      ],
+    },
+    {
+      type: "agent",
+      id: "agent-2",
+      agentKind: "command",
+      commandLine: "git push",
+      state: "failed",
+      error: "Agent failed",
+      toolProgress: [
+        {
+          id: "tool-2",
+          toolName: "git_repository_context",
+          state: "failed",
+        },
+      ],
+    },
+    { type: "input", text: "git log" },
+  ]);
+
+  const rows = getHistoryRows(history);
+
+  assert.equal(rows.some((row) => row.text.includes("load_skill")), false);
+  assert.equal(rows.some((row) => row.text.includes("git_repository_context")), false);
+  assert.equal(rows.some((row) => row.text === "最终建议"), true);
+  assert.equal(rows.some((row) => row.text === "Agent failed"), true);
+});
+
+test("agent history replacement preserves progress after failure", () => {
+  const rows = getHistoryRows(
+    replaceAgentHistoryEntry(
+      [
+        {
+          type: "agent",
+          id: "agent-1",
+          agentKind: "command",
+          commandLine: "git status",
+          state: "pending",
+          toolProgress: [
+            {
+              id: "tool-1",
+              toolName: "git_repository_context",
+              state: "failed",
+              durationMs: 42,
+              error: "git failed",
+            },
+          ],
+        },
+      ],
+      "agent-1",
+      {
+        state: "failed",
+        error: "Agent failed",
+      },
+    ),
+  );
+
+  const failedRow = rows.find((row) => row.text === "  └─ git_repository_context");
+  assert.equal(failedRow?.rightText, "[Git Agent]");
+  assert.equal(failedRow?.color, "red");
+  assert.equal(rows.some((row) => row.text.includes("git failed")), false);
+  assert.equal(rows.some((row) => row.text === "Agent failed"), true);
 });
 
 test("executed command history keeps duration and failure code in a right-side field", () => {
@@ -427,6 +779,20 @@ test("slash chat builds command agent context without git command stats", () => 
         cwd: "/repo/worktree",
         gitSummary: "git: main abc1234 -> origin/main dirty S1 U0 ?2",
         larkSummary: "lark: connected user Dong",
+        display: {
+          cwd: "/r/worktree",
+          git: [
+            { text: "main", tone: "primary" },
+            { text: "abc1234", tone: "muted" },
+            { text: "origin/main", tone: "info" },
+            { text: "已暂存 1", tone: "warning" },
+            { text: "新文件 2", tone: "warning" },
+          ],
+          lark: [
+            { text: "已连接", tone: "success" },
+            { text: "user Dong", tone: "muted" },
+          ],
+        },
       },
     },
   });
@@ -772,7 +1138,7 @@ test("status line keeps waiting indicators outside the prompt box", () => {
   );
 });
 
-test("status bar keeps usage tips on the left and a unified activity state on the right", () => {
+test("status bar keeps only usage tips", () => {
   assert.deepEqual(
     getStatusBarParts({
       isRunning: false,
@@ -780,8 +1146,8 @@ test("status bar keeps usage tips on the left and a unified activity state on th
       tipIndex: 1,
     }),
     {
-      left: "按 Tab 请求 Agent 帮助",
-      right: "空闲",
+      left: TUI_FOOTER_TIPS,
+      right: "",
     },
   );
   assert.deepEqual(
@@ -793,8 +1159,8 @@ test("status bar keeps usage tips on the left and a unified activity state on th
       tipIndex: 1,
     }),
     {
-      left: "按 Tab 请求 Agent 帮助",
-      right: "运行中",
+      left: TUI_FOOTER_TIPS,
+      right: "",
     },
   );
   assert.deepEqual(
@@ -807,8 +1173,8 @@ test("status bar keeps usage tips on the left and a unified activity state on th
       agentStatusWidth: 28,
     }),
     {
-      left: "按 Tab 请求 Agent 帮助",
-      right: "运行中",
+      left: TUI_FOOTER_TIPS,
+      right: "",
     },
   );
   assert.deepEqual(
@@ -818,20 +1184,20 @@ test("status bar keeps usage tips on the left and a unified activity state on th
       tipIndex: 1,
     }),
     {
-      left: "按 Tab 请求 Agent 帮助",
-      right: "运行中",
+      left: TUI_FOOTER_TIPS,
+      right: "",
     },
   );
 });
 
 test("status text uses a bounded viewport and scrolls long text with ellipsis", () => {
   assert.equal(DEFAULT_AGENT_STATUS_WIDTH, 28);
-  assert.equal(getAgentStatusWidth(undefined), DEFAULT_AGENT_STATUS_WIDTH);
-  assert.deepEqual(getStatusPaneWidths(undefined), { left: 28, right: 28 });
-  assert.deepEqual(getStatusPaneWidths(40), { left: 14, right: 14 });
-  assert.deepEqual(getStatusPaneWidths(120), { left: 54, right: 54 });
-  assert.equal(getAgentStatusWidth(40), 14);
-  assert.equal(getAgentStatusWidth(120), 54);
+  assert.equal(getAgentStatusWidth(undefined), 0);
+  assert.deepEqual(getStatusPaneWidths(undefined), { left: 28, right: 0 });
+  assert.deepEqual(getStatusPaneWidths(40), { left: 36, right: 0 });
+  assert.deepEqual(getStatusPaneWidths(120), { left: 116, right: 0 });
+  assert.equal(getAgentStatusWidth(40), 0);
+  assert.equal(getAgentStatusWidth(120), 0);
   assert.equal(getTerminalTextWidth("空闲"), 4);
   assert.equal(getTerminalTextWidth("按 Tab 请求 Agent 帮助"), 22);
 
@@ -871,8 +1237,8 @@ test("status text uses a bounded viewport and scrolls long text with ellipsis", 
       agentStatusScrollOffset: 10,
     }),
     {
-      left: "...nter 执...",
-      right: "运行中",
+      left: "[Enter]执行...",
+      right: "",
     },
   );
 });
@@ -972,14 +1338,13 @@ test("help output is rendered in a banner instead of normal history text", () =>
       },
     },
   ]);
-  const gitAgentTitle = rows.find((row) => row.text === "Git Agent");
-  const gitAgentTitleIndex = rows.findIndex((row) => row.text === "Git Agent");
-  assert.equal(rows[gitAgentTitleIndex - 1]?.text, "");
-  assert.equal(gitAgentTitle?.rightText, "[✓ 1.2s · 456 tokens]");
-  assert.equal(gitAgentTitle?.rightColor, "cyan");
-  const larkAgentTitle = rows.find((row) => row.text === "Lark Agent");
-  assert.equal(larkAgentTitle?.rightText, "[✓ 2.5s · 1031 tokens · ctx 1030 tokens]");
-  assert.equal(larkAgentTitle?.rightColor, "cyan");
+  const agentTitles = rows.filter((row) => row.text === "GITX");
+  const firstAgentTitleIndex = rows.findIndex((row) => row.text === "GITX");
+  assert.equal(rows[firstAgentTitleIndex - 1]?.text, "");
+  assert.equal(agentTitles[0]?.rightText, "[✓ 1.2s · 456 tokens]");
+  assert.equal(agentTitles[0]?.rightColor, "cyan");
+  assert.equal(agentTitles[1]?.rightText, "[✓ 2.5s · 1031 tokens · ctx 1030 tokens]");
+  assert.equal(agentTitles[1]?.rightColor, "cyan");
   assert.equal(
     isHelpOutput({
       commandLine: "git status",
@@ -1054,24 +1419,22 @@ test("agent history entries render pending, success, failed, and empty states", 
     },
   ]);
 
-  const gitAgentTitles = rows.filter((row) => row.text === "Git Agent");
-  assert.equal(gitAgentTitles[0]?.rightText, "[正在请求帮助 git commit ...]");
-  assert.equal(gitAgentTitles[0]?.rightColor, "yellow");
-  assert.equal(gitAgentTitles[1]?.rightText, "[failed]");
-  assert.equal(gitAgentTitles[1]?.rightColor, "red");
-  assert.equal(gitAgentTitles[2]?.rightText, "[done]");
-  assert.equal(gitAgentTitles[2]?.rightColor, "gray");
-  assert.equal(gitAgentTitles[3]?.rightText, "[正在检查 git push ...]");
-  assert.equal(gitAgentTitles[3]?.rightColor, "yellow");
+  const agentTitles = rows.filter((row) => row.text === "GITX");
+  assert.equal(agentTitles[0]?.rightText, "[正在请求帮助 git commit ...]");
+  assert.equal(agentTitles[0]?.rightColor, "yellow");
+  assert.equal(agentTitles[2]?.rightText, "[failed]");
+  assert.equal(agentTitles[2]?.rightColor, "red");
+  assert.equal(agentTitles[3]?.rightText, "[done]");
+  assert.equal(agentTitles[3]?.rightColor, "gray");
+  assert.equal(agentTitles[4]?.rightText, "[正在检查 git push ...]");
+  assert.equal(agentTitles[4]?.rightColor, "yellow");
   assert.ok(rows.some((row) => row.text === "model timeout"));
   assert.ok(rows.some((row) => row.text === "No agent suggestion generated."));
 
-  const larkAgentTitles = rows.filter((row) => row.text === "Lark Agent");
-  const larkAgentTitle = larkAgentTitles[0];
-  assert.equal(larkAgentTitle?.rightText, "[✓ 2.5s · 1031 tokens · ctx 1030 tokens]");
-  assert.equal(larkAgentTitle?.rightColor, "cyan");
-  assert.equal(larkAgentTitles[1]?.rightText, "[正在处理 lark init ...]");
-  assert.equal(larkAgentTitles[1]?.rightColor, "yellow");
+  assert.equal(agentTitles[1]?.rightText, "[✓ 2.5s · 1031 tokens · ctx 1030 tokens]");
+  assert.equal(agentTitles[1]?.rightColor, "cyan");
+  assert.equal(agentTitles[5]?.rightText, "[正在处理 lark init ...]");
+  assert.equal(agentTitles[5]?.rightColor, "yellow");
   assert.ok(rows.some((row) => row.text === "auth ready"));
 });
 
@@ -1124,7 +1487,7 @@ test("agent history entries render live agent command output under the agent ban
     },
   ]);
 
-  assert.ok(rows.some((row) => row.text === "Lark Agent"));
+  assert.ok(rows.some((row) => row.text === "GITX"));
   assert.equal(rows.some((row) => row.text === "agent: lark init"), false);
   assert.equal(rows.find((row) => row.text === "authorize link")?.parts?.[0]?.color, "magenta");
   assert.equal(rows.find((row) => row.text === "waiting for login")?.parts?.[0]?.color, "magenta");
@@ -1388,6 +1751,24 @@ test("beforeRun context includes current TUI session header state", async () => 
         cwd,
         gitSummary: "git: main abc1234 -> origin/main dirty S1 U2 ?3",
         larkSummary: "lark: connected user Dong",
+        display: {
+          cwd: formatTuiSessionCwdDisplay({
+            cwd,
+            git: session.git,
+          }),
+          git: [
+            { text: "main", tone: "primary" },
+            { text: "abc1234", tone: "muted" },
+            { text: "origin/main", tone: "info" },
+            { text: "已暂存 1", tone: "warning" },
+            { text: "已修改 2", tone: "warning" },
+            { text: "新文件 3", tone: "warning" },
+          ],
+          lark: [
+            { text: "已连接", tone: "success" },
+            { text: "user Dong", tone: "muted" },
+          ],
+        },
       },
     },
   });

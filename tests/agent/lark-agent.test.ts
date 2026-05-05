@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { ChatOpenAI } from "@langchain/openai";
-import { ToolStrategy } from "langchain";
+import { FakeToolCallingModel, ToolStrategy } from "langchain";
 
 import {
   compactLarkAgentHistoryEntry,
@@ -164,6 +164,77 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /config", "init/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要编造/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /输出要适合终端阅读/);
+});
+
+test("lark agent forwards compact tool progress events", async () => {
+  const events: unknown[] = [];
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [{ name: "load_skill", args: { skillName: "lark-authorize" }, id: "call-1" }],
+      [
+        {
+          name: "run_lark_cli",
+          args: { args: ["auth", "status"], showOutputInTui: false },
+          id: "call-2",
+        },
+      ],
+      [],
+    ],
+  });
+  const agent = createLarkAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+    runLarkCli() {
+      return Promise.resolve({ exitCode: 0, stdout: "ok", stderr: "" });
+    },
+    onToolProgress(event) {
+      events.push(event);
+    },
+  });
+
+  await agent.authorize({ cwd: "/repo" });
+
+  assert.deepEqual(
+    events.map((event) => ({
+      toolName: (event as { toolName: string }).toolName,
+      state: (event as { state: string }).state,
+      agentKind: (event as { agentKind?: string }).agentKind,
+      inputSummary: (event as { inputSummary?: string }).inputSummary,
+    })),
+    [
+      {
+        toolName: "load_skill",
+        state: "running",
+        agentKind: "lark",
+        inputSummary: "skillName=lark-authorize",
+      },
+      {
+        toolName: "load_skill",
+        state: "success",
+        agentKind: "lark",
+        inputSummary: "skillName=lark-authorize",
+      },
+      {
+        toolName: "run_lark_cli",
+        state: "running",
+        agentKind: "lark",
+        inputSummary: "auth status",
+      },
+      {
+        toolName: "run_lark_cli",
+        state: "success",
+        agentKind: "lark",
+        inputSummary: "auth status",
+      },
+    ],
+  );
 });
 
 test("lark authorize skill warms project context with read-only docs commands", () => {

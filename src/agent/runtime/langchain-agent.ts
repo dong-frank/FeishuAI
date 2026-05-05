@@ -3,7 +3,12 @@ import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, type ResponseFormat, type TypedToolStrategy } from "langchain";
 import { traceable } from "langsmith/traceable";
 
-import type { AgentContextUsage, AgentRunMetadata, AgentTokenUsage } from "../types.js";
+import type {
+  AgentContextUsage,
+  AgentRunMetadata,
+  AgentTokenUsage,
+  AgentToolProgressHandler,
+} from "../types.js";
 
 export type LangChainChatModelConfig = {
   apiKey?: string;
@@ -25,6 +30,7 @@ export type LangChainAgentOptions = {
   preserveHistory?: boolean;
   compactHistoryEntry?: LangChainHistoryCompactor | undefined;
   validateOutput?: LangChainOutputValidator | undefined;
+  onToolProgress?: AgentToolProgressHandler | undefined;
 };
 
 export type LangChainAgent = {
@@ -89,7 +95,14 @@ export function resolveLangChainModelName(
 }
 
 export function createLangChainAgent(options: LangChainAgentOptions): LangChainAgent {
-  const tools = options.tools ?? [];
+  let failedToolError: unknown;
+  const tools = wrapToolsWithProgress(
+    options.tools ?? [],
+    options.onToolProgress,
+    (error) => {
+      failedToolError = error;
+    },
+  );
   const model = options.model ?? createLangChainChatModel();
   const agent = createAgent({
     model,
@@ -100,6 +113,7 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
   const name = options.name ?? "LangChain Agent";
   let messageHistory: any[] = [];
   const invokeWithMetadata = async (input: string) => {
+    failedToolError = undefined;
     const startedAt = Date.now();
     const messages = [
       ...(options.preserveHistory ? messageHistory : []),
@@ -108,7 +122,13 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     const result = await agent.invoke({
       messages,
     });
+    if (failedToolError) {
+      throw failedToolError;
+    }
     const retry = await retryIfOutputInvalid(agent, input, messages, result, options.validateOutput);
+    if (failedToolError) {
+      throw failedToolError;
+    }
     const finalResult = retry?.result ?? result;
     const content = getLangChainAgentOutputText(finalResult);
     const metadataResult = retry
@@ -160,6 +180,152 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
         })
       : invokeWithMetadata,
   };
+}
+
+function wrapToolsWithProgress(
+  tools: StructuredToolInterface[],
+  onToolProgress: AgentToolProgressHandler | undefined,
+  onToolFailure: (error: unknown) => void,
+) {
+  if (!onToolProgress) {
+    return tools;
+  }
+
+  let nextToolProgressId = 1;
+  return tools.map((toolItem) => {
+    const originalInvoke = toolItem.invoke.bind(toolItem);
+
+    return new Proxy(toolItem, {
+      get(target, property, receiver) {
+        if (property !== "invoke") {
+          return Reflect.get(target, property, receiver);
+        }
+
+        return async (input: unknown, config?: unknown) => {
+          const id = `tool-${nextToolProgressId}`;
+          nextToolProgressId += 1;
+          const toolName = target.name;
+          const inputSummary = summarizeToolInput(input);
+          const startedAt = Date.now();
+          onToolProgress({
+            id,
+            toolName,
+            state: "running",
+            ...(inputSummary ? { inputSummary } : {}),
+          });
+
+          try {
+            const result = await originalInvoke(input, config as never);
+            onToolProgress({
+              id,
+              toolName,
+              state: "success",
+              ...(inputSummary ? { inputSummary } : {}),
+              durationMs: Date.now() - startedAt,
+            });
+            return result;
+          } catch (error) {
+            onToolFailure(error);
+            onToolProgress({
+              id,
+              toolName,
+              state: "failed",
+              ...(inputSummary ? { inputSummary } : {}),
+              durationMs: Date.now() - startedAt,
+              error: summarizeToolError(error),
+            });
+            throw error;
+          }
+        };
+      },
+    });
+  });
+}
+
+function summarizeToolInput(input: unknown) {
+  if (!isRecord(input)) {
+    return typeof input;
+  }
+
+  const summaryTarget = isRecord(input.args) ? input.args : input;
+  const commandArgs = Array.isArray(summaryTarget.args)
+    ? summarizeToolInputValue(summaryTarget.args)
+    : "";
+  if (commandArgs) {
+    return sanitizeToolSummary(commandArgs);
+  }
+
+  const parts = Object.entries(summaryTarget)
+    .filter(([key]) => !shouldSkipToolInputKey(key))
+    .slice(0, 4)
+    .map(([key, value]) => {
+      const summary = summarizeToolInputValue(value);
+      return summary ? `${key}=${summary}` : "";
+    })
+    .filter(Boolean);
+  if (parts.length === 0) {
+    return "";
+  }
+
+  const visibleKeyCount = Object.keys(summaryTarget).filter(
+    (key) => !shouldSkipToolInputKey(key),
+  ).length;
+  const suffix = visibleKeyCount > parts.length ? ", ..." : "";
+  return sanitizeToolSummary(`${parts.join(", ")}${suffix}`);
+}
+
+function summarizeToolInputValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (isScalarToolInputValue(item) ? String(item) : "object"))
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (isRecord(value)) {
+    const keys = Object.keys(value).filter((key) => !shouldSkipToolInputKey(key)).slice(0, 3);
+    return keys.length ? `object:${keys.join(",")}` : "object";
+  }
+
+  return "";
+}
+
+function isScalarToolInputValue(value: unknown) {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  );
+}
+
+function shouldSkipToolInputKey(key: string) {
+  const normalized = key.toLowerCase();
+  return (
+    normalized === "stdout" ||
+    normalized === "stderr" ||
+    normalized === "output" ||
+    normalized === "raw" ||
+    normalized.includes("token") ||
+    normalized.includes("secret") ||
+    normalized.includes("password")
+  );
+}
+
+function summarizeToolError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return sanitizeToolSummary(message);
+}
+
+function sanitizeToolSummary(text: string) {
+  return text.replace(/\s+/g, " ").replace(/[{}[\]"'`]/g, "").slice(0, 80);
 }
 
 async function retryIfOutputInvalid(

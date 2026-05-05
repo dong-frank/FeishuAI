@@ -165,6 +165,99 @@ test("createLangChainAgent reports raw tool calls in metadata", async () => {
   assert.match(output.metadata.rawAgentResult ?? "", /lookup_manual/);
 });
 
+test("createLangChainAgent emits tool progress for successful tool calls", async () => {
+  const events: unknown[] = [];
+  const lookupTool = tool(
+    async ({ query }) => `manual for ${query}`,
+    {
+      name: "lookup_manual",
+      description: "Lookup a manual page.",
+      schema: z.object({
+        query: z.string(),
+      }),
+    },
+  );
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [{ name: "lookup_manual", args: { query: "git push --force-with-lease" }, id: "call-1" }],
+      [],
+    ],
+  });
+  const agent = createLangChainAgent({
+    systemPrompt: "Use tools when helpful.",
+    tools: [lookupTool],
+    model: model as unknown as ChatOpenAI,
+    onToolProgress(event) {
+      events.push(event);
+    },
+  });
+
+  await agent.invoke("Explain git push");
+
+  assert.equal(events.length, 2);
+  assert.deepEqual(
+    events.map((event) => ({
+      toolName: (event as { toolName: string }).toolName,
+      state: (event as { state: string }).state,
+    })),
+    [
+      { toolName: "lookup_manual", state: "running" },
+      { toolName: "lookup_manual", state: "success" },
+    ],
+  );
+  assert.equal(
+    (events[0] as { inputSummary?: string }).inputSummary,
+    "query=git push --force-with-lease",
+  );
+  assert.doesNotMatch(String((events[0] as { inputSummary?: string }).inputSummary), /[{}[\]"']/);
+  assert.equal(typeof (events[1] as { durationMs?: number }).durationMs, "number");
+});
+
+test("createLangChainAgent emits failed tool progress and rethrows tool errors", async () => {
+  const events: unknown[] = [];
+  const failingTool = tool(
+    async () => {
+      throw new Error("manual lookup exploded with a verbose internal detail");
+    },
+    {
+      name: "lookup_manual",
+      description: "Lookup a manual page.",
+      schema: z.object({
+        query: z.string(),
+      }),
+    },
+  );
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [{ name: "lookup_manual", args: { query: "git push" }, id: "call-1" }],
+      [],
+    ],
+  });
+  const agent = createLangChainAgent({
+    systemPrompt: "Use tools when helpful.",
+    tools: [failingTool],
+    model: model as unknown as ChatOpenAI,
+    onToolProgress(event) {
+      events.push(event);
+    },
+  });
+
+  await assert.rejects(() => agent.invoke("Explain git push"), /manual lookup exploded/);
+
+  assert.deepEqual(
+    events.map((event) => ({
+      toolName: (event as { toolName: string }).toolName,
+      state: (event as { state: string }).state,
+    })),
+    [
+      { toolName: "lookup_manual", state: "running" },
+      { toolName: "lookup_manual", state: "failed" },
+    ],
+  );
+  assert.match(String((events[1] as { error?: string }).error), /manual lookup exploded/);
+  assert.equal(typeof (events[1] as { durationMs?: number }).durationMs, "number");
+});
+
 test("createLangChainAgent preserves message history when requested", async () => {
   const model = new FakeToolCallingModel();
   const agent = createLangChainAgent({

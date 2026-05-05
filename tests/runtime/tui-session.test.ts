@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { homedir } from "node:os";
 import test from "node:test";
 
 import {
+  formatTuiSessionCwdDisplay,
+  formatTuiSessionGitDisplay,
   formatTuiSessionLarkSummary,
+  formatTuiSessionLarkDisplay,
   formatTuiSessionGitSummary,
   initializeTuiSession,
   normalizeGitRemoteWebUrl,
@@ -298,6 +302,114 @@ test("formatTuiSessionGitSummary keeps startup git info compact", () => {
   assert.equal(formatTuiSessionGitSummary({ isRepository: false }), "git: no repository");
 });
 
+test("formatTuiSessionGitDisplay uses readable Chinese status chips", () => {
+  assert.deepEqual(
+    formatTuiSessionGitDisplay({
+      isRepository: true,
+      root: "/repo",
+      branch: "main",
+      head: "abc1234",
+      upstream: "origin/main",
+      status: {
+        staged: 1,
+        unstaged: 2,
+        untracked: 3,
+        dirty: true,
+      },
+      branches: {
+        local: ["main"],
+        remote: ["origin/main"],
+      },
+      remotes: [],
+    }),
+    [
+      { text: "main", tone: "primary" },
+      { text: "abc1234", tone: "muted" },
+      { text: "origin/main", tone: "info" },
+      { text: "已暂存 1", tone: "warning" },
+      { text: "已修改 2", tone: "warning" },
+      { text: "新文件 3", tone: "warning" },
+    ],
+  );
+  assert.deepEqual(
+    formatTuiSessionGitDisplay({
+      isRepository: true,
+      root: "/repo",
+      branch: "main",
+      head: "abc1234",
+      status: {
+        staged: 0,
+        unstaged: 0,
+        untracked: 0,
+        dirty: false,
+      },
+      branches: {
+        local: ["main"],
+        remote: [],
+      },
+      remotes: [],
+    }),
+    [
+      { text: "main", tone: "primary" },
+      { text: "abc1234", tone: "muted" },
+      { text: "干净", tone: "success" },
+    ],
+  );
+  assert.deepEqual(formatTuiSessionGitDisplay({ isRepository: false }), [
+    { text: "非 Git 仓库", tone: "muted" },
+  ]);
+});
+
+test("formatTuiSessionCwdDisplay keeps absolute path shape with compact middle folders", () => {
+  const home = homedir().replace(/\/+$/, "");
+  const git = {
+    isRepository: true as const,
+    root: `${home}/2026/feishuAI`,
+    branch: "main",
+    head: "abc1234",
+    status: {
+      staged: 0,
+      unstaged: 0,
+      untracked: 0,
+      dirty: false,
+    },
+    branches: {
+      local: ["main"],
+      remote: [],
+    },
+    remotes: [],
+  };
+
+  assert.equal(
+    formatTuiSessionCwdDisplay({
+      cwd: `${home}/2026/feishuAI/src/tui`,
+      git,
+    }),
+    "~/2/f/s/tui",
+  );
+  assert.equal(
+    formatTuiSessionCwdDisplay({
+      cwd: `${home}/2026/feishuAI`,
+      git,
+    }),
+    "~/2/feishuAI",
+  );
+  assert.equal(
+    formatTuiSessionCwdDisplay({
+      cwd: home,
+      git,
+    }),
+    "~",
+  );
+  assert.equal(
+    formatTuiSessionCwdDisplay({
+      cwd: "/tmp/workspace",
+      git: { isRepository: false },
+    }),
+    "/t/workspace",
+  );
+});
+
 test("formatTuiSessionLarkSummary keeps connection info compact", () => {
   assert.equal(
     formatTuiSessionLarkSummary({
@@ -316,4 +428,25 @@ test("formatTuiSessionLarkSummary keeps connection info compact", () => {
     "lark: not logged in",
   );
   assert.equal(formatTuiSessionLarkSummary({ isInstalled: false }), "lark: not installed");
+});
+
+test("formatTuiSessionLarkDisplay uses readable connection chips", () => {
+  assert.deepEqual(
+    formatTuiSessionLarkDisplay({
+      isInstalled: true,
+      isConnected: true,
+      identity: "user",
+      name: "Dong",
+    }),
+    [
+      { text: "已连接", tone: "success" },
+      { text: "user Dong", tone: "muted" },
+    ],
+  );
+  assert.deepEqual(formatTuiSessionLarkDisplay({ isInstalled: true, isConnected: false }), [
+    { text: "未登录", tone: "warning" },
+  ]);
+  assert.deepEqual(formatTuiSessionLarkDisplay({ isInstalled: false }), [
+    { text: "未安装", tone: "muted" },
+  ]);
 });

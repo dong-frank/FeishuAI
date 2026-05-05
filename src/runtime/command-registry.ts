@@ -36,7 +36,7 @@ export const COMMON_GIT_SUBCOMMANDS = [
 
 const SUPPORTED_CUSTOM_COMMANDS = new Set([
   "cd",
-  "git-helper",
+  "GITX",
   "help",
   "lark",
   "exit",

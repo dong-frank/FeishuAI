@@ -26,7 +26,7 @@ type OutputSource = "user" | "agent";
 type AgentHistoryKind = "command" | "lark";
 type AgentHistoryState = "pending" | "success" | "failed" | "empty";
 type AgentHistoryActivity = "waiting" | "reviewing";
-const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH = 25;
+const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH = 50;
 
 export type AgentHistoryEntry = {
   type: "agent";

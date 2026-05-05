@@ -7,36 +7,111 @@ import {
   getPromptDisplayRows,
   getPromptViewportWidth,
   getSessionHeaderRows,
+  formatHeaderLabelText,
+  getHeaderChipColor,
   HISTORY_ROW_HEIGHT,
 } from "../../src/tui/layout.js";
 import { HistoryRowLine } from "../../src/tui/components.js";
 
-test("session header rows split cwd, git, and lark status across three lines", () => {
+test("session header rows build a three-line environment dashboard", () => {
   assert.deepEqual(
     getSessionHeaderRows({
       sessionHeader: {
         cwd: "/Users/dong/2026/feishuAI",
         gitSummary: "git: main 9f4aba1 -> origin/main dirty S0 U7 ?2",
         larkSummary: "lark: not logged in",
+        display: {
+          cwd: "/U/d/2/f/s/tui",
+          git: [
+            { text: "main", tone: "primary" },
+            { text: "9f4aba1", tone: "muted" },
+            { text: "origin/main", tone: "info" },
+            { text: "已修改 7", tone: "warning" },
+            { text: "新文件 2", tone: "warning" },
+          ],
+          lark: [{ text: "未登录", tone: "warning" }],
+        },
       },
       isRunning: false,
     }),
     [
       {
-        label: "cwd",
-        text: "/Users/dong/2026/feishuAI",
-        status: "ready",
-        brand: "git-helper",
+        label: "brand",
+        brand: "GITX",
       },
       {
         label: "git",
-        text: "main 9f4aba1 -> origin/main dirty S0 U7 ?2",
+        git: [
+          { text: "main", tone: "primary" },
+          { text: "9f4aba1", tone: "muted" },
+          { text: "origin/main", tone: "info" },
+          { text: "已修改 7", tone: "warning" },
+          { text: "新文件 2", tone: "warning" },
+        ],
       },
       {
         label: "lark",
-        text: "not logged in",
+        lark: [{ text: "未登录", tone: "warning" }],
       },
     ],
+  );
+});
+
+test("session header rows do not expose run state chips", () => {
+  const sessionHeader = {
+    cwd: "/repo",
+    gitSummary: "git: main abc1234 clean",
+    larkSummary: "lark: not logged in",
+    display: {
+      cwd: "~/repo",
+      git: [{ text: "干净", tone: "success" }],
+      lark: [{ text: "未登录", tone: "warning" }],
+    },
+  };
+  const [idlePrimary] = getSessionHeaderRows({
+    sessionHeader,
+    isRunning: false,
+  });
+  const [runningPrimary] = getSessionHeaderRows({
+    sessionHeader,
+    isRunning: true,
+  });
+
+  assert.equal("status" in idlePrimary, false);
+  assert.equal("status" in runningPrimary, false);
+});
+
+test("session header labels align separators by terminal display width", () => {
+  assert.equal(formatHeaderLabelText("Git"), "Git  │ ");
+  assert.equal(formatHeaderLabelText("飞书"), "飞书 │ ");
+});
+
+test("session header colors avoid overusing cyan", () => {
+  assert.equal(getHeaderChipColor("primary"), "green");
+  assert.equal(getHeaderChipColor("info"), "blue");
+  assert.equal(getHeaderChipColor("warning"), "yellow");
+  assert.equal(getHeaderChipColor("success"), "green");
+  assert.equal(getHeaderChipColor("muted"), "gray");
+});
+
+test("session header leaves cwd for the prompt instead of a top status row", () => {
+  const rows = getSessionHeaderRows({
+    sessionHeader: {
+      cwd: "/repo",
+      gitSummary: "git: main abc1234 clean",
+      larkSummary: "lark: connected user Dong",
+      display: {
+        cwd: "~/repo",
+        git: [{ text: "干净", tone: "success" }],
+        lark: [{ text: "已连接", tone: "success" }],
+      },
+    },
+    isRunning: false,
+  });
+
+  assert.deepEqual(
+    rows.map((row) => row.label),
+    ["brand", "git", "lark"],
   );
 });
 
@@ -86,7 +161,7 @@ test("prompt display wraps long input while preserving cursor styling segment", 
 
   assert.deepEqual(
     rows.map((row) => row.map((segment) => segment.text).join("")),
-    ['$ git commit -m "fea', 't: 新增命令历史"'],
+    ['❯ git commit -m "fea', 't: 新增命令历史"'],
   );
   assert.deepEqual(
     rows[1],
@@ -98,12 +173,39 @@ test("prompt display wraps long input while preserving cursor styling segment", 
   );
 });
 
+test("prompt display can include compact cwd like a terminal prompt", () => {
+  const rows = getPromptDisplayRows({
+    promptPrefix: "~/2/f/s/tui",
+    beforeCursor: "git",
+    cursor: " ",
+    afterCursor: "status",
+    completionSuffix: "",
+  });
+
+  assert.equal(
+    rows[0]?.map((segment) => segment.text).join(""),
+    "~/2/f/s/tui ❯ git status",
+  );
+});
+
 test("history output keeps boundary lines without spacer rows around it", () => {
   const layout = AppLayout({
     sessionHeader: {
       cwd: "/repo",
       gitSummary: "git: main abc1234 clean",
       larkSummary: "lark: connected user Dong",
+      display: {
+        cwd: "repo",
+        git: [
+          { text: "main", tone: "primary" },
+          { text: "abc1234", tone: "muted" },
+          { text: "干净", tone: "success" },
+        ],
+        lark: [
+          { text: "已连接", tone: "success" },
+          { text: "user Dong", tone: "muted" },
+        ],
+      },
     },
     isRunning: false,
     historyViewportHeight: 2,
@@ -143,6 +245,18 @@ test("layout pins fixed chrome to the terminal height", () => {
       cwd: "/repo",
       gitSummary: "git: main abc1234 clean",
       larkSummary: "lark: connected user Dong",
+      display: {
+        cwd: "repo",
+        git: [
+          { text: "main", tone: "primary" },
+          { text: "abc1234", tone: "muted" },
+          { text: "干净", tone: "success" },
+        ],
+        lark: [
+          { text: "已连接", tone: "success" },
+          { text: "user Dong", tone: "muted" },
+        ],
+      },
     },
     isRunning: false,
     historyViewportHeight: 0,

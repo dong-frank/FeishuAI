@@ -23,7 +23,10 @@ import {
 } from "./git-command-stats.js";
 import { buildLarkProjectHints } from "./lark-project-hints.js";
 import {
+  formatTuiSessionCwdDisplay,
+  formatTuiSessionGitDisplay,
   formatTuiSessionGitSummary,
+  formatTuiSessionLarkDisplay,
   formatTuiSessionLarkSummary,
   initializeTuiSession,
   type TuiSessionInfo,
@@ -244,7 +247,7 @@ export async function runCommandLine(
     return runCdCommand(commandLine, parsed, classification, cwd);
   }
 
-  if (parsed.command === "git-helper" && parsed.args.length === 0) {
+  if (parsed.command === "GITX" && parsed.args.length === 0) {
     return runBlockedNestedTuiCommand(commandLine, classification);
   }
 
@@ -395,7 +398,7 @@ async function runCdCommand(
       exitCode: 1,
       durationMs: Date.now() - startedAt,
       stdout: "",
-      stderr: "cd: OLDPWD is not supported in git-helper TUI\n",
+      stderr: "cd: OLDPWD is not supported in GITX TUI\n",
     };
   }
 
@@ -461,7 +464,7 @@ function runBlockedNestedTuiCommand(
     exitCode: 1,
     durationMs: Date.now() - startedAt,
     stdout: "",
-    stderr: "git-helper: cannot start git-helper inside git-helper TUI\n",
+    stderr: "GITX: cannot start GITX inside GITX TUI\n",
   };
 }
 
@@ -491,6 +494,14 @@ function formatCommandTuiSessionContext(
       cwd: session.cwd,
       gitSummary: formatTuiSessionGitSummary(session.git),
       larkSummary: formatTuiSessionLarkSummary(session.lark),
+      display: {
+        cwd: formatTuiSessionCwdDisplay({
+          cwd: session.cwd,
+          git: session.git,
+        }),
+        git: formatTuiSessionGitDisplay(session.git),
+        lark: formatTuiSessionLarkDisplay(session.lark),
+      },
     },
   };
 }

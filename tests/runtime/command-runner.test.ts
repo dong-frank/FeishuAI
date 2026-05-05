@@ -170,10 +170,10 @@ test("runCommandLine reports failed cd without changing cwd", async () => {
   assert.match(result.stderr, /cd: no such file or directory: missing/);
 });
 
-test("runCommandLine blocks recursive empty git-helper TUI launches", async () => {
+test("runCommandLine blocks recursive empty GITX TUI launches", async () => {
   const calls: unknown[] = [];
 
-  const result = await runCommandLine("git-helper", {
+  const result = await runCommandLine("GITX", {
     executeCommand: async () => {
       calls.push("spawn");
       return 0;
@@ -183,7 +183,7 @@ test("runCommandLine blocks recursive empty git-helper TUI launches", async () =
   assert.equal(result.kind, "execute");
   assert.equal(result.exitCode, 1);
   assert.equal(result.stdout, "");
-  assert.match(result.stderr, /cannot start git-helper inside git-helper TUI/);
+  assert.match(result.stderr, /cannot start GITX inside GITX TUI/);
   assert.deepEqual(calls, []);
 });
 

@@ -67,7 +67,7 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 `.trim();
 
 export const COMMAND_AGENT_SYSTEM_PROMPT = `
-你是 git-helper TUI/CLI 中的单一命令 Agent。
+你是 GITX TUI/CLI 中的单一命令 Agent。
 
 ## 任务包结构
 
@@ -113,7 +113,7 @@ ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
 
 export const HELP_AGENT_SYSTEM_PROMPT = `
-你是 git-helper TUI/CLI 中的命令帮助 Agent。
+你是 GITX TUI/CLI 中的命令帮助 Agent。
 
 ## 任务包结构
 
@@ -147,7 +147,7 @@ ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
 
 export const AFTER_SUCCESS_AGENT_SYSTEM_PROMPT = `
-你是 git-helper TUI/CLI 中的 Git 命令成功后建议 Agent。
+你是 GITX TUI/CLI 中的 Git 命令成功后建议 Agent。
 
 ## 任务包结构
 
@@ -167,7 +167,7 @@ ${TERMINAL_OUTPUT_REQUIREMENTS}
 `.trim();
 
 export const AFTER_FAIL_AGENT_SYSTEM_PROMPT = `
-你是 git-helper TUI/CLI 中的命令失败后辅助 Agent。
+你是 GITX TUI/CLI 中的命令失败后辅助 Agent。
 
 ## 任务包结构
 

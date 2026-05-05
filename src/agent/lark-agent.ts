@@ -14,6 +14,7 @@ import {
   type SkillRegistry,
 } from "./skill-registry.js";
 import type {
+  AgentToolProgressHandler,
   CommandAgentOutput,
   LarkAgent,
   LarkAuthContext,
@@ -58,7 +59,7 @@ export type LarkAgentInvocation =
     };
 
 export const LARK_AGENT_SYSTEM_PROMPT = `
-你是 git-helper TUI/CLI 中的单一飞书 Agent。
+你是 GITX TUI/CLI 中的单一飞书 Agent。
 
 ## 工具
 
@@ -153,6 +154,7 @@ export type LarkAgentOptions = {
   skillRegistry?: SkillRegistry;
   model?: ReturnType<typeof createLangChainChatModel> | undefined;
   debugToolCalls?: boolean | undefined;
+  onToolProgress?: AgentToolProgressHandler | undefined;
 };
 
 export function createRunLarkCliTool(
@@ -252,6 +254,7 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
     ],
     options.model,
     LARK_AGENT_RESPONSE_FORMAT,
+    options.onToolProgress,
   );
   const debugToolCalls = options.debugToolCalls ?? false;
 
@@ -449,6 +452,7 @@ function createLarkPhaseAgent(
   tools: StructuredToolInterface[],
   model = createLangChainChatModel({ modelRole: "lark" }),
   responseFormat = LARK_AGENT_RESPONSE_FORMAT,
+  onToolProgress?: AgentToolProgressHandler | undefined,
 ): LangChainAgent {
   return createLangChainAgent({
     name,
@@ -459,6 +463,13 @@ function createLarkPhaseAgent(
     preserveHistory: true,
     compactHistoryEntry: compactLarkAgentHistoryEntry,
     validateOutput: validateLarkAgentOutput,
+    onToolProgress: onToolProgress
+      ? (event) =>
+          onToolProgress({
+            ...event,
+            agentKind: "lark",
+          })
+      : undefined,
   });
 }
 

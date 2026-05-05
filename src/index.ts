@@ -13,7 +13,7 @@ const [{ Command }, { createLarkCommand }, { renderTui }] = await Promise.all([
 const program = new Command();
 
 program
-  .name("git-helper")
+  .name("GITX")
   .description("Diagnose Git errors and suggest fixes")
   .version("0.1.0");
 

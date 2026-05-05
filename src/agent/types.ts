@@ -1,5 +1,6 @@
 import type {
   TuiSessionGitInfo,
+  TuiSessionHeaderDisplay,
   TuiSessionLarkInfo,
 } from "../runtime/tui-session.js";
 
@@ -38,6 +39,7 @@ export type CommandTuiSessionContext = {
     cwd: string;
     gitSummary: string;
     larkSummary: string;
+    display: TuiSessionHeaderDisplay;
   };
 };
 
@@ -64,6 +66,18 @@ export type AgentRunMetadata = {
   rawToolCalls?: unknown[];
   rawAgentResult?: string;
 };
+
+export type AgentToolProgressEvent = {
+  id: string;
+  toolName: string;
+  agentKind?: "command" | "lark" | undefined;
+  state: "running" | "success" | "failed";
+  inputSummary?: string | undefined;
+  durationMs?: number | undefined;
+  error?: string | undefined;
+};
+
+export type AgentToolProgressHandler = (event: AgentToolProgressEvent) => void;
 
 export type CommandAgentOutput = {
   content: string;

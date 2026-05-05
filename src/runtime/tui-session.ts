@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
+import { basename } from "node:path";
 
 export type GitPorcelainStatus = {
   staged: number;
@@ -54,6 +56,24 @@ export type TuiSessionInfo = {
   cwd: string;
   git: TuiSessionGitInfo;
   lark: TuiSessionLarkInfo;
+};
+
+export type TuiSessionHeaderChipTone =
+  | "primary"
+  | "muted"
+  | "info"
+  | "warning"
+  | "success";
+
+export type TuiSessionHeaderChip = {
+  text: string;
+  tone: TuiSessionHeaderChipTone;
+};
+
+export type TuiSessionHeaderDisplay = {
+  cwd: string;
+  git: TuiSessionHeaderChip[];
+  lark: TuiSessionHeaderChip[];
 };
 
 type GitCommandResult = {
@@ -268,6 +288,42 @@ export function formatTuiSessionGitSummary(git: TuiSessionGitInfo) {
   return `git: ${identity}${upstream}${dirty}`;
 }
 
+export function formatTuiSessionGitDisplay(
+  git: TuiSessionGitInfo,
+): TuiSessionHeaderChip[] {
+  if (!git.isRepository) {
+    return [{ text: "非 Git 仓库", tone: "muted" }];
+  }
+
+  const chips: TuiSessionHeaderChip[] = [];
+  if (git.branch) {
+    chips.push({ text: git.branch, tone: "primary" });
+  }
+  if (git.head) {
+    chips.push({ text: git.head, tone: "muted" });
+  }
+  if (git.upstream) {
+    chips.push({ text: git.upstream, tone: "info" });
+  }
+
+  if (!git.status.dirty) {
+    chips.push({ text: "干净", tone: "success" });
+    return chips;
+  }
+
+  if (git.status.staged > 0) {
+    chips.push({ text: `已暂存 ${git.status.staged}`, tone: "warning" });
+  }
+  if (git.status.unstaged > 0) {
+    chips.push({ text: `已修改 ${git.status.unstaged}`, tone: "warning" });
+  }
+  if (git.status.untracked > 0) {
+    chips.push({ text: `新文件 ${git.status.untracked}`, tone: "warning" });
+  }
+
+  return chips.length > 0 ? chips : [{ text: "未知", tone: "muted" }];
+}
+
 export function formatTuiSessionLarkSummary(lark: TuiSessionLarkInfo) {
   if (!lark.isInstalled) {
     return "lark: not installed";
@@ -279,6 +335,68 @@ export function formatTuiSessionLarkSummary(lark: TuiSessionLarkInfo) {
 
   const identity = [lark.identity, lark.name].filter(Boolean).join(" ");
   return `lark: connected${identity ? ` ${identity}` : ""}`;
+}
+
+export function formatTuiSessionLarkDisplay(
+  lark: TuiSessionLarkInfo,
+): TuiSessionHeaderChip[] {
+  if (!lark.isInstalled) {
+    return [{ text: "未安装", tone: "muted" }];
+  }
+
+  if (!lark.isConnected) {
+    return [{ text: "未登录", tone: "warning" }];
+  }
+
+  const chips: TuiSessionHeaderChip[] = [{ text: "已连接", tone: "success" }];
+  const identity = [lark.identity, lark.name].filter(Boolean).join(" ");
+  if (identity) {
+    chips.push({ text: identity, tone: "muted" });
+  }
+
+  return chips;
+}
+
+export function formatTuiSessionCwdDisplay({
+  cwd,
+  git: _git,
+}: {
+  cwd: string;
+  git: TuiSessionGitInfo;
+}) {
+  return formatCompactAbsolutePath(cwd);
+}
+
+function formatCompactAbsolutePath(cwd: string) {
+  const normalized = cwd.replace(/\/+$/, "") || cwd;
+  const home = homedir().replace(/\/+$/, "");
+  if (home && normalized === home) {
+    return "~";
+  }
+  if (home && normalized.startsWith(`${home}/`)) {
+    const homeRelativePath = normalized.slice(home.length + 1);
+    return `~/${compactPathSegments(homeRelativePath.split("/").filter(Boolean))}`;
+  }
+
+  const isAbsolutePath = normalized.startsWith("/");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length === 0) {
+    return isAbsolutePath ? "/" : basename(cwd);
+  }
+
+  return `${isAbsolutePath ? "/" : ""}${compactPathSegments(segments)}`;
+}
+
+function compactPathSegments(segments: string[]) {
+  return segments
+    .map((segment, index) =>
+      index === segments.length - 1 ? segment : getFirstCharacter(segment),
+    )
+    .join("/");
+}
+
+function getFirstCharacter(value: string) {
+  return Array.from(value).at(0) ?? value;
 }
 
 async function getLarkInfo(

@@ -4,7 +4,7 @@
   "description": "",
   "type": "module",
   "bin": {
-    "git-helper": "./dist/index.js"
+    "GITX": "./dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
