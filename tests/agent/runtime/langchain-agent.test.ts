@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import test from "node:test";
 
 import { tool } from "@langchain/core/tools";
@@ -16,6 +18,7 @@ import {
   getLangChainAgentOutputText,
   resolveLangChainModelName,
   shouldTraceLangChainAgent,
+  summarizeAgentContextUsage,
   withTuiDisplay,
 } from "../../../src/agent/runtime/langchain-agent.js";
 
@@ -103,6 +106,19 @@ test("createLangChainAgent accepts a system prompt and tools", () => {
 
   assert.equal(agent.systemPrompt, "You are a test agent.");
   assert.equal(agent.tools.length, 0);
+});
+
+test("createLangChainAgent invokes LangGraph with recursion limit 50", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src", "agent", "runtime", "langchain-agent.ts"),
+    "utf8",
+  );
+
+  assert.match(source, /const LANGGRAPH_RECURSION_LIMIT = 50;/);
+  assert.equal(
+    [...source.matchAll(/recursionLimit: LANGGRAPH_RECURSION_LIMIT/g)].length,
+    2,
+  );
 });
 
 test("createLangChainAgent executes tool calls through LangChain createAgent", async () => {
@@ -397,6 +413,35 @@ test("createLangChainAgent reports current preserved context size", async () => 
   );
 });
 
+test("createLangChainAgent reports history context size when history changes", async () => {
+  const contextUsages: unknown[] = [];
+  const agent = createLangChainAgent({
+    systemPrompt: "Track history context size.",
+    tools: [],
+    model: new FakeToolCallingModel() as unknown as ChatOpenAI,
+    preserveHistory: true,
+    onContextUsage(usage) {
+      contextUsages.push(usage);
+    },
+  });
+
+  await agent.invokeWithMetadata("first command");
+
+  const savedHistoryCharacters = contextUsages[0] &&
+    typeof contextUsages[0] === "object" &&
+    "characterCount" in contextUsages[0]
+    ? contextUsages[0].characterCount
+    : 0;
+
+  assert.deepEqual(contextUsages, [
+    {
+      messageCount: 2,
+      characterCount: savedHistoryCharacters,
+      estimatedTokens: Math.ceil(Number(savedHistoryCharacters) / 4),
+    },
+  ]);
+});
+
 test("createLangChainAgent can compact preserved history after each response", async () => {
   const agent = createLangChainAgent({
     systemPrompt: "Compact history.",
@@ -423,13 +468,20 @@ test("createLangChainAgent can compact preserved history after each response", a
 });
 
 test("createLangChainAgent can restore preserved history from a store", async () => {
-  let storedMessages: unknown[] = [];
+  let storedState = {
+    messages: [] as { role: "user" | "assistant"; content: string }[],
+    contextUsage: {
+      messageCount: 0,
+      characterCount: 0,
+      estimatedTokens: 0,
+    },
+  };
   const historyStore = {
     async load() {
-      return storedMessages;
+      return storedState;
     },
-    async save(_input: string, messages: unknown[]) {
-      storedMessages = messages;
+    async save(_input: string, state: typeof storedState) {
+      storedState = state;
     },
   };
   const firstAgent = createLangChainAgent({
@@ -460,6 +512,47 @@ test("createLangChainAgent can restore preserved history from a store", async ()
   assert.match(output, /saved user: first command/);
   assert.match(output, /saved assistant:/);
   assert.match(output, /second command/);
+});
+
+test("createLangChainAgent reports stored context usage on load and saves updated ledger", async () => {
+  const storedContextUsage = {
+    messageCount: 2,
+    characterCount: 26,
+    estimatedTokens: 321,
+  };
+  const contextUsages: unknown[] = [];
+  let savedState: unknown;
+  const historyStore = {
+    async load() {
+      return {
+        messages: [
+          { role: "user" as const, content: "saved user" },
+          { role: "assistant" as const, content: "saved assistant" },
+        ],
+        contextUsage: storedContextUsage,
+      };
+    },
+    async save(_input: string, state: unknown) {
+      savedState = state;
+    },
+  };
+  const agent = createLangChainAgent({
+    systemPrompt: "Persist history usage.",
+    tools: [],
+    model: new FakeToolCallingModel() as unknown as ChatOpenAI,
+    preserveHistory: true,
+    historyStore,
+    onContextUsage(usage) {
+      contextUsages.push(usage);
+    },
+  });
+
+  const output = await agent.invokeWithMetadata("next command");
+
+  assert.deepEqual(contextUsages[0], storedContextUsage);
+  assert.equal((savedState as { messages: unknown[] }).messages.length, 4);
+  assert.deepEqual(contextUsages[1], (savedState as { contextUsage: unknown }).contextUsage);
+  assert.deepEqual(output.metadata.contextUsage, (savedState as { contextUsage: unknown }).contextUsage);
 });
 
 test("createLangChainAgent feeds back and retries when validated output is empty", async () => {
@@ -528,7 +621,11 @@ test("extractLangChainAgentMetadata reads duration and token usage", () => {
   );
 
   assert.equal(metadata.durationMs, 1234);
-  assert.deepEqual(metadata.tokenUsage, { totalTokens: 20 });
+  assert.deepEqual(metadata.tokenUsage, {
+    inputTokens: 12,
+    outputTokens: 8,
+    totalTokens: 20,
+  });
   assert.match(metadata.rawAgentResult ?? "", /hello/);
 });
 
@@ -552,7 +649,11 @@ test("extractLangChainAgentMetadata supports OpenAI tokenUsage metadata", () => 
   );
 
   assert.equal(metadata.durationMs, 42);
-  assert.deepEqual(metadata.tokenUsage, { totalTokens: 15 });
+  assert.deepEqual(metadata.tokenUsage, {
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+  });
   assert.match(metadata.rawAgentResult ?? "", /tokenUsage/);
 });
 
@@ -585,6 +686,41 @@ test("extractLangChainAgentMetadata sums token usage across agent turns", () => 
   );
 
   assert.equal(metadata.durationMs, 2000);
-  assert.deepEqual(metadata.tokenUsage, { totalTokens: 230 });
+  assert.deepEqual(metadata.tokenUsage, {
+    inputTokens: 180,
+    outputTokens: 50,
+    totalTokens: 230,
+  });
   assert.match(metadata.rawAgentResult ?? "", /tool call/);
+});
+
+test("summarizeAgentContextUsage measures history message content", () => {
+  const usage = summarizeAgentContextUsage(
+    [
+      { role: "user", content: "short" },
+      { role: "assistant", content: "reply" },
+    ],
+  );
+
+  assert.equal(usage.messageCount, 2);
+  assert.equal(usage.characterCount, 10);
+  assert.equal(usage.estimatedTokens, 3);
+});
+
+test("summarizeAgentContextUsage prefers API input tokens as the history ledger value", () => {
+  const usage = summarizeAgentContextUsage(
+    [
+      { role: "user", content: "short" },
+      { role: "assistant", content: "reply" },
+    ],
+    {
+      inputTokens: 88,
+      outputTokens: 12,
+      totalTokens: 100,
+    },
+  );
+
+  assert.equal(usage.messageCount, 2);
+  assert.equal(usage.characterCount, 10);
+  assert.equal(usage.estimatedTokens, 88);
 });

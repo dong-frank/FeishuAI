@@ -50,6 +50,8 @@ export type CommandResult = {
 };
 
 export type AgentTokenUsage = {
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
   totalTokens: number;
 };
 

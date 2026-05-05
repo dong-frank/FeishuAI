@@ -8,6 +8,7 @@ import type {
   CommandContext,
   AgentToolProgressEvent,
   AgentRunMetadata,
+  AgentContextUsage,
   LarkAgent,
 } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
@@ -168,6 +169,9 @@ export function App({
       onToolProgress(event) {
         agentToolProgressHandler.current?.(event);
       },
+      onContextUsage(usage) {
+        rememberAgentContextUsageValue("lark", usage);
+      },
     });
   }
 
@@ -176,6 +180,9 @@ export function App({
       larkAgent: larkAgent.current,
       onToolProgress(event) {
         agentToolProgressHandler.current?.(event);
+      },
+      onContextUsage(usage) {
+        rememberAgentContextUsageValue("command", usage);
       },
     });
   }
@@ -963,9 +970,16 @@ export function App({
       return;
     }
 
+    rememberAgentContextUsageValue(agentKind, metadata.contextUsage);
+  }
+
+  function rememberAgentContextUsageValue(
+    agentKind: AgentKind,
+    usage: AgentContextUsage,
+  ) {
     setContextMeters((current) => ({
       ...current,
-      [agentKind]: metadata.contextUsage,
+      [agentKind]: usage,
     }));
   }
 

@@ -23,6 +23,7 @@ import {
   type AgentMemoryHint,
 } from "./memory-tools.js";
 import type {
+  AgentContextUsage,
   AgentToolProgressHandler,
   CommandAgentOutput,
   LarkAgent,
@@ -159,13 +160,13 @@ get_context 必须只输出一个 JSON 对象：
 
 action 为 "write_development_record" 时，用来写入团队开发记录文档。按 lark-doc-write Skill 搜索、读取并更新文档，输出一个 JSON 对象：
 - content: 字符串，说明文档位置、写入摘要，或未写入原因
-- suggestedCommand 输出 null 或空字符串
-- topic、freshness、source、updatedAt 输出 null
+- suggestedCommand 没有明确、安全、可执行的下一步命令时省略，或使用 JSON null；不要输出字符串 "null"
+- topic、freshness、source、updatedAt 是 get_context 专用字段，本 action 不要输出
 
 action 为 "send_message" 时，按 lark-im Skill 发送消息，输出一个 JSON 对象：
 - content: 字符串，说明发送结果
-- suggestedCommand 输出 null 或空字符串
-- topic、freshness、source、updatedAt 输出 null
+- suggestedCommand 没有明确、安全、可执行的下一步命令时省略，或使用 JSON null；不要输出字符串 "null"
+- topic、freshness、source、updatedAt 是 get_context 专用字段，本 action 不要输出
 
 ## 通用要求
 
@@ -188,6 +189,7 @@ export type LarkAgentOptions = {
   model?: ReturnType<typeof createLangChainChatModel> | undefined;
   debugToolCalls?: boolean | undefined;
   onToolProgress?: AgentToolProgressHandler | undefined;
+  onContextUsage?: ((usage: AgentContextUsage) => void) | undefined;
 };
 
 export function createRunLarkCliTool(
@@ -260,14 +262,37 @@ const LARK_RESPONSE_SOURCE_SCHEMA = z
   })
   .strict();
 
+const LARK_CONTEXT_TOPIC_SCHEMA = z.enum([
+  "commit_message_policy",
+  "troubleshooting_reference",
+]);
+const LARK_CONTEXT_FRESHNESS_SCHEMA = z.enum(["remembered", "refreshed", "missing"]);
+const LARK_NULL_STRING_SCHEMA = z.literal("null");
+const LARK_NULLABLE_STRING_SCHEMA = z.string().nullable();
+const LARK_NULLABLE_TOPIC_SCHEMA = z.union([
+  LARK_CONTEXT_TOPIC_SCHEMA,
+  z.null(),
+  LARK_NULL_STRING_SCHEMA,
+]);
+const LARK_NULLABLE_FRESHNESS_SCHEMA = z.union([
+  LARK_CONTEXT_FRESHNESS_SCHEMA,
+  z.null(),
+  LARK_NULL_STRING_SCHEMA,
+]);
+const LARK_NULLABLE_RESPONSE_SOURCE_SCHEMA = z.union([
+  LARK_RESPONSE_SOURCE_SCHEMA,
+  z.null(),
+  LARK_NULL_STRING_SCHEMA,
+]);
+
 const LARK_FINAL_RESPONSE_SCHEMA = z
   .object({
     content: z.string(),
-    suggestedCommand: z.string().nullable().optional(),
-    topic: z.enum(["commit_message_policy", "troubleshooting_reference"]).nullable().optional(),
-    freshness: z.enum(["remembered", "refreshed", "missing"]).nullable().optional(),
-    source: LARK_RESPONSE_SOURCE_SCHEMA.nullable().optional(),
-    updatedAt: z.string().nullable().optional(),
+    suggestedCommand: LARK_NULLABLE_STRING_SCHEMA.optional(),
+    topic: LARK_NULLABLE_TOPIC_SCHEMA.optional(),
+    freshness: LARK_NULLABLE_FRESHNESS_SCHEMA.optional(),
+    source: LARK_NULLABLE_RESPONSE_SOURCE_SCHEMA.optional(),
+    updatedAt: LARK_NULLABLE_STRING_SCHEMA.optional(),
   })
   .strict();
 
@@ -282,11 +307,11 @@ export const LARK_AGENT_TOOLS: StructuredToolInterface[] = [
 const LARK_AGENT_RESPONSE_SCHEMA = z
   .object({
     content: z.string(),
-    suggestedCommand: z.string().nullable(),
-    topic: z.enum(["commit_message_policy", "troubleshooting_reference"]).nullable(),
-    freshness: z.enum(["remembered", "refreshed", "missing"]).nullable(),
-    source: LARK_RESPONSE_SOURCE_SCHEMA.nullable(),
-    updatedAt: z.string().nullable(),
+    suggestedCommand: LARK_NULLABLE_STRING_SCHEMA,
+    topic: LARK_NULLABLE_TOPIC_SCHEMA,
+    freshness: LARK_NULLABLE_FRESHNESS_SCHEMA,
+    source: LARK_NULLABLE_RESPONSE_SOURCE_SCHEMA,
+    updatedAt: LARK_NULLABLE_STRING_SCHEMA,
   })
   .strict();
 
@@ -310,6 +335,7 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
     ],
     options.model,
     options.onToolProgress,
+    options.onContextUsage,
   );
   const debugToolCalls = options.debugToolCalls ?? false;
 
@@ -332,12 +358,12 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
 
 const LARK_CONTEXT_PACK_SCHEMA = z
   .object({
-    topic: z.enum(["commit_message_policy", "troubleshooting_reference"]),
+    topic: LARK_CONTEXT_TOPIC_SCHEMA,
     content: z.string(),
-    freshness: z.enum(["remembered", "refreshed", "missing"]),
-    suggestedCommand: z.string().nullable().optional(),
-    source: LARK_RESPONSE_SOURCE_SCHEMA.nullable().optional(),
-    updatedAt: z.string().nullable().optional(),
+    freshness: LARK_CONTEXT_FRESHNESS_SCHEMA,
+    suggestedCommand: LARK_NULLABLE_STRING_SCHEMA.optional(),
+    source: LARK_NULLABLE_RESPONSE_SOURCE_SCHEMA.optional(),
+    updatedAt: LARK_NULLABLE_STRING_SCHEMA.optional(),
   })
   .strict();
 
@@ -359,12 +385,13 @@ function parseLarkContextPack(
     const validated = LARK_CONTEXT_PACK_SCHEMA.safeParse(parsed);
     if (validated.success) {
       const data = validated.data;
+      const source = compactNullableLarkContextSource(data.source);
       return {
         topic: data.topic,
         content: data.content,
         freshness: data.freshness,
-        ...(data.source ? { source: compactLarkContextSource(data.source) } : {}),
-        ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}),
+        ...(source ? { source } : {}),
+        ...(isOutputText(data.updatedAt) ? { updatedAt: data.updatedAt } : {}),
       };
     }
   } catch {
@@ -381,11 +408,11 @@ function parseLarkContextPack(
 const LARK_COMMAND_OUTPUT_SCHEMA = z
   .object({
     content: z.string(),
-    suggestedCommand: z.string().nullable().optional(),
-    topic: z.enum(["commit_message_policy", "troubleshooting_reference"]).nullable().optional(),
-    freshness: z.enum(["remembered", "refreshed", "missing"]).nullable().optional(),
-    source: LARK_RESPONSE_SOURCE_SCHEMA.nullable().optional(),
-    updatedAt: z.string().nullable().optional(),
+    suggestedCommand: LARK_NULLABLE_STRING_SCHEMA.optional(),
+    topic: LARK_NULLABLE_TOPIC_SCHEMA.optional(),
+    freshness: LARK_NULLABLE_FRESHNESS_SCHEMA.optional(),
+    source: LARK_NULLABLE_RESPONSE_SOURCE_SCHEMA.optional(),
+    updatedAt: LARK_NULLABLE_STRING_SCHEMA.optional(),
   })
   .strict();
 
@@ -418,7 +445,9 @@ export function parseLarkInteractionResult(
     const validated = LARK_COMMAND_OUTPUT_SCHEMA.safeParse(parsed);
     if (validated.success) {
       const content = validated.data.content.trim();
-      const suggestedCommand = validated.data.suggestedCommand?.trim() ?? "";
+      const suggestedCommand = normalizeNullableOutputText(
+        validated.data.suggestedCommand,
+      );
       return {
         content: appendDebugOutput(content, rawToolCallsDebugOutput),
         ...(suggestedCommand ? { suggestedCommand } : {}),
@@ -445,6 +474,27 @@ function compactLarkContextSource(source: {
     ...(source.url ? { url: source.url } : {}),
     ...(source.documentId ? { documentId: source.documentId } : {}),
   };
+}
+
+function compactNullableLarkContextSource(source: unknown) {
+  if (!isCompactSource(source)) {
+    return undefined;
+  }
+
+  const compact = compactLarkContextSource(source);
+  return Object.keys(compact).length > 0 ? compact : undefined;
+}
+
+function isJsonNullPlaceholder(value: unknown) {
+  return typeof value === "string" && value.trim().toLowerCase() === "null";
+}
+
+function isOutputText(value: unknown): value is string {
+  return typeof value === "string" && !isJsonNullPlaceholder(value);
+}
+
+function normalizeNullableOutputText(value: unknown) {
+  return isOutputText(value) ? value.trim() : "";
 }
 
 export function formatLarkAgentInvocation(
@@ -530,7 +580,9 @@ function parseLarkCommandOutput(output: string): {
     const validated = LARK_COMMAND_OUTPUT_SCHEMA.safeParse(parsed);
     if (validated.success) {
       const content = validated.data.content.trim();
-      const suggestedCommand = validated.data.suggestedCommand?.trim() ?? "";
+      const suggestedCommand = normalizeNullableOutputText(
+        validated.data.suggestedCommand,
+      );
       return {
         content,
         ...(suggestedCommand ? { suggestedCommand } : {}),
@@ -561,6 +613,7 @@ function createLarkPhaseAgent(
   tools: StructuredToolInterface[],
   model = createLangChainChatModel({ modelRole: "lark" }),
   onToolProgress?: AgentToolProgressHandler | undefined,
+  onContextUsage?: ((usage: AgentContextUsage) => void) | undefined,
 ): LangChainAgent {
   return createLangChainAgent({
     name,
@@ -578,6 +631,7 @@ function createLarkPhaseAgent(
             agentKind: "lark",
           })
       : undefined,
+    onContextUsage,
   });
 }
 
@@ -693,15 +747,28 @@ function compactLarkAgentOutput(output: string) {
 }
 
 function compactLarkOutputObject(output: Record<string, unknown>) {
+  const source = compactNullableLarkContextSource(output.source);
   return {
-    ...(typeof output.topic === "string" ? { topic: output.topic } : {}),
-    ...(typeof output.freshness === "string" ? { freshness: output.freshness } : {}),
+    ...(isKnownLarkContextTopic(output.topic) ? { topic: output.topic } : {}),
+    ...(isKnownLarkContextFreshness(output.freshness)
+      ? { freshness: output.freshness }
+      : {}),
     ...(typeof output.content === "string" ? { content: output.content } : {}),
-    ...(typeof output.suggestedCommand === "string"
+    ...(isOutputText(output.suggestedCommand)
       ? { suggestedCommand: output.suggestedCommand }
       : {}),
-    ...(isCompactSource(output.source) ? { source: compactLarkContextSource(output.source) } : {}),
+    ...(source ? { source } : {}),
   };
+}
+
+function isKnownLarkContextTopic(value: unknown): value is LarkContextRequest["topic"] {
+  return value === "commit_message_policy" || value === "troubleshooting_reference";
+}
+
+function isKnownLarkContextFreshness(
+  value: unknown,
+): value is LarkContextPack["freshness"] {
+  return value === "remembered" || value === "refreshed" || value === "missing";
 }
 
 function isCompactSource(value: unknown): value is {

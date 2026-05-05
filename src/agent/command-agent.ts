@@ -5,6 +5,7 @@ import { toolStrategy } from "langchain";
 import { z } from "zod";
 
 import type {
+  AgentContextUsage,
   AgentRunMetadata,
   AgentToolProgressHandler,
   CommandAgent,
@@ -753,6 +754,7 @@ export type CommandAgentOptions = {
   model?: ReturnType<typeof createLangChainChatModel> | undefined;
   debugToolCalls?: boolean | undefined;
   onToolProgress?: AgentToolProgressHandler | undefined;
+  onContextUsage?: ((usage: AgentContextUsage) => void) | undefined;
 };
 
 export function createCommandAgent(options: CommandAgentOptions = {}): CommandAgent {
@@ -782,6 +784,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
         agentKind: "command",
       });
     },
+    onContextUsage: options.onContextUsage,
   });
 
   return {

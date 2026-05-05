@@ -345,6 +345,47 @@ test("lark agent returns minimal explicit final_response tool output", async () 
   assert.match(JSON.stringify(output.metadata.rawToolCalls), /final_response/);
 });
 
+test("lark agent accepts string nulls in explicit final_response tool output", async () => {
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [
+        {
+          name: "final_response",
+          args: {
+            content: "开发记录已写入",
+            suggestedCommand: "null",
+            topic: "null",
+            freshness: "null",
+            source: "null",
+            updatedAt: "null",
+          },
+          id: "final-lark-string-nulls",
+        },
+      ],
+    ],
+  });
+  const agent = createLarkAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  const output = await agent.interact({
+    action: "write_development_record",
+    cwd: "/repo",
+    reason: "record development",
+  });
+
+  assert.equal(output.content, "开发记录已写入");
+  assert.equal(output.suggestedCommand, undefined);
+});
+
 test("lark authorize skill warms project context with read-only docs commands", () => {
   const skill = readFileSync(
     join(process.cwd(), "skills", "lark-authorize", "SKILL.md"),

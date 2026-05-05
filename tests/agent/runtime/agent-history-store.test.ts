@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -30,14 +30,45 @@ test("agent history store persists compact history under .gitx", async () => {
     { role: "user" as const, content: "saved user" },
     { role: "assistant" as const, content: "saved assistant" },
   ];
+  const contextUsage = {
+    messageCount: 2,
+    characterCount: 25,
+    estimatedTokens: 128,
+  };
 
-  await store.save(input, messages);
+  await store.save(input, { messages, contextUsage });
 
   assert.equal(getAgentHistoryPath(cwd, "linus"), join(cwd, ".gitx", "linus-history.json"));
-  assert.deepEqual(await store.load(input), messages);
+  assert.deepEqual(await store.load(input), { messages, contextUsage });
   assert.deepEqual(JSON.parse(await readFile(getAgentHistoryPath(cwd, "linus"), "utf8")), {
     schemaVersion: 1,
     messages,
+    contextUsage,
+  });
+});
+
+test("agent history store backfills context usage for legacy history files", async () => {
+  const cwd = await createTempCwd();
+  const input = JSON.stringify({ context: { cwd } });
+  const store = createAgentHistoryStore("friday");
+  const messages = [
+    { role: "user" as const, content: "legacy user" },
+    { role: "assistant" as const, content: "legacy assistant" },
+  ];
+  await mkdir(join(cwd, ".gitx"), { recursive: true });
+  await writeFile(
+    getAgentHistoryPath(cwd, "friday"),
+    `${JSON.stringify({ schemaVersion: 1, messages }, null, 2)}\n`,
+    "utf8",
+  );
+
+  assert.deepEqual(await store.load(input), {
+    messages,
+    contextUsage: {
+      messageCount: 2,
+      characterCount: 27,
+      estimatedTokens: 7,
+    },
   });
 });
 
@@ -46,14 +77,15 @@ test("agent history store returns empty history for missing or malformed files",
   const input = JSON.stringify({ context: { cwd } });
   const store = createAgentHistoryStore("friday");
 
-  assert.deepEqual(await store.load(input), []);
+  const emptyState = { messages: [] };
+  assert.deepEqual(await store.load(input), emptyState);
 
   await writeFile(getAgentHistoryPath(cwd, "friday"), "{", "utf8").catch(async () => {
-    await store.save(input, []);
+    await store.save(input, emptyState);
     await writeFile(getAgentHistoryPath(cwd, "friday"), "{", "utf8");
   });
 
-  assert.deepEqual(await store.load(input), []);
+  assert.deepEqual(await store.load(input), emptyState);
 });
 
 test("agent history store ignores inaccessible cwd without interrupting agents", async () => {
@@ -63,7 +95,16 @@ test("agent history store ignores inaccessible cwd without interrupting agents",
   const store = createAgentHistoryStore("linus");
 
   await assert.doesNotReject(() =>
-    store.save(input, [{ role: "user", content: "not persisted" }]),
+    store.save(input, {
+      messages: [{ role: "user", content: "not persisted" }],
+      contextUsage: {
+        messageCount: 1,
+        characterCount: 13,
+        estimatedTokens: 4,
+      },
+    }),
   );
-  assert.deepEqual(await store.load(input), []);
+  assert.deepEqual(await store.load(input), {
+    messages: [],
+  });
 });

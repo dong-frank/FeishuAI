@@ -217,7 +217,7 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
 
   assert.equal(result.kind, "execute");
   assert.equal(result.exitCode, 0);
-  assert.equal(result.stdout, "Lark authorization agent started in background.\n");
+  assert.equal(result.stdout, "GITX 正在完成飞书连接配置和知识库预热，请稍等...\n");
   assert.equal(result.stderr, "");
   assert.ok(result.afterSuccess);
   assert.equal(result.afterSuccessAgentKind, "lark");

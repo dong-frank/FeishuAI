@@ -32,6 +32,7 @@ export type LangChainAgentOptions = {
   compactHistoryEntry?: LangChainHistoryCompactor | undefined;
   validateOutput?: LangChainOutputValidator | undefined;
   onToolProgress?: AgentToolProgressHandler | undefined;
+  onContextUsage?: ((usage: AgentContextUsage) => void) | undefined;
   historyStore?: LangChainHistoryStore | undefined;
 };
 
@@ -63,9 +64,14 @@ export type LangChainHistoryMessage = {
   content: string;
 };
 
+export type LangChainHistoryState = {
+  messages: LangChainHistoryMessage[];
+  contextUsage?: AgentContextUsage | undefined;
+};
+
 export type LangChainHistoryStore = {
-  load: (input: string) => Promise<LangChainHistoryMessage[]>;
-  save: (input: string, messages: LangChainHistoryMessage[]) => Promise<void>;
+  load: (input: string) => Promise<LangChainHistoryState>;
+  save: (input: string, state: LangChainHistoryState) => Promise<void>;
 };
 
 export type LangChainOutputValidator = (
@@ -74,6 +80,7 @@ export type LangChainOutputValidator = (
 ) => string | undefined;
 
 export const FINAL_RESPONSE_TOOL_NAME = "final_response";
+const LANGGRAPH_RECURSION_LIMIT = 50;
 
 type ToolWithTuiDisplay = StructuredToolInterface & {
   tuiDisplay?: string | undefined;
@@ -154,19 +161,31 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
   });
   const name = options.name ?? "LangChain Agent";
   let messageHistory: LangChainHistoryMessage[] = [];
+  let historyContextUsage: AgentContextUsage | undefined;
   const invokeWithMetadata = async (input: string) => {
     failedToolError = undefined;
     const startedAt = Date.now();
     if (options.preserveHistory && options.historyStore && messageHistory.length === 0) {
-      messageHistory = await options.historyStore.load(input);
+      const loadedHistory = await options.historyStore.load(input);
+      messageHistory = loadedHistory.messages;
+      if (loadedHistory.contextUsage || messageHistory.length > 0) {
+        historyContextUsage =
+          loadedHistory.contextUsage ?? summarizeAgentContextUsage(messageHistory);
+        options.onContextUsage?.(historyContextUsage);
+      }
     }
     const messages = [
       ...(options.preserveHistory ? messageHistory : []),
       { role: "user", content: input },
     ];
-    const result = await agent.invoke({
-      messages,
-    });
+    const result = await agent.invoke(
+      {
+        messages,
+      },
+      {
+        recursionLimit: LANGGRAPH_RECURSION_LIMIT,
+      },
+    );
     if (failedToolError) {
       throw failedToolError;
     }
@@ -179,6 +198,8 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     const metadataResult = retry
       ? combineLangChainAgentResults(result, retry.result)
       : result;
+    const durationMs = Date.now() - startedAt;
+    const metadata = extractLangChainAgentMetadata(metadataResult, durationMs);
     if (options.preserveHistory) {
       const historyEntry = compactLangChainHistoryEntry(input, content, options.compactHistoryEntry);
       messageHistory = [
@@ -186,7 +207,12 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
         { role: "user", content: historyEntry.userContent },
         { role: "assistant", content: historyEntry.assistantContent },
       ];
-      await options.historyStore?.save(input, messageHistory);
+      historyContextUsage = summarizeAgentContextUsage(messageHistory, metadata.tokenUsage);
+      await options.historyStore?.save(input, {
+        messages: messageHistory,
+        contextUsage: historyContextUsage,
+      });
+      options.onContextUsage?.(historyContextUsage);
     }
     const contextMessages = options.preserveHistory
       ? messageHistory
@@ -194,13 +220,14 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
           ...messages,
           { role: "assistant", content },
         ];
-    const durationMs = Date.now() - startedAt;
-
+    const contextUsage = options.preserveHistory
+      ? (historyContextUsage ?? summarizeAgentContextUsage(contextMessages, metadata.tokenUsage))
+      : summarizeAgentContextUsage(contextMessages, metadata.tokenUsage);
     return {
       content,
       metadata: {
-        ...extractLangChainAgentMetadata(metadataResult, durationMs),
-        contextUsage: summarizeAgentContextUsage(contextMessages),
+        ...metadata,
+        contextUsage,
       },
     };
   };
@@ -407,9 +434,14 @@ async function retryIfOutputInvalid(
     { role: "user", content: feedback },
   ];
   return {
-    result: await agent.invoke({
-      messages: retryMessages,
-    }),
+    result: await agent.invoke(
+      {
+        messages: retryMessages,
+      },
+      {
+        recursionLimit: LANGGRAPH_RECURSION_LIMIT,
+      },
+    ),
     feedback,
   };
 }
@@ -497,7 +529,10 @@ export function extractLangChainAgentMetadata(
   };
 }
 
-export function summarizeAgentContextUsage(messages: unknown[]): AgentContextUsage {
+export function summarizeAgentContextUsage(
+  messages: unknown[],
+  tokenUsage?: AgentTokenUsage | undefined,
+): AgentContextUsage {
   const characterCount = messages
     .filter(isRecord)
     .map((message) => stringifyContent(message.content))
@@ -506,7 +541,7 @@ export function summarizeAgentContextUsage(messages: unknown[]): AgentContextUsa
   return {
     messageCount: messages.length,
     characterCount,
-    estimatedTokens: Math.ceil(characterCount / 4),
+    estimatedTokens: tokenUsage?.inputTokens ?? Math.ceil(characterCount / 4),
   };
 }
 
@@ -646,6 +681,12 @@ function sumTokenUsage(
   }
 
   return {
+    ...(typeof total.inputTokens === "number" || typeof next.inputTokens === "number"
+      ? { inputTokens: (total.inputTokens ?? 0) + (next.inputTokens ?? 0) }
+      : {}),
+    ...(typeof total.outputTokens === "number" || typeof next.outputTokens === "number"
+      ? { outputTokens: (total.outputTokens ?? 0) + (next.outputTokens ?? 0) }
+      : {}),
     totalTokens: total.totalTokens + next.totalTokens,
   };
 }
@@ -655,7 +696,11 @@ function readUsageMetadata(value: unknown): AgentTokenUsage | undefined {
     return undefined;
   }
 
-  return compactTokenUsage(readNumber(value.total_tokens));
+  return compactTokenUsage({
+    inputTokens: readNumber(value.input_tokens),
+    outputTokens: readNumber(value.output_tokens),
+    totalTokens: readNumber(value.total_tokens),
+  });
 }
 
 function readOpenAiTokenUsage(value: unknown): AgentTokenUsage | undefined {
@@ -663,7 +708,11 @@ function readOpenAiTokenUsage(value: unknown): AgentTokenUsage | undefined {
     return undefined;
   }
 
-  return compactTokenUsage(readNumber(value.totalTokens));
+  return compactTokenUsage({
+    inputTokens: readNumber(value.promptTokens),
+    outputTokens: readNumber(value.completionTokens),
+    totalTokens: readNumber(value.totalTokens),
+  });
 }
 
 function readOpenAiUsage(value: unknown): AgentTokenUsage | undefined {
@@ -671,11 +720,27 @@ function readOpenAiUsage(value: unknown): AgentTokenUsage | undefined {
     return undefined;
   }
 
-  return compactTokenUsage(readNumber(value.total_tokens));
+  return compactTokenUsage({
+    inputTokens: readNumber(value.input_tokens) ?? readNumber(value.prompt_tokens),
+    outputTokens: readNumber(value.output_tokens) ?? readNumber(value.completion_tokens),
+    totalTokens: readNumber(value.total_tokens),
+  });
 }
 
-function compactTokenUsage(totalTokens: number | undefined): AgentTokenUsage | undefined {
-  return typeof totalTokens === "number" ? { totalTokens } : undefined;
+function compactTokenUsage(usage: {
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
+  totalTokens?: number | undefined;
+}): AgentTokenUsage | undefined {
+  if (typeof usage.totalTokens !== "number") {
+    return undefined;
+  }
+
+  return {
+    ...(typeof usage.inputTokens === "number" ? { inputTokens: usage.inputTokens } : {}),
+    ...(typeof usage.outputTokens === "number" ? { outputTokens: usage.outputTokens } : {}),
+    totalTokens: usage.totalTokens,
+  };
 }
 
 function getNested(value: Record<string, unknown>, path: string[]): unknown {
