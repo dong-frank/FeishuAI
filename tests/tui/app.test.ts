@@ -424,7 +424,7 @@ test("pending agent history renders compact tool progress", () => {
 
   const runningRow = rows.find((row) => row.text === "  └─ run_lark_cli auth status");
   assert.equal(runningRow?.rightText, undefined);
-  assert.equal(runningRow?.color, "magenta");
+  assert.equal(runningRow?.color, "blue");
 });
 
 test("agent tool progress truncates tool name and params to 65 percent of viewport width", () => {

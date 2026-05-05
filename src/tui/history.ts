@@ -435,7 +435,7 @@ function truncateTerminalTextByWidth(text: string, maxWidth: number) {
 
 function getAgentToolProgressColor(event: AgentToolProgressEvent): HistoryColor {
   if (event.state === "running") {
-    return "magenta";
+    return "blue";
   }
 
   if (event.state === "failed") {
