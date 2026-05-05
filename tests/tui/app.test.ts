@@ -1357,9 +1357,11 @@ test("help output is rendered in a banner instead of normal history text", () =>
   const firstAgentTitleIndex = rows.findIndex((row) => row.text === "GITX");
   assert.equal(rows[firstAgentTitleIndex - 1]?.text, "");
   assert.equal(agentTitles[0]?.rightText, "[✓ 1.2s]");
-  assert.equal(agentTitles[0]?.rightColor, "cyan");
+  assert.equal(agentTitles[0]?.color, "yellow");
+  assert.equal(agentTitles[0]?.rightColor, "green");
   assert.equal(agentTitles[1]?.rightText, "[✓ 2.5s]");
-  assert.equal(agentTitles[1]?.rightColor, "cyan");
+  assert.equal(agentTitles[1]?.color, "yellow");
+  assert.equal(agentTitles[1]?.rightColor, "green");
   assert.equal(
     isHelpOutput({
       commandLine: "git status",
@@ -1447,7 +1449,8 @@ test("agent history entries render pending, success, failed, and empty states", 
   assert.ok(rows.some((row) => row.text === "No agent suggestion generated."));
 
   assert.equal(agentTitles[1]?.rightText, "[✓ 2.5s]");
-  assert.equal(agentTitles[1]?.rightColor, "cyan");
+  assert.equal(agentTitles[1]?.color, "yellow");
+  assert.equal(agentTitles[1]?.rightColor, "green");
   assert.equal(agentTitles[5]?.rightText, "[...]");
   assert.equal(agentTitles[5]?.rightColor, "yellow");
   assert.ok(rows.some((row) => row.text === "auth ready"));
@@ -1505,8 +1508,8 @@ test("agent history entries render live agent command output under the agent ban
 
   assert.ok(rows.some((row) => row.text === "GITX"));
   assert.equal(rows.some((row) => row.text === "agent: lark init"), false);
-  assert.equal(rows.find((row) => row.text === "authorize link")?.parts?.[0]?.color, "magenta");
-  assert.equal(rows.find((row) => row.text === "waiting for login")?.parts?.[0]?.color, "magenta");
+  assert.equal(rows.find((row) => row.text === "authorize link")?.parts?.[0]?.color, "gray");
+  assert.equal(rows.find((row) => row.text === "waiting for login")?.parts?.[0]?.color, "gray");
 });
 
 test("output sections strip terminal control characters before rendering", () => {

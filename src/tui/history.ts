@@ -169,12 +169,12 @@ function getHistoryEntryRows(
       { text: "" },
       {
         text: getAgentHistoryTitle(),
-        color: "cyan",
+        color: "yellow",
         bold: true,
         rightText: formatAgentMetadata(entry.result.agentMetadata),
-        rightColor: "cyan",
+        rightColor: "green",
       },
-      ...splitPlainTextRows(getRenderedOutputText(output), { color: "cyan" }, wrapWidth),
+      ...splitPlainTextRows(getRenderedOutputText(output), { color: "gray" }, wrapWidth),
       { text: "" },
     ];
   }
@@ -316,7 +316,7 @@ function getAgentHistoryEntryRows(
     { text: "" },
     {
       text: getAgentHistoryTitle(),
-      color: "cyan",
+      color: "yellow",
       bold: true,
       rightText: getAgentHistoryRightText(entry),
       rightColor: getAgentHistoryRightColor(entry),
@@ -449,7 +449,7 @@ function getAgentHistoryBodyRows(
   }
 
   if (entry.content?.trim()) {
-    return splitPlainTextRows(entry.content.trim(), { color: "cyan" }, wrapWidth);
+    return splitPlainTextRows(entry.content.trim(), { color: "gray" }, wrapWidth);
   }
 
   return [];
@@ -484,7 +484,7 @@ function getAgentHistoryRightColor(entry: AgentHistoryEntry): HistoryColor {
     return "gray";
   }
 
-  return "cyan";
+  return "green";
 }
 
 function getAgentHistoryTitle() {
@@ -574,7 +574,7 @@ function getStyledOutputTextParts(
 
   return parts.map((part) => ({
     ...part,
-    color: part.color ?? "magenta",
+    color: part.color ?? "gray",
   }));
 }
 
