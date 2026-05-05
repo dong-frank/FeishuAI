@@ -35,6 +35,27 @@ class FeedbackAwareFakeListChatModel extends FakeListChatModel {
   }
 }
 
+function createHistoryMessages(turnCount: number) {
+  return Array.from({ length: turnCount }, (_, index) => [
+    { role: "user" as const, content: `history user ${index}` },
+    { role: "assistant" as const, content: `history assistant ${index}` },
+  ]).flat();
+}
+
+async function withMaxContextWindow<T>(value: string, run: () => Promise<T>): Promise<T> {
+  const previous = process.env.MAX_CONTEXT_WINDOW;
+  process.env.MAX_CONTEXT_WINDOW = value;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MAX_CONTEXT_WINDOW;
+    } else {
+      process.env.MAX_CONTEXT_WINDOW = previous;
+    }
+  }
+}
+
 test("createLangChainChatModel reads model configuration", () => {
   const model = createLangChainChatModel({
     apiKey: "test-key",
@@ -553,6 +574,85 @@ test("createLangChainAgent reports stored context usage on load and saves update
   assert.equal((savedState as { messages: unknown[] }).messages.length, 4);
   assert.deepEqual(contextUsages[1], (savedState as { contextUsage: unknown }).contextUsage);
   assert.deepEqual(output.metadata.contextUsage, (savedState as { contextUsage: unknown }).contextUsage);
+});
+
+test("createLangChainAgent keeps preserved history when preflight context is below threshold", async () => {
+  await withMaxContextWindow("100000", async () => {
+    const model = new FeedbackAwareFakeListChatModel({
+      responses: ["ok"],
+    });
+    let savedState: unknown;
+    const historyStore = {
+      async load() {
+        return {
+          messages: createHistoryMessages(6),
+        };
+      },
+      async save(_input: string, state: unknown) {
+        savedState = state;
+      },
+    };
+    const agent = createLangChainAgent({
+      systemPrompt: "Keep history.",
+      tools: [],
+      model: model as unknown as ChatOpenAI,
+      preserveHistory: true,
+      historyStore,
+    });
+
+    await agent.invokeWithMetadata("current command");
+
+    assert.match(model.seenMessages[0]?.join("\n") ?? "", /history user 0/);
+    assert.equal((savedState as { messages: unknown[] }).messages.length, 14);
+  });
+});
+
+test("createLangChainAgent trims early preserved history before oversized preflight requests", async () => {
+  await withMaxContextWindow("20", async () => {
+    const model = new FeedbackAwareFakeListChatModel({
+      responses: ["ok"],
+    });
+    const contextUsages: unknown[] = [];
+    let savedState: unknown;
+    const historyStore = {
+      async load() {
+        return {
+          messages: createHistoryMessages(6),
+        };
+      },
+      async save(_input: string, state: unknown) {
+        savedState = state;
+      },
+    };
+    const agent = createLangChainAgent({
+      systemPrompt: "Trim history.",
+      tools: [],
+      model: model as unknown as ChatOpenAI,
+      preserveHistory: true,
+      historyStore,
+      onContextUsage(usage) {
+        contextUsages.push(usage);
+      },
+    });
+
+    const output = await agent.invokeWithMetadata("current command");
+    const sentMessages = model.seenMessages[0]?.join("\n") ?? "";
+
+    assert.doesNotMatch(sentMessages, /history user 0/);
+    assert.match(sentMessages, /history user 1/);
+    assert.match(sentMessages, /current command/);
+    assert.equal((savedState as { messages: unknown[] }).messages.length, 10);
+    assert.deepEqual(output.metadata.contextUsage, (savedState as { contextUsage: unknown }).contextUsage);
+    assert.ok(
+      contextUsages.some(
+        (usage) =>
+          typeof usage === "object" &&
+          usage !== null &&
+          "messageCount" in usage &&
+          usage.messageCount === 10,
+      ),
+    );
+  });
 });
 
 test("createLangChainAgent feeds back and retries when validated output is empty", async () => {

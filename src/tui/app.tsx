@@ -13,6 +13,7 @@ import type {
 } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
 import { createLarkAgent } from "../agent/lark-agent.js";
+import { createAgentHistoryStore } from "../agent/runtime/agent-history-store.js";
 import { classifyCommand } from "../runtime/command-registry.js";
 import { getCompletion } from "../runtime/completion.js";
 import {
@@ -190,6 +191,24 @@ export function App({
   useEffect(() => {
     let cancelled = false;
     void refreshSession(currentCwd, () => cancelled);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentCwd]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setContextMeters({});
+
+    void loadPersistedContextMeters(currentCwd).then((meters) => {
+      if (!cancelled) {
+        setContextMeters((current) => ({
+          ...meters,
+          ...current,
+        }));
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -998,6 +1017,18 @@ export function App({
       viewportRows={stdout.rows}
     />
   );
+}
+
+export async function loadPersistedContextMeters(cwd: string): Promise<ContextMeterState> {
+  const input = JSON.stringify({ context: { cwd } });
+  const [commandHistory, larkHistory] = await Promise.all([
+    createAgentHistoryStore("linus").load(input),
+    createAgentHistoryStore("friday").load(input),
+  ]);
+  return {
+    ...(commandHistory.contextUsage ? { command: commandHistory.contextUsage } : {}),
+    ...(larkHistory.contextUsage ? { lark: larkHistory.contextUsage } : {}),
+  };
 }
 
 function hasAfterSuccessReview(

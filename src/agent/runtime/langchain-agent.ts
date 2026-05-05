@@ -81,6 +81,8 @@ export type LangChainOutputValidator = (
 
 export const FINAL_RESPONSE_TOOL_NAME = "final_response";
 const LANGGRAPH_RECURSION_LIMIT = 50;
+const HISTORY_COMPRESSION_MAX_MESSAGES = 10;
+const HISTORY_COMPRESSION_THRESHOLD_RATIO = 0.8;
 
 type ToolWithTuiDisplay = StructuredToolInterface & {
   tuiDisplay?: string | undefined;
@@ -174,10 +176,35 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
         options.onContextUsage?.(historyContextUsage);
       }
     }
-    const messages = [
+    let messages = [
       ...(options.preserveHistory ? messageHistory : []),
       { role: "user", content: input },
     ];
+    let compressedHistoryBeforeInvoke = false;
+    if (options.preserveHistory && shouldCompressLangChainHistory(options, messages, tools)) {
+      messageHistory = trimLangChainHistoryToRecentTurns(
+        messageHistory,
+        HISTORY_COMPRESSION_MAX_MESSAGES,
+      );
+      messages = [
+        ...messageHistory,
+        { role: "user", content: input },
+      ];
+      const preflightTokens = estimateLangChainPreflightTokens(options.systemPrompt, tools, messages);
+      historyContextUsage = summarizeAgentContextUsage(
+        messageHistory,
+        {
+          inputTokens: preflightTokens,
+          totalTokens: preflightTokens,
+        },
+      );
+      await options.historyStore?.save(input, {
+        messages: messageHistory,
+        contextUsage: historyContextUsage,
+      });
+      options.onContextUsage?.(historyContextUsage);
+      compressedHistoryBeforeInvoke = true;
+    }
     const result = await agent.invoke(
       {
         messages,
@@ -207,6 +234,12 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
         { role: "user", content: historyEntry.userContent },
         { role: "assistant", content: historyEntry.assistantContent },
       ];
+      if (compressedHistoryBeforeInvoke) {
+        messageHistory = trimLangChainHistoryToRecentTurns(
+          messageHistory,
+          HISTORY_COMPRESSION_MAX_MESSAGES,
+        );
+      }
       historyContextUsage = summarizeAgentContextUsage(messageHistory, metadata.tokenUsage);
       await options.historyStore?.save(input, {
         messages: messageHistory,
@@ -492,6 +525,78 @@ function compactLangChainHistoryEntry(
     userContent: input,
     assistantContent: output,
   };
+}
+
+function shouldCompressLangChainHistory(
+  options: LangChainAgentOptions,
+  messages: unknown[],
+  tools: StructuredToolInterface[],
+) {
+  if (!options.preserveHistory || messages.length <= HISTORY_COMPRESSION_MAX_MESSAGES + 1) {
+    return false;
+  }
+
+  const maxContextWindow = resolveLangChainMaxContextWindow(process.env);
+  const threshold = Math.floor(maxContextWindow * HISTORY_COMPRESSION_THRESHOLD_RATIO);
+  return estimateLangChainPreflightTokens(options.systemPrompt, tools, messages) >= threshold;
+}
+
+function resolveLangChainMaxContextWindow(
+  env: Partial<Pick<NodeJS.ProcessEnv, "MAX_CONTEXT_WINDOW">>,
+) {
+  const parsed = Number.parseInt(env.MAX_CONTEXT_WINDOW ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : 256_000;
+}
+
+function trimLangChainHistoryToRecentTurns(
+  messages: LangChainHistoryMessage[],
+  maxMessages: number,
+) {
+  const recentTurns: LangChainHistoryMessage[] = [];
+  for (let index = messages.length - 1; index > 0; index -= 1) {
+    const assistant = messages[index];
+    const user = messages[index - 1];
+    if (assistant?.role !== "assistant" || user?.role !== "user") {
+      continue;
+    }
+
+    recentTurns.unshift(user, assistant);
+    if (recentTurns.length >= maxMessages) {
+      break;
+    }
+    index -= 1;
+  }
+
+  return recentTurns;
+}
+
+function estimateLangChainPreflightTokens(
+  systemPrompt: string,
+  tools: StructuredToolInterface[],
+  messages: unknown[],
+) {
+  const characterCount =
+    systemPrompt.length +
+    estimateToolDefinitionCharacters(tools) +
+    messages
+      .filter(isRecord)
+      .map((message) => stringifyContent(message.content))
+      .reduce((total, content) => total + content.length, 0);
+  return Math.ceil(characterCount / 4);
+}
+
+function estimateToolDefinitionCharacters(tools: StructuredToolInterface[]) {
+  return tools
+    .map((toolItem) =>
+      [
+        toolItem.name,
+        toolItem.description,
+        safeStringify((toolItem as { schema?: unknown }).schema),
+      ].filter(Boolean).join("\n"),
+    )
+    .reduce((total, text) => total + text.length, 0);
 }
 
 export function shouldTraceLangChainAgent(env: NodeJS.ProcessEnv) {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -49,6 +49,7 @@ import {
   isChatCommandInput,
   isHelpOutput,
   getOutputTextParts,
+  loadPersistedContextMeters,
   parseAnsiTextParts,
   parseChatCommand,
   shouldRefreshSessionAfterCommand,
@@ -158,6 +159,56 @@ test("App automatically runs lark init once on startup", async () => {
   assert.deepEqual(calls, ["lark init"]);
 
   instance.unmount();
+});
+
+test("loadPersistedContextMeters restores Linus and Friday meters from history files", async () => {
+  const cwd = await createTempCwd();
+  await mkdir(join(cwd, ".gitx"), { recursive: true });
+  await writeFile(
+    join(cwd, ".gitx", "linus-history.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      messages: [
+        { role: "user", content: "git commit" },
+        { role: "assistant", content: "commit help" },
+      ],
+      contextUsage: {
+        messageCount: 2,
+        characterCount: 21,
+        estimatedTokens: 64000,
+      },
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    join(cwd, ".gitx", "friday-history.json"),
+    `${JSON.stringify({
+      schemaVersion: 1,
+      messages: [
+        { role: "user", content: "lark init" },
+        { role: "assistant", content: "authorized" },
+      ],
+      contextUsage: {
+        messageCount: 2,
+        characterCount: 19,
+        estimatedTokens: 128000,
+      },
+    }, null, 2)}\n`,
+    "utf8",
+  );
+
+  assert.deepEqual(await loadPersistedContextMeters(cwd), {
+    command: {
+      messageCount: 2,
+      characterCount: 21,
+      estimatedTokens: 64000,
+    },
+    lark: {
+      messageCount: 2,
+      characterCount: 19,
+      estimatedTokens: 128000,
+    },
+  });
 });
 
 test("completion ghost style is visually distinct from ordinary gray text", () => {
