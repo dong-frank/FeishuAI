@@ -329,7 +329,7 @@ test("pending agent history renders compact tool progress", () => {
   assert.equal(runningRow?.color, "magenta");
 });
 
-test("agent tool progress truncates tool name and params to 50 characters", () => {
+test("agent tool progress truncates tool name and params to 40 percent of viewport width", () => {
   const rows = getHistoryRows([
     {
       type: "agent",
@@ -347,11 +347,11 @@ test("agent tool progress truncates tool name and params to 50 characters", () =
         },
       ],
     },
-  ]);
+  ], 80);
 
   const toolRow = rows.find((row) => row.text.includes("run_lark_cli"));
-  assert.equal(toolRow?.text, "  └─ run_lark_cli docs fetch really-long-document-ti...");
-  assert.equal(getTerminalTextWidth(toolRow?.text.replace(/^  └─ /, "") ?? ""), 50);
+  assert.equal(toolRow?.text, "  └─ run_lark_cli docs fetch reall...");
+  assert.equal(getTerminalTextWidth(toolRow?.text.replace(/^  └─ /, "") ?? ""), 32);
 });
 
 test("agent tool progress uses explicit display text as the tool label", () => {

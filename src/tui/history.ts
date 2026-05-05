@@ -25,7 +25,8 @@ type OutputSource = "user" | "agent";
 type AgentHistoryKind = "command" | "lark";
 type AgentHistoryState = "pending" | "success" | "failed" | "empty";
 type AgentHistoryActivity = "waiting" | "reviewing";
-const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH = 50;
+const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH_FALLBACK = 50;
+const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH_RATIO = 0.4;
 
 export type AgentHistoryEntry = {
   type: "agent";
@@ -367,7 +368,7 @@ function getAgentToolProgressEventRows(
 ): HistoryRow[] {
   const color = getAgentToolProgressColor(event);
   const labelRows = splitTerminalTextByWidth(
-    formatAgentToolProgressLabel(event, isLast),
+    formatAgentToolProgressLabel(event, isLast, wrapWidth),
     wrapWidth,
   );
   const [firstLabel = ""] = labelRows;
@@ -385,15 +386,27 @@ function getAgentToolProgressEventRows(
   return rows;
 }
 
-function formatAgentToolProgressLabel(event: AgentToolProgressEvent, isLast: boolean) {
+function formatAgentToolProgressLabel(
+  event: AgentToolProgressEvent,
+  isLast: boolean,
+  wrapWidth?: number | undefined,
+) {
   const connector = isLast ? "└─" : "├─";
   const summary = event.inputSummary ? ` ${event.inputSummary}` : "";
   const label = event.displayText ?? event.toolName;
   const display = truncateTerminalTextByWidth(
     `${label}${summary}`,
-    AGENT_TOOL_PROGRESS_DISPLAY_WIDTH,
+    getAgentToolProgressDisplayWidth(wrapWidth),
   );
   return `  ${connector} ${display}`;
+}
+
+function getAgentToolProgressDisplayWidth(wrapWidth: number | undefined) {
+  if (!wrapWidth || wrapWidth <= 0) {
+    return AGENT_TOOL_PROGRESS_DISPLAY_WIDTH_FALLBACK;
+  }
+
+  return Math.max(1, Math.floor(wrapWidth * AGENT_TOOL_PROGRESS_DISPLAY_WIDTH_RATIO));
 }
 
 function truncateTerminalTextByWidth(text: string, maxWidth: number) {
