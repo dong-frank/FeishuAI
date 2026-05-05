@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable, Writable } from "node:stream";
 import test from "node:test";
+import React from "react";
+import { render } from "ink";
 
 import {
+  App,
   buildChatCommandContext,
   buildBeforeRunContext,
   COMPLETION_GHOST_STYLE,
@@ -61,6 +65,86 @@ import { formatTuiSessionCwdDisplay } from "../../src/runtime/tui-session.js";
 async function createTempCwd() {
   return mkdtemp(join(tmpdir(), "git-helper-tui-"));
 }
+
+function createTestInkStreams() {
+  const stdout = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  }) as Writable & { columns: number; rows: number; isTTY: boolean };
+  stdout.columns = 80;
+  stdout.rows = 24;
+  stdout.isTTY = false;
+
+  const stderr = new Writable({
+    write(_chunk, _encoding, callback) {
+      callback();
+    },
+  });
+
+  const stdin = new Readable({
+    read() {},
+  }) as Readable & {
+    isTTY: boolean;
+    setRawMode: (isRaw: boolean) => void;
+  };
+  stdin.isTTY = false;
+  stdin.setRawMode = () => {};
+
+  return { stdin, stdout, stderr };
+}
+
+test("App automatically runs lark init once on startup", async () => {
+  const cwd = await createTempCwd();
+  const calls: string[] = [];
+  const streams = createTestInkStreams();
+  const props = {
+    initialCwd: cwd,
+    initializeSession: async () => ({
+      startedAt: "2026-05-05T12:00:00.000Z",
+      cwd,
+      git: {
+        isRepository: false,
+        status: {
+          staged: 0,
+          unstaged: 0,
+          untracked: 0,
+          dirty: false,
+        },
+      },
+      lark: {
+        isInstalled: true,
+        isConnected: false,
+      },
+    }),
+    runCommandLine: async (commandLine: string) => {
+      calls.push(commandLine);
+      return {
+        commandLine,
+        kind: "execute" as const,
+        exitCode: 0,
+        stdout: "Lark authorization agent started in background.\n",
+        stderr: "",
+        afterSuccess: Promise.resolve({ content: "Friday ready" }),
+        afterSuccessAgentKind: "lark" as const,
+      };
+    },
+  };
+
+  const instance = render(React.createElement(App, props), {
+    stdin: streams.stdin,
+    stdout: streams.stdout,
+    stderr: streams.stderr,
+    exitOnCtrlC: false,
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["lark init"]);
+
+  instance.unmount();
+});
 
 test("completion ghost style is visually distinct from ordinary gray text", () => {
   assert.deepEqual(COMPLETION_GHOST_STYLE, {

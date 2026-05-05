@@ -15,17 +15,18 @@ import { classifyCommand } from "../runtime/command-registry.js";
 import { getCompletion } from "../runtime/completion.js";
 import {
   parseCommandLine,
-  runCommandLine,
+  runCommandLine as defaultRunCommandLine,
   type CommandOutputChunk,
   type CommandRunOutput,
+  type RunCommandLineOptions,
 } from "../runtime/command-runner.js";
 import {
-  createExperimentRecorder,
+  createExperimentRecorder as defaultCreateExperimentRecorder,
   type ExperimentRecorder,
   type ExperimentRecordInput,
 } from "../runtime/experiment-recorder.js";
 import {
-  initializeTuiSession,
+  initializeTuiSession as defaultInitializeTuiSession,
   type TuiSessionInfo,
 } from "../runtime/tui-session.js";
 import { AppLayout, getPromptViewportWidth } from "./layout.js";
@@ -74,10 +75,25 @@ export * from "./output.js";
 export * from "./runtime.js";
 export * from "./status.js";
 
-export function App() {
+type AppProps = {
+  autoRunLarkInit?: boolean;
+  initialCwd?: string;
+  initializeSession?: typeof defaultInitializeTuiSession;
+  runCommandLine?: (
+    commandLine: string,
+    options?: RunCommandLineOptions,
+  ) => Promise<CommandRunOutput>;
+};
+
+export function App({
+  autoRunLarkInit = true,
+  initialCwd = process.cwd(),
+  initializeSession = defaultInitializeTuiSession,
+  runCommandLine = defaultRunCommandLine,
+}: AppProps = {}) {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const [currentCwd, setCurrentCwd] = useState(process.cwd());
+  const [currentCwd, setCurrentCwd] = useState(initialCwd);
   const [session, setSession] = useState<TuiSessionInfo | undefined>();
   const [input, setInput] = useState("");
   const [cursorIndex, setCursorIndex] = useState(0);
@@ -96,6 +112,7 @@ export function App() {
   const commandAgent = useRef<CommandAgent | undefined>(undefined);
   const experimentRecorder = useRef<ExperimentRecorder | undefined>(undefined);
   const nextAgentHistoryId = useRef(1);
+  const didAutoRunLarkInit = useRef(false);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyScrollOffset, setHistoryScrollOffset] = useState(0);
   const [commandHistoryIndex, setCommandHistoryIndex] = useState<number | undefined>();
@@ -165,9 +182,18 @@ export function App() {
   }, [currentCwd]);
 
   useEffect(() => {
+    if (!autoRunLarkInit || didAutoRunLarkInit.current) {
+      return;
+    }
+
+    didAutoRunLarkInit.current = true;
+    void runTuiCommand("lark init", { allowExit: false });
+  }, [autoRunLarkInit]);
+
+  useEffect(() => {
     let cancelled = false;
 
-    void createExperimentRecorder(currentCwd).then((recorder) => {
+    void defaultCreateExperimentRecorder(currentCwd).then((recorder) => {
       if (!cancelled) {
         if (!recorder) {
           experimentRecorder.current = undefined;
@@ -202,7 +228,7 @@ export function App() {
     isCancelled: () => boolean = () => false,
   ) {
     try {
-      const nextSession = await initializeTuiSession({ cwd });
+      const nextSession = await initializeSession({ cwd });
       if (!isCancelled()) {
         setSession(nextSession);
       }
@@ -603,13 +629,22 @@ export function App() {
     setCursorIndex(0);
     lastTabAgentInput.current = undefined;
     resetCommandHistoryNavigation();
+
+    await runTuiCommand(commandLine);
+  }
+
+  async function runTuiCommand(
+    commandLine: string,
+    options: { allowExit?: boolean } = {},
+  ) {
+    const allowExit = options.allowExit ?? true;
     setHistory((current) => [
       ...omitCompletedAgentToolProgress(current),
       { type: "input", text: commandLine },
     ]);
     setHistoryScrollOffset(0);
 
-    if (commandLine === "exit" || commandLine === "quit") {
+    if (allowExit && (commandLine === "exit" || commandLine === "quit")) {
       exit();
       return;
     }

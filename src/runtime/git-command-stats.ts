@@ -26,7 +26,7 @@ export type GitCommandStats = {
 
 export const GIT_COMMAND_STATS_SCHEMA_VERSION = 3;
 export const MAX_GIT_COMMAND_FAILURES = 3;
-export const GIT_HELPER_STATE_DIR = ".git-helper";
+export const GITX_STATE_DIR = ".gitx";
 export const GIT_COMMAND_STATS_FILE = "command-stats.json";
 
 export function normalizeGitCommand(commandLine: string): string | undefined {
@@ -44,7 +44,7 @@ export function normalizeGitCommand(commandLine: string): string | undefined {
 }
 
 export function getGitCommandStatsPath(cwd: string) {
-  return join(cwd, GIT_HELPER_STATE_DIR, GIT_COMMAND_STATS_FILE);
+  return join(cwd, GITX_STATE_DIR, GIT_COMMAND_STATS_FILE);
 }
 
 export async function loadGitCommandStats(cwd: string): Promise<GitCommandStats> {
@@ -77,7 +77,7 @@ export async function loadGitCommandStats(cwd: string): Promise<GitCommandStats>
 }
 
 export async function saveGitCommandStats(cwd: string, stats: GitCommandStats) {
-  await mkdir(join(cwd, GIT_HELPER_STATE_DIR), { recursive: true });
+  await mkdir(join(cwd, GITX_STATE_DIR), { recursive: true });
   const statsPath = getGitCommandStatsPath(cwd);
   const tempPath = `${statsPath}.tmp`;
   await writeFile(tempPath, `${JSON.stringify(stats, null, 2)}\n`, "utf8");

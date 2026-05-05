@@ -35,7 +35,7 @@ test("recordGitCommandSuccess persists success counts", async () => {
   await recordGitCommandSuccess(cwd, "git status", now);
   await recordGitCommandSuccess(cwd, " git  status --short ", now);
 
-  assert.equal(getGitCommandStatsPath(cwd), join(cwd, ".git-helper", "command-stats.json"));
+  assert.equal(getGitCommandStatsPath(cwd), join(cwd, ".gitx", "command-stats.json"));
   assert.deepEqual(await loadGitCommandStats(cwd), {
     schemaVersion: 3,
     commands: {
@@ -52,7 +52,7 @@ test("recordGitCommandSuccess persists success counts", async () => {
 
 test("loadGitCommandStats returns empty stats for empty or malformed stats files", async () => {
   const emptyCwd = await createTempCwd();
-  await mkdir(join(emptyCwd, ".git-helper"), { recursive: true });
+  await mkdir(join(emptyCwd, ".gitx"), { recursive: true });
   await writeFile(getGitCommandStatsPath(emptyCwd), "", "utf8");
 
   assert.deepEqual(await loadGitCommandStats(emptyCwd), {
@@ -61,7 +61,7 @@ test("loadGitCommandStats returns empty stats for empty or malformed stats files
   });
 
   const malformedCwd = await createTempCwd();
-  await mkdir(join(malformedCwd, ".git-helper"), { recursive: true });
+  await mkdir(join(malformedCwd, ".gitx"), { recursive: true });
   await writeFile(getGitCommandStatsPath(malformedCwd), "{", "utf8");
 
   assert.deepEqual(await loadGitCommandStats(malformedCwd), {
