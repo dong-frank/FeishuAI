@@ -315,7 +315,7 @@ function getAgentHistoryEntryRows(
   return [
     { text: "" },
     {
-      text: getAgentHistoryTitle(),
+      text: entry.commandLine,
       color: "yellow",
       bold: true,
       rightText: getAgentHistoryRightText(entry),

@@ -429,10 +429,10 @@ test("pending agent history renders compact tool progress", () => {
     },
   ]);
 
-  assert.ok(rows.some((row) => row.text === "GITX"));
+  assert.ok(rows.some((row) => row.text === "git status"));
   assert.equal(rows.some((row) => row.text === "Git Agent"), false);
   assert.equal(rows.some((row) => row.text === "Lark Agent"), false);
-  const agentTitleIndex = rows.findIndex((row) => row.text === "GITX");
+  const agentTitleIndex = rows.findIndex((row) => row.text === "git status");
   assert.equal(rows[agentTitleIndex + 1]?.text, "  [Linus]");
 
   const toolRows = rows.filter((row) => row.text.includes("─ "));
@@ -1715,7 +1715,11 @@ test("agent history entries render pending, success, failed, and empty states", 
     },
   ]);
 
-  const agentTitles = rows.filter((row) => row.text === "GITX");
+  const agentTitles = rows.filter((row) => row.rightText);
+  assert.deepEqual(
+    agentTitles.map((row) => row.text),
+    ["git commit", "lark init", "git push", "git status", "git push", "lark init"],
+  );
   assert.equal(agentTitles[0]?.rightText, "[...]");
   assert.equal(agentTitles[0]?.rightColor, "yellow");
   assert.equal(agentTitles[2]?.rightText, "[failed]");
@@ -1785,10 +1789,29 @@ test("agent history entries render live agent command output under the agent ban
     },
   ]);
 
-  assert.ok(rows.some((row) => row.text === "GITX"));
+  assert.ok(rows.some((row) => row.text === "lark init"));
   assert.equal(rows.some((row) => row.text === "agent: lark init"), false);
   assert.equal(rows.find((row) => row.text === "authorize link")?.parts?.[0]?.color, "magenta");
   assert.equal(rows.find((row) => row.text === "waiting for login")?.parts?.[0]?.color, "magenta");
+});
+
+test("agent history title shows the command that triggered the agent", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "command",
+      commandLine: "git push --set-upstream origin feature/fd-124",
+      state: "pending",
+    },
+  ]);
+
+  const titleRow = rows.find(
+    (row) => row.text === "git push --set-upstream origin feature/fd-124",
+  );
+  assert.equal(titleRow?.color, "yellow");
+  assert.equal(titleRow?.bold, true);
+  assert.equal(rows.some((row) => row.text === "GITX"), false);
 });
 
 test("output sections strip terminal control characters before rendering", () => {
