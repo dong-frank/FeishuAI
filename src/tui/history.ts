@@ -310,7 +310,7 @@ function getAgentHistoryEntryRows(
       "agent",
     ),
   );
-  const bodyRows = getAgentHistoryBodyRows(entry, wrapWidth);
+  const finalDisplayRows = getAgentFinalDisplayRows(entry, wrapWidth);
 
   return [
     { text: "" },
@@ -323,7 +323,7 @@ function getAgentHistoryEntryRows(
     },
     ...outputRows,
     ...getAgentToolProgressRows(entry, wrapWidth),
-    ...bodyRows,
+    ...finalDisplayRows,
     { text: "" },
   ];
 }
@@ -450,10 +450,41 @@ function getAgentHistoryBodyRows(
   }
 
   if (entry.content?.trim()) {
-    return splitPlainTextRows(entry.content.trim(), { color: "gray" }, wrapWidth);
+    return splitPlainTextRows(entry.content.trim(), { color: "white" }, wrapWidth);
   }
 
   return [];
+}
+
+function getAgentFinalDisplayRows(
+  entry: AgentHistoryEntry,
+  wrapWidth?: number | undefined,
+): HistoryRow[] {
+  const bodyRows = getAgentHistoryBodyRows(entry, wrapWidth);
+  if (bodyRows.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      text: "  [最终显示]",
+      color: getAgentFinalDisplayColor(entry),
+      bold: true,
+    },
+    ...bodyRows,
+  ];
+}
+
+function getAgentFinalDisplayColor(entry: AgentHistoryEntry): HistoryColor {
+  if (entry.state === "failed") {
+    return "red";
+  }
+
+  if (entry.state === "empty") {
+    return "gray";
+  }
+
+  return "white";
 }
 
 function getAgentHistoryRightText(entry: AgentHistoryEntry) {

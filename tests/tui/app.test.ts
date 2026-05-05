@@ -379,6 +379,42 @@ test("agent tool progress uses explicit display text as the tool label", () => {
   assert.equal(rows.some((row) => row.text.includes("interact_with_lark_agent")), false);
 });
 
+test("agent history separates tool progress from final display", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "command",
+      commandLine: "git commit",
+      state: "success",
+      content: "commit message ready",
+      toolProgress: [
+        {
+          id: "tool-1",
+          toolName: "git_commit_context",
+          state: "success",
+          agentKind: "command",
+          displayText: "读取提交上下文",
+          inputSummary: "cwd=/repo",
+        },
+      ],
+    },
+  ]);
+
+  const toolHeaderIndex = rows.findIndex((row) => row.text === "  [Linus]");
+  const toolRowIndex = rows.findIndex((row) => row.text === "  └─ 读取提交上下文 cwd=/repo");
+  const finalHeaderIndex = rows.findIndex((row) => row.text === "  [最终显示]");
+  const finalRowIndex = rows.findIndex((row) => row.text === "commit message ready");
+
+  assert.ok(toolHeaderIndex >= 0);
+  assert.ok(toolHeaderIndex < toolRowIndex);
+  assert.ok(toolRowIndex < finalHeaderIndex);
+  assert.ok(finalHeaderIndex < finalRowIndex);
+  assert.equal(rows[toolRowIndex]?.color, "gray");
+  assert.equal(rows[finalHeaderIndex]?.color, "white");
+  assert.equal(rows[finalRowIndex]?.color, "white");
+});
+
 test("agent tool progress keeps call order when returning from lark to git", () => {
   const rows = getHistoryRows([
     {
