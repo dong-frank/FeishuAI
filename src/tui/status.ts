@@ -2,10 +2,25 @@ import {
   DEFAULT_AGENT_STATUS_WIDTH,
   DEFAULT_STATUS_PANE_WIDTH,
   DEFAULT_STATUS_TEXT,
+  TUI_FOOTER_TIPS,
   TUI_USAGE_TIPS,
+  STATUS_AGENTS_LOADING_TEXTS,
 } from "./constants.js";
 
 export type AgentKind = "command" | "lark";
+
+export function getStatusAgentsLoadingText({
+  agentKind,
+  agentCommand,
+}: {
+  agentKind?: AgentKind | undefined;
+  agentCommand?: string | undefined;
+}) {
+  const randomText = STATUS_AGENTS_LOADING_TEXTS[Math.floor(Math.random() * STATUS_AGENTS_LOADING_TEXTS.length)] ?? "思考中";
+  const kindText = agentKind ? `${agentKind} ` : "";
+  const commandText = agentCommand ? ` ${agentCommand}` : "";
+  return `${kindText}${randomText}${commandText}`;
+}
 
 export function getStatusLine({
   isRunning,
@@ -23,26 +38,18 @@ export function getStatusLine({
   tipIndex?: number | undefined;
 }) {
   if (isAgentWaiting) {
-    if (agentKind === "lark") {
-      return `正在处理 ${agentCommand ?? "lark"} ...`;
-    }
-
-    return `正在请求帮助 ${agentCommand ?? "command"} ...`;
+    return getStatusAgentsLoadingText({agentKind, agentCommand});
   }
 
   if (isAgentReviewing) {
-    if (agentKind === "lark") {
-      return `正在处理 ${agentCommand ?? "lark"} ...`;
-    }
-
-    return `正在检查 ${agentCommand ?? "command"} ...`;
+    return getStatusAgentsLoadingText({agentKind, agentCommand});
   }
 
   if (isRunning) {
     return "命令：正在执行 ...";
   }
 
-  return TUI_USAGE_TIPS[tipIndex % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
+  return TUI_USAGE_TIPS[tipIndex % TUI_USAGE_TIPS.length] ?? TUI_USAGE_TIPS[0] ?? DEFAULT_STATUS_TEXT;
 }
 
 function getTerminalCharacterWidth(character: string) {
@@ -99,24 +106,19 @@ export function getStatusPaneWidths(columns: number | undefined) {
   if (!columns) {
     return {
       left: DEFAULT_STATUS_PANE_WIDTH,
-      right: DEFAULT_STATUS_PANE_WIDTH,
+      right: 0,
     };
   }
 
-  const contentWidth = Math.max(16, columns - 12);
-  const left = Math.max(8, Math.floor(contentWidth / 2));
+  const left = Math.max(8, columns - 4);
   return {
     left,
-    right: Math.max(8, contentWidth - left),
+    right: 0,
   };
 }
 
 export function getAgentStatusWidth(columns: number | undefined) {
-  if (!columns) {
-    return DEFAULT_AGENT_STATUS_WIDTH;
-  }
-
-  return getStatusPaneWidths(columns).right;
+  return 0;
 }
 
 export function getScrollingStatusText({
@@ -167,20 +169,12 @@ export function getStatusBarParts(
     agentStatusScrollOffset?: number | undefined;
   },
 ) {
-  const tip = TUI_USAGE_TIPS[(options.tipIndex ?? 0) % TUI_USAGE_TIPS.length] ?? DEFAULT_STATUS_TEXT;
-  const activityStatus =
-    options.isRunning || options.isAgentWaiting || options.isAgentReviewing ? "运行中" : "空闲";
-
   return {
     left: getScrollingStatusText({
-      text: tip,
-      width: options.tipStatusWidth,
-      offset: options.tipStatusScrollOffset,
+      text: TUI_FOOTER_TIPS,
+      width: options.tipStatusWidth ?? getTerminalTextWidth(TUI_FOOTER_TIPS),
+      offset: 0,
     }),
-    right: getScrollingStatusText({
-      text: activityStatus,
-      width: options.agentStatusWidth,
-      offset: options.agentStatusScrollOffset,
-    }),
+    right: "",
   };
 }

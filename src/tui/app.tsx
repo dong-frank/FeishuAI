@@ -6,6 +6,7 @@ import type {
   CommandAgentOutput,
   CommandChatContext,
   CommandContext,
+  AgentToolProgressEvent,
   LarkAgent,
 } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
@@ -34,7 +35,9 @@ import {
   getHistoryViewportWidth,
   getNextHistoryScrollOffset,
   getVisibleHistoryRows,
+  omitCompletedAgentToolProgress,
   replaceAgentHistoryEntry,
+  upsertAgentToolProgress,
   type AgentHistoryEntry,
   type HistoryEntry,
   type HistoryScrollAction,
@@ -86,6 +89,9 @@ export function App() {
   const [agentSuggestedCommand, setAgentSuggestedCommand] = useState<string | undefined>();
   const lastTabAgentInput = useRef<string | undefined>(undefined);
   const larkOutputHandler = useRef<((chunk: CommandOutputChunk) => void) | undefined>(undefined);
+  const agentToolProgressHandler = useRef<
+    ((event: AgentToolProgressEvent) => void) | undefined
+  >(undefined);
   const larkAgent = useRef<LarkAgent | undefined>(undefined);
   const commandAgent = useRef<CommandAgent | undefined>(undefined);
   const experimentRecorder = useRef<ExperimentRecorder | undefined>(undefined);
@@ -134,12 +140,18 @@ export function App() {
       onLarkCliOutput(chunk) {
         larkOutputHandler.current?.(chunk);
       },
+      onToolProgress(event) {
+        agentToolProgressHandler.current?.(event);
+      },
     });
   }
 
   if (!commandAgent.current) {
     commandAgent.current = createCommandAgent({
       larkAgent: larkAgent.current,
+      onToolProgress(event) {
+        agentToolProgressHandler.current?.(event);
+      },
     });
   }
 
@@ -357,10 +369,12 @@ export function App() {
 
   async function triggerBeforeRun(context: CommandContext) {
     const agentHistoryId = appendPendingAgentHistoryEntry("command", context.rawCommand, "waiting");
+    const updateToolProgress = createAgentToolProgressHandler(agentHistoryId);
     setIsAgentWaiting(true);
     setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
     try {
+      agentToolProgressHandler.current = updateToolProgress;
       const message = await commandAgent.current?.beforeRun?.(context);
       if (!message) {
         recordExperimentEvent({
@@ -408,6 +422,9 @@ export function App() {
       });
       setHistoryScrollOffset(0);
     } finally {
+      if (agentToolProgressHandler.current === updateToolProgress) {
+        agentToolProgressHandler.current = undefined;
+      }
       setIsAgentWaiting(false);
       setActiveAgentKind(undefined);
       setAgentStatusCommand(undefined);
@@ -429,6 +446,7 @@ export function App() {
   ) {
     const agentKind = result.afterSuccessAgentKind ?? "command";
     const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine, "reviewing");
+    const updateToolProgress = createAgentToolProgressHandler(agentHistoryId);
     options.onAgentHistoryEntryCreated?.(agentHistoryId, agentKind);
     const updateLarkReviewOutput =
       agentKind === "lark"
@@ -438,6 +456,7 @@ export function App() {
     setActiveAgentKind(agentKind);
     setAgentStatusCommand(result.commandLine);
     try {
+      agentToolProgressHandler.current = updateToolProgress;
       if (updateLarkReviewOutput) {
         larkOutputHandler.current = updateLarkReviewOutput;
       }
@@ -487,6 +506,9 @@ export function App() {
         error: message,
       });
     } finally {
+      if (agentToolProgressHandler.current === updateToolProgress) {
+        agentToolProgressHandler.current = undefined;
+      }
       if (updateLarkReviewOutput && larkOutputHandler.current === updateLarkReviewOutput) {
         larkOutputHandler.current = undefined;
       }
@@ -502,13 +524,19 @@ export function App() {
       afterFail: Promise<CommandAgentOutput | void>;
       afterFailAgentKind?: "command";
     },
+    options: {
+      onAgentHistoryEntryCreated?: (id: string, agentKind: AgentKind) => void;
+    } = {},
   ) {
     const agentKind = result.afterFailAgentKind ?? "command";
     const agentHistoryId = appendPendingAgentHistoryEntry(agentKind, result.commandLine, "reviewing");
+    const updateToolProgress = createAgentToolProgressHandler(agentHistoryId);
+    options.onAgentHistoryEntryCreated?.(agentHistoryId, agentKind);
     setIsAgentReviewing(true);
     setActiveAgentKind(agentKind);
     setAgentStatusCommand(result.commandLine);
     try {
+      agentToolProgressHandler.current = updateToolProgress;
       const output = normalizeAgentOutput(await result.afterFail);
       if (!output) {
         recordExperimentEvent({
@@ -555,6 +583,9 @@ export function App() {
         error: message,
       });
     } finally {
+      if (agentToolProgressHandler.current === updateToolProgress) {
+        agentToolProgressHandler.current = undefined;
+      }
       setIsAgentReviewing(false);
       setActiveAgentKind(undefined);
       setAgentStatusCommand(undefined);
@@ -572,7 +603,10 @@ export function App() {
     setCursorIndex(0);
     lastTabAgentInput.current = undefined;
     resetCommandHistoryNavigation();
-    setHistory((current) => [...current, { type: "input", text: commandLine }]);
+    setHistory((current) => [
+      ...omitCompletedAgentToolProgress(current),
+      { type: "input", text: commandLine },
+    ]);
     setHistoryScrollOffset(0);
 
     if (commandLine === "exit" || commandLine === "quit") {
@@ -614,6 +648,8 @@ export function App() {
     let hasLiveOutput = false;
     let larkAgentHistoryId: string | undefined;
     const bufferedLarkAgentChunks: CommandOutputChunk[] = [];
+    let reviewAgentHistoryId: string | undefined;
+    const bufferedAgentToolProgressEvents: AgentToolProgressEvent[] = [];
 
     function updateLiveOutput(chunk: CommandOutputChunk, source: "user" | "agent" = "user") {
       if (chunk.stream === "stdout") {
@@ -657,9 +693,24 @@ export function App() {
 
       appendAgentHistoryOutput(larkAgentHistoryId, chunk);
     };
+    const updateReviewAgentToolProgress = (event: AgentToolProgressEvent) => {
+      if (!reviewAgentHistoryId) {
+        bufferedAgentToolProgressEvents.push(event);
+        return;
+      }
+
+      appendAgentToolProgress(reviewAgentHistoryId, event);
+    };
+    const bindReviewAgentHistoryEntry = (id: string) => {
+      reviewAgentHistoryId = id;
+      for (const event of bufferedAgentToolProgressEvents.splice(0)) {
+        appendAgentToolProgress(id, event);
+      }
+    };
 
     try {
       larkOutputHandler.current = updateAgentLiveOutput;
+      agentToolProgressHandler.current = updateReviewAgentToolProgress;
       const result = await runCommandLine(commandLine, {
         cwd: executionCwd,
         ...(commandAgent.current ? { agent: commandAgent.current } : {}),
@@ -696,6 +747,7 @@ export function App() {
       if (hasAfterSuccessReview(result)) {
         void triggerAfterSuccessReview(result, {
           onAgentHistoryEntryCreated(id, agentKind) {
+            bindReviewAgentHistoryEntry(id);
             if (agentKind !== "lark") {
               return;
             }
@@ -708,7 +760,11 @@ export function App() {
         });
       }
       if (hasAfterFailReview(result)) {
-        void triggerAfterFailReview(result);
+        void triggerAfterFailReview(result, {
+          onAgentHistoryEntryCreated(id) {
+            bindReviewAgentHistoryEntry(id);
+          },
+        });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -719,16 +775,21 @@ export function App() {
       if (larkOutputHandler.current === updateAgentLiveOutput) {
         larkOutputHandler.current = undefined;
       }
+      if (agentToolProgressHandler.current === updateReviewAgentToolProgress) {
+        agentToolProgressHandler.current = undefined;
+      }
       setIsRunning(false);
     }
   }
 
   async function triggerChat(context: CommandChatContext) {
     const agentHistoryId = appendPendingAgentHistoryEntry("command", context.rawCommand, "waiting");
+    const updateToolProgress = createAgentToolProgressHandler(agentHistoryId);
     setIsAgentWaiting(true);
     setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
     try {
+      agentToolProgressHandler.current = updateToolProgress;
       const message = await commandAgent.current?.chat?.(context);
       if (!message) {
         recordExperimentEvent({
@@ -776,6 +837,9 @@ export function App() {
       });
       setHistoryScrollOffset(0);
     } finally {
+      if (agentToolProgressHandler.current === updateToolProgress) {
+        agentToolProgressHandler.current = undefined;
+      }
       setIsAgentWaiting(false);
       setActiveAgentKind(undefined);
       setAgentStatusCommand(undefined);
@@ -831,6 +895,19 @@ export function App() {
     setHistoryScrollOffset(0);
   }
 
+  function createAgentToolProgressHandler(id: string) {
+    return (event: AgentToolProgressEvent) => appendAgentToolProgress(id, event);
+  }
+
+  function appendAgentToolProgress(id: string, event: AgentToolProgressEvent) {
+    setHistory((current) =>
+      replaceAgentHistoryEntry(current, id, {
+        toolProgress: upsertAgentToolProgress(getAgentToolProgress(current, id), event),
+      }),
+    );
+    setHistoryScrollOffset(0);
+  }
+
   return (
     <AppLayout
       sessionHeader={sessionHeader}
@@ -876,6 +953,14 @@ function getAgentHistoryOutput(
       candidate.type === "agent" && candidate.id === id,
   );
   return stream === "stdout" ? entry?.stdout ?? "" : entry?.stderr ?? "";
+}
+
+function getAgentToolProgress(history: HistoryEntry[], id: string) {
+  const entry = history.find(
+    (candidate): candidate is AgentHistoryEntry =>
+      candidate.type === "agent" && candidate.id === id,
+  );
+  return entry?.toolProgress ?? [];
 }
 
 function normalizeAgentOutput(

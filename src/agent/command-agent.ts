@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import type {
   AgentRunMetadata,
+  AgentToolProgressHandler,
   CommandAgent,
   CommandChatContext,
   CommandContext,
@@ -680,6 +681,7 @@ export type CommandAgentOptions = {
   skillRootDir?: string | undefined;
   model?: ReturnType<typeof createLangChainChatModel> | undefined;
   debugToolCalls?: boolean | undefined;
+  onToolProgress?: AgentToolProgressHandler | undefined;
 };
 
 export function createCommandAgent(options: CommandAgentOptions = {}): CommandAgent {
@@ -703,6 +705,12 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     preserveHistory: true,
     compactHistoryEntry: compactCommandAgentHistoryEntry,
     validateOutput: validateCommandAgentOutput,
+    onToolProgress(event) {
+      options.onToolProgress?.({
+        ...event,
+        agentKind: "command",
+      });
+    },
   });
 
   return {

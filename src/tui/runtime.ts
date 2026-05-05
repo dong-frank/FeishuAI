@@ -1,3 +1,5 @@
+import { basename } from "node:path";
+
 import type {
   CommandChatContext,
   CommandContext,
@@ -7,8 +9,11 @@ import { classifyCommand } from "../runtime/command-registry.js";
 import { parseCommandLine, type CommandRunOutput } from "../runtime/command-runner.js";
 import { getGitCommandStats } from "../runtime/git-command-stats.js";
 import {
+  formatTuiSessionCwdDisplay,
+  formatTuiSessionGitDisplay,
   formatTuiSessionLarkSummary,
   formatTuiSessionGitSummary,
+  formatTuiSessionLarkDisplay,
   type TuiSessionInfo,
 } from "../runtime/tui-session.js";
 export function shouldTriggerBeforeRunOnTab({
@@ -132,6 +137,20 @@ export function getSessionHeaderParts(session: TuiSessionInfo | undefined) {
     cwd: session?.cwd ?? process.cwd(),
     gitSummary: session ? formatTuiSessionGitSummary(session.git) : "git: initializing",
     larkSummary: session ? formatTuiSessionLarkSummary(session.lark) : "lark: initializing",
+    display: session
+      ? {
+          cwd: formatTuiSessionCwdDisplay({
+            cwd: session.cwd,
+            git: session.git,
+          }),
+          git: formatTuiSessionGitDisplay(session.git),
+          lark: formatTuiSessionLarkDisplay(session.lark),
+        }
+      : {
+          cwd: basename(process.cwd()),
+          git: [{ text: "初始化中", tone: "muted" as const }],
+          lark: [{ text: "初始化中", tone: "muted" as const }],
+        },
   };
 }
 

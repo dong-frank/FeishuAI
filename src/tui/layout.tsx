@@ -1,20 +1,19 @@
-import React, { memo, useEffect, useState } from "react";
+import React, { memo } from "react";
 import { Box, Text } from "ink";
 
 import { HistoryRowLine } from "./components.js";
 import {
   COMPLETION_GHOST_STYLE,
   CURSOR_STYLE,
-  TUI_STATUS_SCROLL_INTERVAL_MS,
-  TUI_USAGE_TIP_INTERVAL_MS,
-  TUI_USAGE_TIPS,
 } from "./constants.js";
 import type { HistoryRow } from "./history.js";
 import { getStatusBarParts, getTerminalTextWidth, type AgentKind } from "./status.js";
+import type { TuiSessionHeaderChip } from "../runtime/tui-session.js";
 
 export { HISTORY_ROW_HEIGHT } from "./components.js";
 
 type PromptLine = {
+  promptPrefix?: string | undefined;
   beforeCursor: string;
   cursor: string;
   afterCursor: string;
@@ -31,6 +30,11 @@ type AppLayoutProps = {
     cwd: string;
     gitSummary: string;
     larkSummary: string;
+    display: {
+      cwd: string;
+      git: TuiSessionHeaderChip[];
+      lark: TuiSessionHeaderChip[];
+    };
   };
   isRunning: boolean;
   historyViewportHeight: number;
@@ -60,39 +64,34 @@ type SessionHeaderRowsInput = {
 
 type SessionHeaderRows = [
   {
-    label: "cwd";
-    text: string;
-    status: "ready" | "running";
-    brand: "git-helper";
+    label: "brand";
+    brand: "GITX";
   },
   {
     label: "git";
-    text: string;
+    git: TuiSessionHeaderChip[];
   },
   {
     label: "lark";
-    text: string;
+    lark: TuiSessionHeaderChip[];
   },
 ];
 
 export function getSessionHeaderRows({
   sessionHeader,
-  isRunning,
 }: SessionHeaderRowsInput): SessionHeaderRows {
   return [
     {
-      label: "cwd",
-      text: sessionHeader.cwd,
-      status: isRunning ? "running" : "ready",
-      brand: "git-helper",
+      label: "brand",
+      brand: "GITX",
     },
     {
       label: "git",
-      text: stripStatusPrefix(sessionHeader.gitSummary, "git"),
+      git: sessionHeader.display.git,
     },
     {
       label: "lark",
-      text: stripStatusPrefix(sessionHeader.larkSummary, "lark"),
+      lark: sessionHeader.display.lark,
     },
   ];
 }
@@ -122,23 +121,18 @@ export function AppLayout({
     >
       <Box flexDirection="column">
         <Box borderStyle="single" flexDirection="column" paddingX={1}>
-          <Box justifyContent="space-between">
-            <Box>
-              <Text>cwd: {headerRows[0].text}</Text>
-              <Text color={isRunning ? "yellow" : "green"}>
-                {" "}
-                {headerRows[0].status}
-              </Text>
-            </Box>
-            <Text color="cyan" bold>
+          <Box justifyContent="flex-end">
+            <Text color="yellow" bold>
               {headerRows[0].brand}
             </Text>
           </Box>
           <Box>
-            <Text color="gray">git: {headerRows[1].text}</Text>
+            <HeaderLabel text="Git" />
+            <HeaderChipList chips={headerRows[1].git} />
           </Box>
           <Box>
-            <Text color="gray">lark: {headerRows[2].text}</Text>
+            <HeaderLabel text="飞书" />
+            <HeaderChipList chips={headerRows[2].lark} />
           </Box>
         </Box>
 
@@ -147,7 +141,13 @@ export function AppLayout({
           height={historyViewportHeight}
         />
 
-        <PromptPanel promptLine={promptLine} width={promptViewportWidth} />
+        <PromptPanel
+          promptLine={{
+            ...promptLine,
+            promptPrefix: sessionHeader.display.cwd,
+          }}
+          width={promptViewportWidth}
+        />
 
         <StatusBar statusState={statusState} statusPaneWidths={statusPaneWidths} />
       </Box>
@@ -170,6 +170,55 @@ const HistoryPanel = memo(function HistoryPanel({
     </Box>
   );
 });
+
+function HeaderLabel({ text }: { text: string }) {
+  return <Text color="gray">{formatHeaderLabelText(text)}</Text>;
+}
+
+const HEADER_LABEL_WIDTH = 5;
+
+export function formatHeaderLabelText(text: string) {
+  return `${padTerminalTextEnd(text, HEADER_LABEL_WIDTH)}│ `;
+}
+
+function padTerminalTextEnd(text: string, width: number) {
+  const paddingWidth = Math.max(0, width - getTerminalTextWidth(text));
+  return `${text}${" ".repeat(paddingWidth)}`;
+}
+
+function HeaderChipList({ chips }: { chips: TuiSessionHeaderChip[] }) {
+  return (
+    <>
+      {chips.map((chip, index) => (
+        <React.Fragment key={`${chip.text}-${index}`}>
+          {index > 0 ? <Text> </Text> : null}
+          <HeaderChip chip={chip} />
+        </React.Fragment>
+      ))}
+    </>
+  );
+}
+
+function HeaderChip({ chip }: { chip: TuiSessionHeaderChip }) {
+  return <Text color={getHeaderChipColor(chip.tone)}>[{chip.text}]</Text>;
+}
+
+export function getHeaderChipColor(tone: TuiSessionHeaderChip["tone"]) {
+  if (tone === "primary") {
+    return "green";
+  }
+  if (tone === "info") {
+    return "blue";
+  }
+  if (tone === "warning") {
+    return "yellow";
+  }
+  if (tone === "success") {
+    return "green";
+  }
+
+  return "gray";
+}
 
 function PromptPanel({
   promptLine,
@@ -209,58 +258,15 @@ function PromptSegmentText({ segment }: { segment: PromptDisplaySegment }) {
 }
 
 function StatusBar({
-  statusState,
   statusPaneWidths,
 }: {
   statusState: StatusState;
   statusPaneWidths: AppLayoutProps["statusPaneWidths"];
 }) {
-  const [tipIndex, setTipIndex] = useState(0);
-  const [tipStatusScrollOffset, setTipStatusScrollOffset] = useState(0);
-  const [agentStatusScrollOffset, setAgentStatusScrollOffset] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTipIndex((current) => (current + 1) % TUI_USAGE_TIPS.length);
-    }, TUI_USAGE_TIP_INTERVAL_MS);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
-
-  useEffect(() => {
-    setTipStatusScrollOffset(0);
-  }, [tipIndex]);
-
-  useEffect(() => {
-    setAgentStatusScrollOffset(0);
-  }, [
-    statusState.isRunning,
-    statusState.isAgentWaiting,
-    statusState.isAgentReviewing,
-    statusState.agentKind,
-    statusState.agentCommand,
-  ]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTipStatusScrollOffset((current) => current + 1);
-      setAgentStatusScrollOffset((current) => current + 1);
-    }, TUI_STATUS_SCROLL_INTERVAL_MS);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
-
   const statusBar = getStatusBarParts({
-    ...statusState,
-    tipIndex,
+    isRunning: false,
+    isAgentWaiting: false,
     tipStatusWidth: statusPaneWidths.left,
-    tipStatusScrollOffset,
-    agentStatusWidth: statusPaneWidths.right,
-    agentStatusScrollOffset,
   });
 
   return (
@@ -268,11 +274,6 @@ function StatusBar({
       <Box width={statusPaneWidths.left}>
         <Text color="gray">{statusBar.left}</Text>
       </Box>
-      {statusBar.right ? (
-        <Box width={statusPaneWidths.right} justifyContent="flex-end">
-          <Text color="yellow">{statusBar.right}</Text>
-        </Box>
-      ) : null}
     </Box>
   );
 }
@@ -290,7 +291,9 @@ export function getPromptDisplayRows(
   width?: number | undefined,
 ): PromptDisplaySegment[][] {
   const allSegments: PromptDisplaySegment[] = [
-    { kind: "prompt", text: "$ " },
+    { kind: "prompt", text: `${promptLine.promptPrefix ?? ""}${
+      promptLine.promptPrefix ? " " : ""
+    }❯ ` },
     { kind: "input", text: promptLine.beforeCursor },
     { kind: "cursor", text: promptLine.cursor },
     { kind: "input", text: promptLine.afterCursor },
@@ -350,9 +353,4 @@ export function getLayoutHistoryRows(
       () => ({ text: "" }),
     ),
   ];
-}
-
-function stripStatusPrefix(value: string, label: "git" | "lark") {
-  const prefix = `${label}: `;
-  return value.startsWith(prefix) ? value.slice(prefix.length) : value;
 }

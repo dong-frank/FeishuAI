@@ -1,12 +1,16 @@
-import type { AgentRunMetadata, AgentTokenUsage } from "../agent/types.js";
+import type {
+  AgentRunMetadata,
+  AgentTokenUsage,
+  AgentToolProgressEvent,
+} from "../agent/types.js";
 import type { CommandRunOutput } from "../runtime/command-runner.js";
 import {
   DEFAULT_HISTORY_VIEWPORT_HEIGHT,
   INPUT_HISTORY_MARGIN_BOTTOM,
   MIN_HISTORY_VIEWPORT_HEIGHT,
   RESERVED_TUI_CHROME_ROWS,
+  WELCOME_BANNER_LINES,
   WELCOME_SUBTITLE,
-  WELCOME_TITLE,
 } from "./constants.js";
 import {
   getOutputSections,
@@ -22,6 +26,7 @@ type OutputSource = "user" | "agent";
 type AgentHistoryKind = "command" | "lark";
 type AgentHistoryState = "pending" | "success" | "failed" | "empty";
 type AgentHistoryActivity = "waiting" | "reviewing";
+const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH = 25;
 
 export type AgentHistoryEntry = {
   type: "agent";
@@ -35,6 +40,7 @@ export type AgentHistoryEntry = {
   metadata?: AgentRunMetadata | undefined;
   stdout?: string | undefined;
   stderr?: string | undefined;
+  toolProgress?: AgentToolProgressEvent[] | undefined;
 };
 
 export type HistoryEntry =
@@ -119,11 +125,11 @@ export function getHistoryRows(
   wrapWidth?: number | undefined,
 ): HistoryRow[] {
   return [
-    {
-      text: WELCOME_TITLE,
-      color: "cyan",
+    ...WELCOME_BANNER_LINES.map((line) => ({
+      text: line,
+      color: "yellow" as const,
       bold: true,
-    },
+    })),
     {
       text: WELCOME_SUBTITLE,
       color: "gray",
@@ -163,7 +169,7 @@ function getHistoryEntryRows(
     return [
       { text: "" },
       {
-        text: getAgentHistoryTitle(entry.result.agentKind),
+        text: getAgentHistoryTitle(),
         color: "cyan",
         bold: true,
         rightText: formatAgentMetadata(entry.result.agentMetadata),
@@ -205,6 +211,31 @@ export function replaceAgentHistoryEntry(
         }
       : entry,
   );
+}
+
+export function omitCompletedAgentToolProgress(history: HistoryEntry[]): HistoryEntry[] {
+  return history.map((entry) => {
+    if (entry.type !== "agent" || entry.state === "pending" || !entry.toolProgress) {
+      return entry;
+    }
+
+    const { toolProgress: _toolProgress, ...rest } = entry;
+    return rest;
+  });
+}
+
+export function upsertAgentToolProgress(
+  current: AgentToolProgressEvent[],
+  event: AgentToolProgressEvent,
+) {
+  const existingIndex = current.findIndex(
+    (candidate) => candidate.id === event.id && candidate.agentKind === event.agentKind,
+  );
+  const next =
+    existingIndex >= 0
+      ? current.map((candidate, index) => (index === existingIndex ? event : candidate))
+      : [...current, event];
+  return next;
 }
 
 function isFailedOutputForCommand(
@@ -295,16 +326,114 @@ function getAgentHistoryEntryRows(
   return [
     { text: "" },
     {
-      text: getAgentHistoryTitle(entry.agentKind),
+      text: getAgentHistoryTitle(),
       color: "cyan",
       bold: true,
       rightText: getAgentHistoryRightText(entry),
       rightColor: getAgentHistoryRightColor(entry),
     },
     ...outputRows,
+    ...getAgentToolProgressRows(entry, wrapWidth),
     ...bodyRows,
     { text: "" },
   ];
+}
+
+function getAgentToolProgressRows(
+  entry: AgentHistoryEntry,
+  wrapWidth?: number | undefined,
+): HistoryRow[] {
+  if (!entry.toolProgress?.length) {
+    return [];
+  }
+
+  return entry.toolProgress.flatMap((event, index) =>
+    getAgentToolProgressEventRows(
+      event,
+      index === entry.toolProgress!.length - 1,
+      entry.agentKind,
+      wrapWidth,
+    ),
+  );
+}
+
+function getAgentToolProgressEventRows(
+  event: AgentToolProgressEvent,
+  isLast: boolean,
+  fallbackAgentKind: AgentHistoryKind,
+  wrapWidth?: number | undefined,
+): HistoryRow[] {
+  const color = getAgentToolProgressColor(event);
+  const agentKind = event.agentKind ?? fallbackAgentKind;
+  const labelRows = splitTerminalTextByWidth(
+    formatAgentToolProgressLabel(event, isLast),
+    wrapWidth,
+  );
+  const [firstLabel = ""] = labelRows;
+  const rows: HistoryRow[] = [
+    {
+      text: firstLabel,
+      color,
+      rightText: `[${getAgentToolProgressAgentTitle(agentKind)}]`,
+      rightColor: getAgentToolProgressAgentColor(agentKind),
+    },
+    ...labelRows.slice(1).map((text) => ({
+      text,
+      color,
+    })),
+  ];
+
+  return rows;
+}
+
+function formatAgentToolProgressLabel(event: AgentToolProgressEvent, isLast: boolean) {
+  const connector = isLast ? "└─" : "├─";
+  const summary = event.inputSummary ? ` ${event.inputSummary}` : "";
+  const display = truncateTerminalTextByWidth(
+    `${event.toolName}${summary}`,
+    AGENT_TOOL_PROGRESS_DISPLAY_WIDTH,
+  );
+  return `  ${connector} ${display}`;
+}
+
+function truncateTerminalTextByWidth(text: string, maxWidth: number) {
+  if (maxWidth <= 0 || getTerminalTextWidth(text) <= maxWidth) {
+    return text;
+  }
+
+  const suffix = "...";
+  const suffixWidth = getTerminalTextWidth(suffix);
+  const targetWidth = Math.max(0, maxWidth - suffixWidth);
+  let current = "";
+  let currentWidth = 0;
+
+  for (const character of Array.from(text)) {
+    const characterWidth = getTerminalTextWidth(character);
+    if (currentWidth + characterWidth > targetWidth) {
+      break;
+    }
+
+    current += character;
+    currentWidth += characterWidth;
+  }
+
+  return `${current}${suffix}`;
+}
+
+function getAgentToolProgressColor(event: AgentToolProgressEvent): HistoryColor {
+  if (event.state === "running") {
+    return "magenta";
+  }
+
+  if (event.state === "failed") {
+    return "red";
+  }
+
+  return "gray";
+}
+
+function getAgentToolProgressAgentColor(agentKind: AgentHistoryKind): HistoryColor {
+  return agentKind === "lark" ? "magenta" : "cyan";
 }
 
 function getAgentHistoryBodyRows(
@@ -372,7 +501,11 @@ function getAgentHistoryRightColor(entry: AgentHistoryEntry): HistoryColor {
   return "cyan";
 }
 
-function getAgentHistoryTitle(agentKind: "command" | "lark" | undefined) {
+function getAgentHistoryTitle() {
+  return "GITX";
+}
+
+function getAgentToolProgressAgentTitle(agentKind: "command" | "lark" | undefined) {
   if (agentKind === "lark") {
     return "Lark Agent";
   }
