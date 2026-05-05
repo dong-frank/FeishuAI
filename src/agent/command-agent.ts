@@ -20,6 +20,7 @@ import {
   createLangChainAgent,
   createLangChainChatModel,
   formatRawToolCallsDebugOutput,
+  withTuiDisplay,
 } from "./runtime/langchain-agent.js";
 import {
   createSkillRegistry,
@@ -270,50 +271,56 @@ const COMMAND_AGENT_FINAL_RESPONSE_SCHEMA = z
   .strict();
 
 export function createLoadCommandSkillTool(registry: SkillRegistry): StructuredToolInterface {
-  return tool(
-    async ({ skillName }) => registry.loadSkill(skillName),
-    {
-      name: "load_skill",
-      description: `Load a specialized Command skill.
+  return withTuiDisplay(
+    tool(
+      async ({ skillName }) => registry.loadSkill(skillName),
+      {
+        name: "load_skill",
+        description: `Load a specialized Command skill.
 
 Available skills:
 ${formatAvailableSkills(registry.listSkills())}
 
 Returns the skill's prompt and context.`,
-      schema: z.object({
-        skillName: z.string().describe("Name of command skill to load"),
-      }),
-    },
+        schema: z.object({
+          skillName: z.string().describe("Name of command skill to load"),
+        }),
+      },
+    ),
+    "加载 Linus 技能",
   );
 }
 
 export function createInteractWithLarkAgentTool({
   larkAgent,
 }: InteractWithLarkAgentToolOptions = {}): StructuredToolInterface {
-  return tool(
-    async (input) => {
-      if (!larkAgent) {
-        if (input.action === "get_context") {
+  return withTuiDisplay(
+    tool(
+      async (input) => {
+        if (!larkAgent) {
+          if (input.action === "get_context") {
+            return JSON.stringify({
+              topic: input.topic,
+              content: "",
+              freshness: "missing",
+            });
+          }
+
           return JSON.stringify({
-            topic: input.topic,
-            content: "",
-            freshness: "missing",
+            content: "未配置 Friday，开发记录未更新。",
           });
         }
 
-        return JSON.stringify({
-          content: "未配置 Friday，开发记录未更新。",
-        });
-      }
-
-      return JSON.stringify(await larkAgent.interact(normalizeLarkInteractionInput(input)));
-    },
-    {
-      name: "interact_with_lark_agent",
-      description:
-        "与 Friday 执行受控交互。只接受固定交互参数，不接受 lark-cli args",
-      schema: createInteractWithLarkAgentSchema(),
-    },
+        return JSON.stringify(await larkAgent.interact(normalizeLarkInteractionInput(input)));
+      },
+      {
+        name: "interact_with_lark_agent",
+        description:
+          "与 Friday 执行受控交互。只接受固定交互参数，不接受 lark-cli args",
+        schema: createInteractWithLarkAgentSchema(),
+      },
+    ),
+    "请求 Friday",
   );
 }
 
@@ -537,44 +544,53 @@ export async function buildGitRepositoryContext({
 }
 
 function createTldrGitManualTool(): StructuredToolInterface {
-  return tool(
-    async ({ command }) => readTldrPage(command),
-    {
-      name: "tldr_git_manual",
-      description:
-        "查询 tldr 中的 Git 命令快速手册。输入可以是 git push、git status 或 git-push 这样的命令名。",
-      schema: z.object({
-        command: z.string().describe("需要查询的 Git 命令，例如 git push 或 git status。"),
-      }),
-    },
+  return withTuiDisplay(
+    tool(
+      async ({ command }) => readTldrPage(command),
+      {
+        name: "tldr_git_manual",
+        description:
+          "查询 tldr 中的 Git 命令快速手册。输入可以是 git push、git status 或 git-push 这样的命令名。",
+        schema: z.object({
+          command: z.string().describe("需要查询的 Git 命令，例如 git push 或 git status。"),
+        }),
+      },
+    ),
+    "查询 Git 手册",
   );
 }
 
 function createGitCommitContextTool(): StructuredToolInterface {
-  return tool(
-    async ({ cwd }) => JSON.stringify(await buildGitCommitContext({ cwd })),
-    {
-      name: "git_commit_context",
-      description:
-        "按需读取生成 commit message 所需的已暂存 Git 信息。只在 git commit 场景使用；内部固定运行 git status --short、git diff --cached、git log -5 --pretty=%s，并会截断过长输出。",
-      schema: z.object({
-        cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
-      }),
-    },
+  return withTuiDisplay(
+    tool(
+      async ({ cwd }) => JSON.stringify(await buildGitCommitContext({ cwd })),
+      {
+        name: "git_commit_context",
+        description:
+          "按需读取生成 commit message 所需的已暂存 Git 信息。只在 git commit 场景使用；内部固定运行 git status --short、git diff --cached、git log -5 --pretty=%s，并会截断过长输出。",
+        schema: z.object({
+          cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
+        }),
+      },
+    ),
+    "读取提交上下文",
   );
 }
 
 function createGitRepositoryContextTool(): StructuredToolInterface {
-  return tool(
-    async ({ cwd }) => JSON.stringify(await buildGitRepositoryContext({ cwd })),
-    {
-      name: "git_repository_context",
-      description:
-        "读取 Git 仓库上下文。内部固定运行 git status --short --branch、git branch --show-current、git remote -v，并会截断过长输出。",
-      schema: z.object({
-        cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
-      }),
-    },
+  return withTuiDisplay(
+    tool(
+      async ({ cwd }) => JSON.stringify(await buildGitRepositoryContext({ cwd })),
+      {
+        name: "git_repository_context",
+        description:
+          "读取 Git 仓库上下文。内部固定运行 git status --short --branch、git branch --show-current、git remote -v，并会截断过长输出。",
+        schema: z.object({
+          cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
+        }),
+      },
+    ),
+    "读取仓库上下文",
   );
 }
 

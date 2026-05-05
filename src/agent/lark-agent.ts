@@ -7,6 +7,7 @@ import {
   createLangChainAgent,
   createLangChainChatModel,
   formatRawToolCallsDebugOutput,
+  withTuiDisplay,
   type LangChainAgent,
 } from "./runtime/langchain-agent.js";
 import {
@@ -171,46 +172,52 @@ export type LarkAgentOptions = {
 export function createRunLarkCliTool(
   options: LarkAgentOptions = {},
 ): StructuredToolInterface {
-  return tool(
-    async ({ args, showOutputInTui = false }) => {
-      const executeRunLarkCli = options.runLarkCli ?? runLarkCli;
-      const result = await executeRunLarkCli(args, {
-        ...(showOutputInTui && options.onLarkCliOutput
-          ? { onOutput: options.onLarkCliOutput }
-          : {}),
-      });
-      return formatLarkCliResult(result);
-    },
-    {
-      name: "run_lark_cli",
-      description:
-        "执行任意 lark-cli 命令参数。args 不包含 lark-cli 本身，例如 [\"auth\", \"status\"]。showOutputInTui 表示是否把命令运行期间输出实时显示到 TUI 历史界面；展示给用户时应选择合适的 --format。",
-      schema: z.object({
-        args: z.array(z.string()).describe("传给 lark-cli 的参数数组，不包含 lark-cli 本身。"),
-        showOutputInTui: z
-          .boolean()
-          .default(false)
-          .describe("是否把命令运行期间的 stdout/stderr 实时显示在 TUI 历史界面。"),
-      }),
-    },
+  return withTuiDisplay(
+    tool(
+      async ({ args, showOutputInTui = false }) => {
+        const executeRunLarkCli = options.runLarkCli ?? runLarkCli;
+        const result = await executeRunLarkCli(args, {
+          ...(showOutputInTui && options.onLarkCliOutput
+            ? { onOutput: options.onLarkCliOutput }
+            : {}),
+        });
+        return formatLarkCliResult(result);
+      },
+      {
+        name: "run_lark_cli",
+        description:
+          "执行任意 lark-cli 命令参数。args 不包含 lark-cli 本身，例如 [\"auth\", \"status\"]。showOutputInTui 表示是否把命令运行期间输出实时显示到 TUI 历史界面；展示给用户时应选择合适的 --format。",
+        schema: z.object({
+          args: z.array(z.string()).describe("传给 lark-cli 的参数数组，不包含 lark-cli 本身。"),
+          showOutputInTui: z
+            .boolean()
+            .default(false)
+            .describe("是否把命令运行期间的 stdout/stderr 实时显示在 TUI 历史界面。"),
+        }),
+      },
+    ),
+    "执行 Lark CLI",
   );
 }
 
 function createLoadSkillTool(registry: SkillRegistry): StructuredToolInterface {
-  return tool(
-    async ({ skillName }) => registry.loadSkill(skillName),
-    {
-      name: "load_skill",
-      description: `Load a specialized Lark skill.
+  return withTuiDisplay(
+    tool(
+      async ({ skillName }) => registry.loadSkill(skillName),
+      {
+        name: "load_skill",
+        description: `Load a specialized Lark skill.
 
 Available skills:
 ${formatAvailableSkills(registry.listSkills())}
 
 Returns the skill's prompt and context.`,
-      schema: z.object({
-        skillName: z.string().describe("Name of skill to load"),
-      }),
-    },
+        schema: z.object({
+          skillName: z.string().describe("Name of skill to load"),
+        }),
+      },
+    ),
+    "加载 Friday 技能",
   );
 }
 

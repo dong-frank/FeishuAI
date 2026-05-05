@@ -389,8 +389,9 @@ function getAgentToolProgressEventRows(
 function formatAgentToolProgressLabel(event: AgentToolProgressEvent, isLast: boolean) {
   const connector = isLast ? "└─" : "├─";
   const summary = event.inputSummary ? ` ${event.inputSummary}` : "";
+  const label = event.displayText ?? event.toolName;
   const display = truncateTerminalTextByWidth(
-    `${event.toolName}${summary}`,
+    `${label}${summary}`,
     AGENT_TOOL_PROGRESS_DISPLAY_WIDTH,
   );
   return `  ${connector} ${display}`;

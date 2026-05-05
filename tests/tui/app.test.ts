@@ -351,6 +351,34 @@ test("agent tool progress truncates tool name and params to 50 characters", () =
   assert.equal(getTerminalTextWidth(toolRow?.text.replace(/^  └─ /, "") ?? ""), 50);
 });
 
+test("agent tool progress uses explicit display text as the tool label", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "command",
+      commandLine: "git commit",
+      state: "pending",
+      toolProgress: [
+        {
+          id: "tool-1",
+          toolName: "interact_with_lark_agent",
+          state: "running",
+          agentKind: "command",
+          displayText: "请求 Friday",
+          inputSummary: "topic=commit_message_policy",
+        },
+      ],
+    },
+  ]);
+
+  assert.equal(
+    rows.find((row) => row.text.includes("请求 Friday"))?.text,
+    "  └─ 请求 Friday topic=commit_message_policy",
+  );
+  assert.equal(rows.some((row) => row.text.includes("interact_with_lark_agent")), false);
+});
+
 test("agent tool progress keeps call order when returning from lark to git", () => {
   const rows = getHistoryRows([
     {

@@ -16,6 +16,7 @@ import {
   getLangChainAgentOutputText,
   resolveLangChainModelName,
   shouldTraceLangChainAgent,
+  withTuiDisplay,
 } from "../../../src/agent/runtime/langchain-agent.js";
 
 class FeedbackAwareFakeListChatModel extends FakeListChatModel {
@@ -253,6 +254,64 @@ test("createLangChainAgent emits tool progress for successful tool calls", async
   );
   assert.doesNotMatch(String((events[0] as { inputSummary?: string }).inputSummary), /[{}[\]"']/);
   assert.equal(typeof (events[1] as { durationMs?: number }).durationMs, "number");
+});
+
+test("createLangChainAgent uses tuiDisplay as the tool label while keeping input summary", async () => {
+  const events: unknown[] = [];
+  const lookupTool = withTuiDisplay(
+    tool(
+      async ({ query }) => `manual for ${query}`,
+      {
+        name: "lookup_manual",
+        description: "Lookup a manual page.",
+        schema: z.object({
+          query: z.string(),
+        }),
+      },
+    ),
+    "查询 Git 推送手册",
+  );
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [
+        {
+          name: "lookup_manual",
+          args: {
+            query: "git push --force-with-lease",
+          },
+          id: "call-1",
+        },
+      ],
+      [],
+    ],
+  });
+  const agent = createLangChainAgent({
+    systemPrompt: "Use tools when helpful.",
+    tools: [lookupTool],
+    model: model as unknown as ChatOpenAI,
+    onToolProgress(event) {
+      events.push(event);
+    },
+  });
+
+  await agent.invoke("Explain git push");
+
+  assert.equal(
+    (events[0] as { inputSummary?: string }).inputSummary,
+    "query=git push --force-with-lease",
+  );
+  assert.equal(
+    (events[0] as { displayText?: string }).displayText,
+    "查询 Git 推送手册",
+  );
+  assert.equal(
+    (events[1] as { inputSummary?: string }).inputSummary,
+    "query=git push --force-with-lease",
+  );
+  assert.equal(
+    (events[1] as { displayText?: string }).displayText,
+    "查询 Git 推送手册",
+  );
 });
 
 test("createLangChainAgent emits failed tool progress and rethrows tool errors", async () => {

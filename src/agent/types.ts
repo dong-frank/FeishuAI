@@ -72,6 +72,7 @@ export type AgentToolProgressEvent = {
   toolName: string;
   agentKind?: "command" | "lark" | undefined;
   state: "running" | "success" | "failed";
+  displayText?: string | undefined;
   inputSummary?: string | undefined;
   durationMs?: number | undefined;
   error?: string | undefined;

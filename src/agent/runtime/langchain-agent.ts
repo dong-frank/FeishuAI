@@ -64,16 +64,31 @@ export type LangChainOutputValidator = (
 
 export const FINAL_RESPONSE_TOOL_NAME = "final_response";
 
+type ToolWithTuiDisplay = StructuredToolInterface & {
+  tuiDisplay?: string | undefined;
+};
+
+export function withTuiDisplay<TTool extends StructuredToolInterface>(
+  toolItem: TTool,
+  displayText: string,
+): TTool {
+  (toolItem as ToolWithTuiDisplay).tuiDisplay = displayText;
+  return toolItem;
+}
+
 export function createFinalResponseTool(schema: z.ZodType): StructuredToolInterface {
-  return tool(
-    async (input) => JSON.stringify(input),
-    {
-      name: FINAL_RESPONSE_TOOL_NAME,
-      description:
-        "Return the final structured response for this agent turn. Call this exactly once after all other necessary tools have completed; this tool ends the current turn.",
-      schema,
-      returnDirect: true,
-    },
+  return withTuiDisplay(
+    tool(
+      async (input) => JSON.stringify(input),
+      {
+        name: FINAL_RESPONSE_TOOL_NAME,
+        description:
+          "Return the final structured response for this agent turn. Call this exactly once after all other necessary tools have completed; this tool ends the current turn.",
+        schema,
+        returnDirect: true,
+      },
+    ),
+    "生成回复",
   );
 }
 
@@ -221,12 +236,14 @@ function wrapToolsWithProgress(
           const id = `tool-${nextToolProgressId}`;
           nextToolProgressId += 1;
           const toolName = target.name;
+          const displayText = readToolDisplayText(target);
           const inputSummary = summarizeToolInput(input);
           const startedAt = Date.now();
           onToolProgress({
             id,
             toolName,
             state: "running",
+            ...(displayText ? { displayText } : {}),
             ...(inputSummary ? { inputSummary } : {}),
           });
 
@@ -236,6 +253,7 @@ function wrapToolsWithProgress(
               id,
               toolName,
               state: "success",
+              ...(displayText ? { displayText } : {}),
               ...(inputSummary ? { inputSummary } : {}),
               durationMs: Date.now() - startedAt,
             });
@@ -246,6 +264,7 @@ function wrapToolsWithProgress(
               id,
               toolName,
               state: "failed",
+              ...(displayText ? { displayText } : {}),
               ...(inputSummary ? { inputSummary } : {}),
               durationMs: Date.now() - startedAt,
               error: summarizeToolError(error),
@@ -288,6 +307,11 @@ function summarizeToolInput(input: unknown) {
   ).length;
   const suffix = visibleKeyCount > parts.length ? ", ..." : "";
   return sanitizeToolSummary(`${parts.join(", ")}${suffix}`);
+}
+
+function readToolDisplayText(toolItem: StructuredToolInterface) {
+  const display = (toolItem as ToolWithTuiDisplay).tuiDisplay;
+  return typeof display === "string" ? display.trim() : "";
 }
 
 function summarizeToolInputValue(value: unknown): string {
