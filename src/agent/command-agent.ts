@@ -16,6 +16,7 @@ import type {
   LarkInteractionRequest,
 } from "./types.js";
 import {
+  createFinalResponseTool,
   createLangChainAgent,
   createLangChainChatModel,
   formatRawToolCallsDebugOutput,
@@ -56,8 +57,9 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 
 - 回答要简短、准确、可执行，不要编造不存在的团队规范、飞书文档或命令结果。
 - 输出要适合终端阅读：使用纯文本、短段落、短行和简单缩进；不要使用 Markdown 标题、表格、代码围栏、链接语法、复杂列表或终端控制字符。
-- 只能输出一个 JSON 对象，不要输出 JSON 之外的任何文字。
-- JSON 必须包含 content 字段；content 是展示给用户的终端文本。
+- 完成所有必要工具调用后，必须调用且只调用一次 final_response 工具；调用 final_response 就表示本轮结束。
+- 不要把最终回复直接写在普通 assistant 文本里；最终展示内容必须放入 final_response 的 content 字段。
+- final_response 必须包含 content 字段；content 是展示给用户的终端文本。
 - suggestedCommand 如果没有明确可执行建议，输出 null 或空字符串；如果输出字符串，它必须是一条完整命令，不是命令后缀。
 - 可以大胆给出 suggestedCommand，用户不一定会接受；它只是 TUI 里的高优先级补全候选。只要有一个合理、完整、可执行的下一步命令，就给出 suggestedCommand；如果当前信息不足或建议可能危险，才输出空字符串。
 - skills里面封装了流程经验，需要参考对应的skills来回答。
@@ -244,6 +246,13 @@ type CommandAgentToolOptions = InteractWithLarkAgentToolOptions & {
   skillRegistry?: SkillRegistry | undefined;
 };
 
+const COMMAND_AGENT_FINAL_RESPONSE_SCHEMA = z
+  .object({
+    content: z.string(),
+    suggestedCommand: z.string().nullable().optional(),
+  })
+  .strict();
+
 export function createLoadCommandSkillTool(registry: SkillRegistry): StructuredToolInterface {
   return tool(
     async ({ skillName }) => registry.loadSkill(skillName),
@@ -424,6 +433,7 @@ function createCommandAgentTools(options: CommandAgentToolOptions = {}) {
     createGitCommitContextTool(),
     createGitRepositoryContextTool(),
     createInteractWithLarkAgentTool(options),
+    createFinalResponseTool(COMMAND_AGENT_FINAL_RESPONSE_SCHEMA),
   ];
 }
 
@@ -701,7 +711,6 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       skillRegistry,
     }),
     model,
-    responseFormat: COMMAND_AGENT_RESPONSE_FORMAT,
     preserveHistory: true,
     compactHistoryEntry: compactCommandAgentHistoryEntry,
     validateOutput: validateCommandAgentOutput,

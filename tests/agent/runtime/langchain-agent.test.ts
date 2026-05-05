@@ -8,6 +8,8 @@ import { FakeToolCallingModel } from "langchain";
 import { z } from "zod";
 
 import {
+  FINAL_RESPONSE_TOOL_NAME,
+  createFinalResponseTool,
   createLangChainAgent,
   createLangChainChatModel,
   extractLangChainAgentMetadata,
@@ -163,6 +165,46 @@ test("createLangChainAgent reports raw tool calls in metadata", async () => {
   assert.match(JSON.stringify(output.metadata.rawToolCalls), /lookup_manual/);
   assert.match(JSON.stringify(output.metadata.rawToolCalls), /git push/);
   assert.match(output.metadata.rawAgentResult ?? "", /lookup_manual/);
+});
+
+test("createFinalResponseTool returns direct structured final output", async () => {
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [
+        {
+          name: FINAL_RESPONSE_TOOL_NAME,
+          args: {
+            content: "显式最终回复",
+            suggestedCommand: "git status --short",
+          },
+          id: "final-1",
+        },
+      ],
+    ],
+  });
+  const agent = createLangChainAgent({
+    systemPrompt: "Call final_response when done.",
+    tools: [
+      createFinalResponseTool(
+        z.object({
+          content: z.string(),
+          suggestedCommand: z.string().nullable().optional(),
+        }),
+      ),
+    ],
+    model: model as unknown as ChatOpenAI,
+  });
+
+  const output = await agent.invokeWithMetadata("Need final output");
+
+  assert.equal(
+    output.content,
+    JSON.stringify({
+      content: "显式最终回复",
+      suggestedCommand: "git status --short",
+    }),
+  );
+  assert.match(JSON.stringify(output.metadata.rawToolCalls), /final_response/);
 });
 
 test("createLangChainAgent emits tool progress for successful tool calls", async () => {

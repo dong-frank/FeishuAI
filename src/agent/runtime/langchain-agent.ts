@@ -1,7 +1,8 @@
-import type { StructuredToolInterface } from "@langchain/core/tools";
+import { tool, type StructuredToolInterface } from "@langchain/core/tools";
 import { ChatOpenAI } from "@langchain/openai";
 import { createAgent, type ResponseFormat, type TypedToolStrategy } from "langchain";
 import { traceable } from "langsmith/traceable";
+import type { z } from "zod";
 
 import type {
   AgentContextUsage,
@@ -60,6 +61,21 @@ export type LangChainOutputValidator = (
   input: string,
   output: string,
 ) => string | undefined;
+
+export const FINAL_RESPONSE_TOOL_NAME = "final_response";
+
+export function createFinalResponseTool(schema: z.ZodType): StructuredToolInterface {
+  return tool(
+    async (input) => JSON.stringify(input),
+    {
+      name: FINAL_RESPONSE_TOOL_NAME,
+      description:
+        "Return the final structured response for this agent turn. Call this exactly once after all other necessary tools have completed; this tool ends the current turn.",
+      schema,
+      returnDirect: true,
+    },
+  );
+}
 
 export function createLangChainChatModel(config: LangChainChatModelConfig = {}) {
   const disableThinking = config.disableThinking ?? true;

@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { ChatOpenAI } from "@langchain/openai";
-import { FakeToolCallingModel, ToolStrategy } from "langchain";
+import { FakeToolCallingModel } from "langchain";
 
 import {
   AFTER_FAIL_AGENT_SYSTEM_PROMPT,
@@ -45,6 +45,7 @@ test("COMMAND_AGENT_TOOLS includes help and git commit context tools", () => {
     "git_commit_context",
     "git_repository_context",
     "interact_with_lark_agent",
+    "final_response",
   ]);
 });
 
@@ -63,17 +64,25 @@ test("after-success tools include git context and lark interaction only", () => 
   ]);
 });
 
-test("command agent structured output uses tool-call JSON schema", () => {
+test("command agent keeps legacy response format export but uses explicit final_response tool", () => {
   assert.equal(COMMAND_AGENT_RESPONSE_FORMAT, COMMAND_AGENT_TOOL_RESPONSE_FORMAT);
-  assert.equal(Array.isArray(COMMAND_AGENT_RESPONSE_FORMAT), true);
-  assert.equal(COMMAND_AGENT_RESPONSE_FORMAT.length, 1);
-  const responseTool = COMMAND_AGENT_RESPONSE_FORMAT[0];
-  assert.equal(responseTool instanceof ToolStrategy, true);
-  assert.equal(responseTool.schema.type, "object");
-  assert.deepEqual(responseTool.schema.required, [
-    "content",
-    "suggestedCommand",
-  ]);
+  const finalResponseTool = COMMAND_AGENT_TOOLS.find((tool) => tool.name === "final_response");
+  assert.ok(finalResponseTool);
+  assert.equal(finalResponseTool.returnDirect, true);
+});
+
+test("command agent creation path does not pass LangChain responseFormat", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src", "agent", "command-agent.ts"),
+    "utf8",
+  );
+  const createCommandAgentBlock = source.slice(
+    source.indexOf("export function createCommandAgent"),
+    source.indexOf("function validateCommandAgentOutput"),
+  );
+
+  assert.doesNotMatch(createCommandAgentBlock, /responseFormat\s*:/);
+  assert.doesNotMatch(createCommandAgentBlock, /COMMAND_AGENT_RESPONSE_FORMAT/);
 });
 
 test("command agent routes beforeRun tasks to command skills", () => {
@@ -515,6 +524,45 @@ test("command agent hides raw tool call debug output by default", async () => {
 
   assert.match(output?.content ?? "", /ok/);
   assert.doesNotMatch(output?.content ?? "", /raw_tool_calls|raw_agent_result/);
+});
+
+test("command agent returns explicit final_response tool output", async () => {
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [
+        {
+          name: "final_response",
+          args: {
+            content: "显式最终建议",
+            suggestedCommand: "git status --short",
+          },
+          id: "final-command-1",
+        },
+      ],
+    ],
+  });
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  const output = await agent.beforeRun?.({
+    cwd: "/repo",
+    command: "git",
+    args: ["status"],
+    rawCommand: "git status",
+  });
+
+  assert.equal(output?.content, "显式最终建议");
+  assert.equal(output?.suggestedCommand, "git status --short");
+  assert.match(JSON.stringify(output?.metadata?.rawToolCalls), /final_response/);
 });
 
 test("command agent forwards compact tool progress events", async () => {

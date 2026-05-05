@@ -5,7 +5,7 @@ import test from "node:test";
 
 import { FakeListChatModel } from "@langchain/core/utils/testing";
 import { ChatOpenAI } from "@langchain/openai";
-import { FakeToolCallingModel, ToolStrategy } from "langchain";
+import { FakeToolCallingModel } from "langchain";
 
 import {
   compactLarkAgentHistoryEntry,
@@ -23,7 +23,7 @@ import {
 test("lark agent exposes load_skill and run_lark_cli tools", () => {
   assert.deepEqual(
     LARK_AGENT_TOOLS.map((tool) => tool.name),
-    ["load_skill", "run_lark_cli"],
+    ["load_skill", "run_lark_cli", "final_response"],
   );
 });
 
@@ -38,25 +38,31 @@ test("lark agent exposes only controlled task to skill mappings", () => {
   });
 });
 
-test("lark agent structured output uses tool-call JSON schema", () => {
+test("lark agent keeps legacy response format export but uses explicit final_response tool", () => {
   assert.equal(Array.isArray(LARK_AGENT_RESPONSE_FORMAT), true);
-  assert.equal(LARK_AGENT_RESPONSE_FORMAT.length, 1);
-  const responseTool = LARK_AGENT_RESPONSE_FORMAT[0];
-  assert.equal(responseTool instanceof ToolStrategy, true);
-  assert.equal(responseTool.schema.type, "object");
-  assert.deepEqual(responseTool.schema.required, [
-    "content",
-    "suggestedCommand",
-    "topic",
-    "freshness",
-    "source",
-    "updatedAt",
-  ]);
-  assert.equal(
-    (responseTool.schema.properties as Record<string, unknown>).freshness !==
-      undefined,
-    true,
+  const finalResponseTool = LARK_AGENT_TOOLS.find((tool) => tool.name === "final_response");
+  assert.ok(finalResponseTool);
+  assert.equal(finalResponseTool.returnDirect, true);
+});
+
+test("lark agent creation path does not pass LangChain responseFormat", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src", "agent", "lark-agent.ts"),
+    "utf8",
   );
+  const createLarkAgentBlock = source.slice(
+    source.indexOf("export function createLarkAgent"),
+    source.indexOf("const LARK_CONTEXT_PACK_SCHEMA"),
+  );
+  const createLarkPhaseAgentBlock = source.slice(
+    source.indexOf("function createLarkPhaseAgent"),
+    source.indexOf("function validateLarkAgentOutput"),
+  );
+
+  assert.doesNotMatch(createLarkAgentBlock, /responseFormat\s*:/);
+  assert.doesNotMatch(createLarkAgentBlock, /LARK_AGENT_RESPONSE_FORMAT/);
+  assert.doesNotMatch(createLarkPhaseAgentBlock, /responseFormat\s*:/);
+  assert.doesNotMatch(createLarkPhaseAgentBlock, /LARK_AGENT_RESPONSE_FORMAT/);
 });
 
 test("formatLarkAgentInvocation builds task envelopes with fixed skills", () => {
@@ -237,6 +243,43 @@ test("lark agent forwards compact tool progress events", async () => {
   );
 });
 
+test("lark agent returns minimal explicit final_response tool output", async () => {
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [
+        {
+          name: "final_response",
+          args: {
+            content: "授权完成",
+          },
+          id: "final-lark-1",
+        },
+      ],
+    ],
+  });
+  const agent = createLarkAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  const output = await agent.authorize({
+    cwd: "/repo",
+    projectHints: {
+      cwdName: "repo",
+    },
+  });
+
+  assert.equal(output.content, "授权完成");
+  assert.match(JSON.stringify(output.metadata.rawToolCalls), /final_response/);
+});
+
 test("lark authorize skill warms project context with read-only docs commands", () => {
   const skill = readFileSync(
     join(process.cwd(), "skills", "lark-authorize", "SKILL.md"),
@@ -407,7 +450,7 @@ test("lark agent compacts preserved history to task, action, topic, and reply", 
     }),
   );
 
-  assert.match(authorizeOutput.content, /\{"content":"auth ready"\}/);
+  assert.match(authorizeOutput.content, /auth ready/);
   assert.deepEqual(JSON.parse(compactAuthorizeHistory.userContent), {
     task: "authorize",
     skill: "lark-authorize",

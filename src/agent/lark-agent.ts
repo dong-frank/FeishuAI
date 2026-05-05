@@ -3,6 +3,7 @@ import { toolStrategy } from "langchain";
 import { z } from "zod";
 
 import {
+  createFinalResponseTool,
   createLangChainAgent,
   createLangChainChatModel,
   formatRawToolCallsDebugOutput,
@@ -63,7 +64,7 @@ export const LARK_AGENT_SYSTEM_PROMPT = `
 
 ## 工具
 
-你可以使用两个工具：
+你可以使用三个工具：
 
 1. load_skill
    - 按需加载本地 Skill.md 内容。
@@ -84,6 +85,11 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 - --format csv：逗号分隔值，适合表格数据导出或用户要求 CSV。
 对于 config init/auth login 这类交互命令，如果命令不支持 --format，也可以不加 --format，但仍应设置 showOutputInTui: true，以便用户看到授权链接、二维码、验证码或登录提示。
 所有给用户的结论都必须基于 run_lark_cli 的返回内容。
+
+3. final_response
+   - 完成所有必要工具调用后，必须调用且只调用一次 final_response。
+   - 调用 final_response 就表示本轮结束；不要在普通 assistant 文本里直接写最终回复。
+   - 最终展示内容必须放入 final_response.content。
 
 ## 输入结构
 
@@ -141,6 +147,7 @@ action 为 "send_message" 时，按 lark-im Skill 发送消息，输出一个 JS
 - 不要编造不存在的团队规范、飞书文档或命令结果。
 - 如果需要引用上下文，只基于输入 JSON 中实际存在的信息。
 - 输出要适合终端阅读：使用纯文本、短段落、短行和简单缩进；不要使用 Markdown 标题、表格、代码围栏、链接语法、复杂列表或终端控制字符。
+- 完成所有必要工具调用后，必须调用 final_response 返回最终结构化结果。
 `.trim();
 
 export type LarkAgentOptions = {
@@ -213,11 +220,6 @@ export const LOAD_SKILL_TOOL: StructuredToolInterface = createLoadSkillTool(
   DEFAULT_SKILL_REGISTRY,
 );
 
-export const LARK_AGENT_TOOLS: StructuredToolInterface[] = [
-  LOAD_SKILL_TOOL,
-  RUN_LARK_CLI_TOOL,
-];
-
 const LARK_RESPONSE_SOURCE_SCHEMA = z
   .object({
     title: z.string().optional(),
@@ -225,6 +227,23 @@ const LARK_RESPONSE_SOURCE_SCHEMA = z
     documentId: z.string().optional(),
   })
   .strict();
+
+const LARK_FINAL_RESPONSE_SCHEMA = z
+  .object({
+    content: z.string(),
+    suggestedCommand: z.string().nullable().optional(),
+    topic: z.enum(["commit_message_policy", "troubleshooting_reference"]).nullable().optional(),
+    freshness: z.enum(["remembered", "refreshed", "missing"]).nullable().optional(),
+    source: LARK_RESPONSE_SOURCE_SCHEMA.nullable().optional(),
+    updatedAt: z.string().nullable().optional(),
+  })
+  .strict();
+
+export const LARK_AGENT_TOOLS: StructuredToolInterface[] = [
+  LOAD_SKILL_TOOL,
+  RUN_LARK_CLI_TOOL,
+  createFinalResponseTool(LARK_FINAL_RESPONSE_SCHEMA),
+];
 
 const LARK_AGENT_RESPONSE_SCHEMA = z
   .object({
@@ -251,9 +270,9 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
     [
       createLoadSkillTool(registry),
       createRunLarkCliTool(options),
+      createFinalResponseTool(LARK_FINAL_RESPONSE_SCHEMA),
     ],
     options.model,
-    LARK_AGENT_RESPONSE_FORMAT,
     options.onToolProgress,
   );
   const debugToolCalls = options.debugToolCalls ?? false;
@@ -428,10 +447,39 @@ async function invokeLarkAgentWithMetadata(
   const rawToolCallsDebugOutput = debugToolCalls
     ? formatRawToolCallsDebugOutput(result.metadata.rawToolCalls)
     : "";
+  const output = parseLarkCommandOutput(result.content);
   return {
-    content: appendDebugOutput(result.content, rawToolCallsDebugOutput),
+    content: appendDebugOutput(output.content, rawToolCallsDebugOutput),
+    ...(output.suggestedCommand ? { suggestedCommand: output.suggestedCommand } : {}),
     metadata: result.metadata,
   };
+}
+
+function parseLarkCommandOutput(output: string): {
+  content: string;
+  suggestedCommand?: string | undefined;
+} {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return { content: "" };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    const validated = LARK_COMMAND_OUTPUT_SCHEMA.safeParse(parsed);
+    if (validated.success) {
+      const content = validated.data.content.trim();
+      const suggestedCommand = validated.data.suggestedCommand?.trim() ?? "";
+      return {
+        content,
+        ...(suggestedCommand ? { suggestedCommand } : {}),
+      };
+    }
+  } catch {
+    // Fall through to plain text compatibility.
+  }
+
+  return { content: trimmed };
 }
 
 function appendDebugOutput(content: string, debugOutput: string) {
@@ -451,7 +499,6 @@ function createLarkPhaseAgent(
   systemPrompt: string,
   tools: StructuredToolInterface[],
   model = createLangChainChatModel({ modelRole: "lark" }),
-  responseFormat = LARK_AGENT_RESPONSE_FORMAT,
   onToolProgress?: AgentToolProgressHandler | undefined,
 ): LangChainAgent {
   return createLangChainAgent({
@@ -459,7 +506,6 @@ function createLarkPhaseAgent(
     systemPrompt,
     tools,
     model,
-    responseFormat,
     preserveHistory: true,
     compactHistoryEntry: compactLarkAgentHistoryEntry,
     validateOutput: validateLarkAgentOutput,
