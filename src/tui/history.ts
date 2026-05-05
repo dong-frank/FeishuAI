@@ -19,7 +19,7 @@ import {
   isHelpOutput,
   type OutputTextPart,
 } from "./output.js";
-import { getStatusLine, getTerminalTextWidth } from "./status.js";
+import { getTerminalTextWidth } from "./status.js";
 
 type HistoryColor = NonNullable<OutputTextPart["color"]>;
 type OutputSource = "user" | "agent";
@@ -452,16 +452,12 @@ function getAgentHistoryBodyRows(
     return splitPlainTextRows(entry.content.trim(), { color: "cyan" }, wrapWidth);
   }
 
-  if (entry.state === "pending") {
-    return splitPlainTextRows("Waiting for agent response...", { color: "gray" }, wrapWidth);
-  }
-
   return [];
 }
 
 function getAgentHistoryRightText(entry: AgentHistoryEntry) {
   if (entry.state === "pending") {
-    return `[${getPendingAgentStatusText(entry)}]`;
+    return undefined;
   }
 
   if (entry.state === "failed") {
@@ -473,16 +469,6 @@ function getAgentHistoryRightText(entry: AgentHistoryEntry) {
   }
 
   return formatAgentMetadata(entry.metadata) ?? "[done]";
-}
-
-function getPendingAgentStatusText(entry: AgentHistoryEntry) {
-  return getStatusLine({
-    isRunning: false,
-    isAgentWaiting: entry.activity !== "reviewing",
-    isAgentReviewing: entry.activity === "reviewing",
-    agentKind: entry.agentKind,
-    agentCommand: entry.commandLine,
-  });
 }
 
 function getAgentHistoryRightColor(entry: AgentHistoryEntry): HistoryColor {

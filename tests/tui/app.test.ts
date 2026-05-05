@@ -290,24 +290,25 @@ test("pending agent history renders compact tool progress", () => {
       rightText: row.rightText,
     })),
     [
-      { text: "  ├─ load_skill skillName=c...", rightText: "[Git Agent]" },
-      { text: "  ├─ interact_with_lark_age...", rightText: "[Git Agent]" },
+      { text: "  ├─ load_skill skillName=command-help", rightText: "[Git Agent]" },
+      { text: "  ├─ interact_with_lark_agent action=get_context", rightText: "[Git Agent]" },
       { text: "  └─ run_lark_cli auth status", rightText: "[Lark Agent]" },
     ],
   );
+  assert.equal(rows.some((row) => row.text === "Waiting for agent response..."), false);
 
   const completedRow = rows.find((row) => row.text === "    ├─ load_skill");
   assert.equal(completedRow, undefined);
 
   const firstToolRow = rows.find(
-    (row) => row.text === "  ├─ load_skill skillName=c...",
+    (row) => row.text === "  ├─ load_skill skillName=command-help",
   );
   assert.equal(firstToolRow?.rightText, "[Git Agent]");
   assert.equal(firstToolRow?.color, "gray");
   assert.equal(firstToolRow?.rightColor, "cyan");
 
   const larkCallRow = rows.find(
-    (row) => row.text === "  ├─ interact_with_lark_age...",
+    (row) => row.text === "  ├─ interact_with_lark_agent action=get_context",
   );
   assert.equal(larkCallRow?.rightText, "[Git Agent]");
   assert.equal(larkCallRow?.color, "gray");
@@ -320,7 +321,7 @@ test("pending agent history renders compact tool progress", () => {
   assert.equal(runningRow?.rightText, "[Lark Agent]");
 });
 
-test("agent tool progress truncates tool name and params to 25 characters", () => {
+test("agent tool progress truncates tool name and params to 50 characters", () => {
   const rows = getHistoryRows([
     {
       type: "agent",
@@ -334,15 +335,15 @@ test("agent tool progress truncates tool name and params to 25 characters", () =
           toolName: "run_lark_cli",
           state: "running",
           agentKind: "lark",
-          inputSummary: "docs fetch really-long-document-title",
+          inputSummary: "docs fetch really-long-document-title with-extra-args",
         },
       ],
     },
   ]);
 
   const toolRow = rows.find((row) => row.text.includes("run_lark_cli"));
-  assert.equal(toolRow?.text, "  └─ run_lark_cli docs fetc...");
-  assert.equal(getTerminalTextWidth(toolRow?.text.replace(/^  └─ /, "") ?? ""), 25);
+  assert.equal(toolRow?.text, "  └─ run_lark_cli docs fetch really-long-document-ti...");
+  assert.equal(getTerminalTextWidth(toolRow?.text.replace(/^  └─ /, "") ?? ""), 50);
 });
 
 test("agent tool progress keeps call order when returning from lark to git", () => {
@@ -1420,22 +1421,20 @@ test("agent history entries render pending, success, failed, and empty states", 
   ]);
 
   const agentTitles = rows.filter((row) => row.text === "GITX");
-  assert.equal(agentTitles[0]?.rightText, "[正在请求帮助 git commit ...]");
-  assert.equal(agentTitles[0]?.rightColor, "yellow");
+  assert.equal(agentTitles[0]?.rightText, undefined);
   assert.equal(agentTitles[2]?.rightText, "[failed]");
   assert.equal(agentTitles[2]?.rightColor, "red");
   assert.equal(agentTitles[3]?.rightText, "[done]");
   assert.equal(agentTitles[3]?.rightColor, "gray");
-  assert.equal(agentTitles[4]?.rightText, "[正在检查 git push ...]");
-  assert.equal(agentTitles[4]?.rightColor, "yellow");
+  assert.equal(agentTitles[4]?.rightText, undefined);
   assert.ok(rows.some((row) => row.text === "model timeout"));
   assert.ok(rows.some((row) => row.text === "No agent suggestion generated."));
 
   assert.equal(agentTitles[1]?.rightText, "[✓ 2.5s · 1031 tokens · ctx 1030 tokens]");
   assert.equal(agentTitles[1]?.rightColor, "cyan");
-  assert.equal(agentTitles[5]?.rightText, "[正在处理 lark init ...]");
-  assert.equal(agentTitles[5]?.rightColor, "yellow");
+  assert.equal(agentTitles[5]?.rightText, undefined);
   assert.ok(rows.some((row) => row.text === "auth ready"));
+  assert.equal(rows.some((row) => row.text === "Waiting for agent response..."), false);
 });
 
 test("agent history replacement keeps the original position", () => {
