@@ -298,18 +298,17 @@ function getAgentHistoryEntryRows(
   entry: AgentHistoryEntry,
   wrapWidth?: number | undefined,
 ): HistoryRow[] {
-  const outputRows = splitOutputPartsIntoRows(
-    getStyledOutputTextParts(
-      getOutputTextParts({
-        commandLine: entry.commandLine,
-        kind: "execute",
-        exitCode: entry.state === "failed" ? 1 : 0,
-        stdout: entry.stdout ?? "",
-        stderr: entry.stderr ?? "",
-      }),
-      "agent",
-    ),
+  const outputParts = getStyledOutputTextParts(
+    getOutputTextParts({
+      commandLine: entry.commandLine,
+      kind: "execute",
+      exitCode: entry.state === "failed" ? 1 : 0,
+      stdout: entry.stdout ?? "",
+      stderr: entry.stderr ?? "",
+    }),
+    "agent",
   );
+  const outputRows = outputParts.length > 0 ? splitOutputPartsIntoRows(outputParts) : [];
   const finalDisplayRows = getAgentFinalDisplayRows(entry, wrapWidth);
 
   return [
@@ -430,7 +429,7 @@ function getAgentToolProgressColor(event: AgentToolProgressEvent): HistoryColor 
     return "red";
   }
 
-  return "gray";
+  return "white";
 }
 
 function getAgentToolProgressAgentColor(agentKind: AgentHistoryKind): HistoryColor {
@@ -450,7 +449,7 @@ function getAgentHistoryBodyRows(
   }
 
   if (entry.content?.trim()) {
-    return splitPlainTextRows(entry.content.trim(), { color: "white" }, wrapWidth);
+    return splitPlainTextRows(entry.content.trim(), { color: "gray" }, wrapWidth);
   }
 
   return [];
@@ -460,31 +459,7 @@ function getAgentFinalDisplayRows(
   entry: AgentHistoryEntry,
   wrapWidth?: number | undefined,
 ): HistoryRow[] {
-  const bodyRows = getAgentHistoryBodyRows(entry, wrapWidth);
-  if (bodyRows.length === 0) {
-    return [];
-  }
-
-  return [
-    {
-      text: "  [最终显示]",
-      color: getAgentFinalDisplayColor(entry),
-      bold: true,
-    },
-    ...bodyRows,
-  ];
-}
-
-function getAgentFinalDisplayColor(entry: AgentHistoryEntry): HistoryColor {
-  if (entry.state === "failed") {
-    return "red";
-  }
-
-  if (entry.state === "empty") {
-    return "gray";
-  }
-
-  return "white";
+  return getAgentHistoryBodyRows(entry, wrapWidth);
 }
 
 function getAgentHistoryRightText(entry: AgentHistoryEntry) {

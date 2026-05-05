@@ -470,6 +470,7 @@ test("runCommandLine starts afterSuccess for key git command successes without w
               { text: "main", tone: "primary" },
               { text: "abc1234", tone: "muted" },
               { text: "origin/main", tone: "info" },
+              { text: "dirty", tone: "warning" },
               { text: "已暂存 1", tone: "warning" },
               { text: "新文件 2", tone: "warning" },
             ],

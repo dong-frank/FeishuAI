@@ -26,6 +26,7 @@ test("session header rows build a three-line environment dashboard", () => {
             { text: "main", tone: "primary" },
             { text: "9f4aba1", tone: "muted" },
             { text: "origin/main", tone: "info" },
+            { text: "dirty", tone: "warning" },
             { text: "已修改 7", tone: "warning" },
             { text: "新文件 2", tone: "warning" },
           ],
@@ -45,6 +46,7 @@ test("session header rows build a three-line environment dashboard", () => {
           { text: "main", tone: "primary" },
           { text: "9f4aba1", tone: "muted" },
           { text: "origin/main", tone: "info" },
+          { text: "dirty", tone: "warning" },
           { text: "已修改 7", tone: "warning" },
           { text: "新文件 2", tone: "warning" },
         ],
@@ -64,7 +66,7 @@ test("session header rows do not expose run state chips", () => {
     larkSummary: "lark: not logged in",
     display: {
       cwd: "~/repo",
-      git: [{ text: "干净", tone: "success" }],
+      git: [{ text: "clean", tone: "success" }],
       lark: [{ text: "未登录", tone: "warning" }],
     },
   };
@@ -102,7 +104,7 @@ test("session header leaves cwd for the prompt instead of a top status row", () 
       larkSummary: "lark: connected user Dong",
       display: {
         cwd: "~/repo",
-        git: [{ text: "干净", tone: "success" }],
+        git: [{ text: "clean", tone: "success" }],
         lark: [{ text: "已连接", tone: "success" }],
       },
     },
@@ -199,7 +201,7 @@ test("history output keeps boundary lines without spacer rows around it", () => 
         git: [
           { text: "main", tone: "primary" },
           { text: "abc1234", tone: "muted" },
-          { text: "干净", tone: "success" },
+          { text: "clean", tone: "success" },
         ],
         lark: [
           { text: "已连接", tone: "success" },
@@ -250,7 +252,7 @@ test("layout pins fixed chrome to the terminal height", () => {
         git: [
           { text: "main", tone: "primary" },
           { text: "abc1234", tone: "muted" },
-          { text: "干净", tone: "success" },
+          { text: "clean", tone: "success" },
         ],
         lark: [
           { text: "已连接", tone: "success" },

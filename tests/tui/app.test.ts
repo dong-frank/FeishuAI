@@ -160,6 +160,7 @@ test("session header includes initialized workspace and git information", () => 
           { text: "main", tone: "primary" },
           { text: "abc1234", tone: "muted" },
           { text: "origin/main", tone: "info" },
+          { text: "dirty", tone: "warning" },
           { text: "已暂存 1", tone: "warning" },
           { text: "新文件 2", tone: "warning" },
         ],
@@ -282,6 +283,8 @@ test("pending agent history renders compact tool progress", () => {
   assert.ok(rows.some((row) => row.text === "GITX"));
   assert.equal(rows.some((row) => row.text === "Git Agent"), false);
   assert.equal(rows.some((row) => row.text === "Lark Agent"), false);
+  const agentTitleIndex = rows.findIndex((row) => row.text === "GITX");
+  assert.equal(rows[agentTitleIndex + 1]?.text, "  [Linus]");
 
   const toolRows = rows.filter((row) => row.text.includes("─ "));
   assert.deepEqual(
@@ -313,13 +316,13 @@ test("pending agent history renders compact tool progress", () => {
     (row) => row.text === "  ├─ load_skill skillName=command-help",
   );
   assert.equal(firstToolRow?.rightText, undefined);
-  assert.equal(firstToolRow?.color, "gray");
+  assert.equal(firstToolRow?.color, "white");
 
   const larkCallRow = rows.find(
     (row) => row.text === "  ├─ interact_with_lark_agent action=get_context",
   );
   assert.equal(larkCallRow?.rightText, undefined);
-  assert.equal(larkCallRow?.color, "gray");
+  assert.equal(larkCallRow?.color, "white");
 
   const runningRow = rows.find((row) => row.text === "  └─ run_lark_cli auth status");
   assert.equal(runningRow?.rightText, undefined);
@@ -403,16 +406,14 @@ test("agent history separates tool progress from final display", () => {
 
   const toolHeaderIndex = rows.findIndex((row) => row.text === "  [Linus]");
   const toolRowIndex = rows.findIndex((row) => row.text === "  └─ 读取提交上下文 cwd=/repo");
-  const finalHeaderIndex = rows.findIndex((row) => row.text === "  [最终显示]");
   const finalRowIndex = rows.findIndex((row) => row.text === "commit message ready");
 
   assert.ok(toolHeaderIndex >= 0);
   assert.ok(toolHeaderIndex < toolRowIndex);
-  assert.ok(toolRowIndex < finalHeaderIndex);
-  assert.ok(finalHeaderIndex < finalRowIndex);
-  assert.equal(rows[toolRowIndex]?.color, "gray");
-  assert.equal(rows[finalHeaderIndex]?.color, "white");
-  assert.equal(rows[finalRowIndex]?.color, "white");
+  assert.ok(toolRowIndex < finalRowIndex);
+  assert.equal(rows.some((row) => row.text === "  [GITX]"), false);
+  assert.equal(rows[toolRowIndex]?.color, "white");
+  assert.equal(rows[finalRowIndex]?.color, "gray");
 });
 
 test("agent tool progress keeps call order when returning from lark to git", () => {
@@ -865,6 +866,7 @@ test("slash chat builds command agent context without git command stats", () => 
             { text: "main", tone: "primary" },
             { text: "abc1234", tone: "muted" },
             { text: "origin/main", tone: "info" },
+            { text: "dirty", tone: "warning" },
             { text: "已暂存 1", tone: "warning" },
             { text: "新文件 2", tone: "warning" },
           ],
@@ -1844,6 +1846,7 @@ test("beforeRun context includes current TUI session header state", async () => 
             { text: "main", tone: "primary" },
             { text: "abc1234", tone: "muted" },
             { text: "origin/main", tone: "info" },
+            { text: "dirty", tone: "warning" },
             { text: "已暂存 1", tone: "warning" },
             { text: "已修改 2", tone: "warning" },
             { text: "新文件 3", tone: "warning" },

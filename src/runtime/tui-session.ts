@@ -307,10 +307,11 @@ export function formatTuiSessionGitDisplay(
   }
 
   if (!git.status.dirty) {
-    chips.push({ text: "干净", tone: "success" });
+    chips.push({ text: "clean", tone: "success" });
     return chips;
   }
 
+  chips.push({ text: "dirty", tone: "warning" });
   if (git.status.staged > 0) {
     chips.push({ text: `已暂存 ${git.status.staged}`, tone: "warning" });
   }

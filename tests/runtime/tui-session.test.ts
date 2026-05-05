@@ -302,7 +302,7 @@ test("formatTuiSessionGitSummary keeps startup git info compact", () => {
   assert.equal(formatTuiSessionGitSummary({ isRepository: false }), "git: no repository");
 });
 
-test("formatTuiSessionGitDisplay uses readable Chinese status chips", () => {
+test("formatTuiSessionGitDisplay uses readable git status chips", () => {
   assert.deepEqual(
     formatTuiSessionGitDisplay({
       isRepository: true,
@@ -326,6 +326,7 @@ test("formatTuiSessionGitDisplay uses readable Chinese status chips", () => {
       { text: "main", tone: "primary" },
       { text: "abc1234", tone: "muted" },
       { text: "origin/main", tone: "info" },
+      { text: "dirty", tone: "warning" },
       { text: "已暂存 1", tone: "warning" },
       { text: "已修改 2", tone: "warning" },
       { text: "新文件 3", tone: "warning" },
@@ -352,7 +353,7 @@ test("formatTuiSessionGitDisplay uses readable Chinese status chips", () => {
     [
       { text: "main", tone: "primary" },
       { text: "abc1234", tone: "muted" },
-      { text: "干净", tone: "success" },
+      { text: "clean", tone: "success" },
     ],
   );
   assert.deepEqual(formatTuiSessionGitDisplay({ isRepository: false }), [
