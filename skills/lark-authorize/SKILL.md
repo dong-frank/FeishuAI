@@ -95,7 +95,7 @@ lark-cli auth status
 
 ### Step 5: Project Knowledge Warmup
 
-仅当 Step 4 验证连接可用后执行。目标是在当前 Agent 会话历史中形成 `project_context_index`，供后续 commit message、排障、review 协作、需求状态和开发记录场景复用。v1 只保存在当前对话历史中，不写本地缓存。
+仅当 Step 4 验证连接可用后执行。目标是在当前项目的 `.gitx/memory.json` 中形成或更新 `project_context_index`，供后续 commit message、排障、review 协作、需求状态和开发记录场景复用。
 
 输入 context 可能包含 `projectHints`：
 
@@ -113,12 +113,22 @@ lark-cli auth status
 - `<项目名> 项目`
 - `<项目名> 文档`
 
+开始预热前先调用 `read_project_context_index` 读取本地索引摘要和 `fingerprint`。随后只用少量飞书只读命令定位并遍历线上知识库目录，生成线上目录摘要，再调用 `compare_project_context_index` 比对本地与线上目录 `fingerprint`：
+
+- 如果目录 `fingerprint` 一致，不要立刻重复读取文档 outline。先对本地索引中的 `documents` 和 `nonDocResources` 调用 `drive metas batch_query` 批量读取元数据，基于 `doc_type`、`doc_token`、`title`、`latest_modify_time`、`latest_modify_user` 形成 `metadataFingerprint`。
+- 如果目录 `fingerprint` 和 `metadataFingerprint` 都一致，复用本地 `project_context_index`，不要调用 `docs +fetch`，并在最终回答中说明“本地索引已是最新”。
+- 如果目录 `fingerprint` 一致但 `metadataFingerprint` 不一致，只对 `latest_modify_time` 或元数据变化的 docx/doc 文档重新执行 `docs +fetch --scope outline`；未变化文档复用本地 outline。
+- 如果本地索引缺失、项目匹配变化或目录 `fingerprint` 不一致，重新更新目录索引；再通过 `drive metas batch_query` 找出新增或变化节点，只对必要 docx/doc 文档读取 outline，最后调用 `save_project_context_index` 保存。
+- 比对用的线上目录摘要只包含稳定节点字段：`title`、`path`、`obj_type`、`obj_token`、`node_token`、`space_id`，不要为了算 fingerprint 读取全文。
+- `drive metas batch_query` 一次最多 200 个 request_docs；文档很多时按批次查询。wiki 节点必须使用 `node.obj_token` 作为 `doc_token`，使用 `node.obj_type` 作为 `doc_type`，不要把 wiki token 当成 doc token。
+
 只允许执行以下只读命令，内部判断统一使用 `showOutputInTui: false`：
 
 ```bash
 lark-cli docs +search --query "<关键词>" --format json
 lark-cli wiki spaces get_node --params '{"token":"<wiki_token>"}' --format json
 lark-cli wiki nodes list --params '{"space_id":"<space_id>","parent_node_token":"<node_token>"}' --format json
+lark-cli drive metas batch_query --data '{"request_docs":[{"doc_token":"<obj_token>","doc_type":"<obj_type>"}],"with_url":true}' --format json
 lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope outline --max-depth 3 --format json
 lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope section --start-block-id "<标题block id>" --detail simple --format json
 lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope keyword --keyword "<关键词>" --detail simple --format json
@@ -130,8 +140,9 @@ lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope keywor
 - 如果命中 Wiki URL、Wiki token、知识库空间或知识库节点，先用 `wiki spaces get_node` 解析节点；不要把 wiki token 直接当成 doc token。
 - `wiki spaces get_node` 返回中读取 `node.obj_type`、`node.obj_token`、`node.title`、`node.space_id` 和节点 token。确定 `space_id` 后，用 `wiki nodes list` 从项目知识库根节点或命中的目录节点开始遍历。
 - 遍历项目对应知识库中的所有可读子节点，递归或逐层继续 `wiki nodes list`，直到覆盖该项目知识库中能访问到的文档节点；不要只按固定主题筛选。
-- 对每个可读节点记录标题、路径、node token、obj_type、obj_token、space_id。形成全量目录索引后，再决定哪些 docx/doc 文档需要轻量读取。
-- 对 `obj_type` 为 `docx` 或 `doc` 的节点，第一次读取必须先用 `docs +fetch --scope outline` 获取目录；只在目录过薄或标题不足以判断内容时，用 `keyword` 或少量 `section` 补充摘要。
+- 对每个可读节点记录标题、路径、node token、obj_type、obj_token、space_id。形成全量目录索引后，先用 `drive metas batch_query` 做快速元数据比对，再决定哪些 docx/doc 文档需要轻量读取。
+- 对 `obj_type` 为 `docx` 或 `doc` 且本地没有 outline、属于新增节点或元数据已变化的节点，读取 `docs +fetch --scope outline` 获取目录；只在目录过薄或标题不足以判断内容时，用 `keyword` 或少量 `section` 补充摘要。
+- 对元数据未变化的 docx/doc 节点，复用本地 outline，不要重复 fetch。
 - 对 `obj_type` 是 `sheet` 或 `bitable` 的节点，只记录标题、路径、token 和用途推断，不要用 docs fetch 强读内部表格数据。
 - 如果项目知识库文档很多，可以分批处理，但最终 `project_context_index` 应说明已遍历范围、已索引数量、跳过数量和原因。
 - 不要只按固定主题预热；主题是开放的，索引应服务后续任意 Git/Lark Agent 查询。
@@ -153,16 +164,20 @@ lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope keywor
 - 扫描过的关键词
 - 定位到的项目知识库或入口节点
 - 已遍历节点数、已读取 outline 的文档数、跳过项数量和原因
+- metadataFingerprint 是否一致，以及本次实际刷新了哪些文档
 - 已缓存的全量目录索引摘要
+- 本地索引是否已是最新，或本次是否已保存新的 `fingerprint`
 - 未完成项或权限问题
 
-同时在当前会话历史中保留一段明确的 `project_context_index` 摘要，结构包括：
+保存到 `save_project_context_index` 的 `project_context_index` 结构包括：
 
 - project：项目名或仓库名
 - knowledgeBase：知识库名称、space_id、入口 node token 或 URL
 - documents：所有可读文档节点的标题、路径、obj_type、obj_token 或 node token
 - outlines：docx/doc 文档的轻量目录或章节摘要
 - nonDocResources：sheet、bitable 等非文档节点的标题、路径和定位信息
+- metadata：通过 `drive metas batch_query` 获取的 create_time、latest_modify_time、latest_modify_user、url 等轻量元数据
+- metadataFingerprint：基于 doc_type、doc_token、title、latest_modify_time、latest_modify_user 计算的内容变更指纹
 - coverage：已遍历范围、已索引数量、跳过数量和权限问题
 - retrievalHints：后续查询时可按标题、路径、目录关键词、文档类型或用户意图快速定位
 

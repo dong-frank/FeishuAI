@@ -22,11 +22,17 @@ import {
   formatRawToolCallsDebugOutput,
   withTuiDisplay,
 } from "./runtime/langchain-agent.js";
+import { createAgentHistoryStore } from "./runtime/agent-history-store.js";
 import {
   createSkillRegistry,
   formatAvailableSkills,
   type SkillRegistry,
 } from "./skill-registry.js";
+import {
+  buildAgentMemoryHint,
+  createAgentMemoryTools,
+  type AgentMemoryHint,
+} from "./memory-tools.js";
 import { readTldrPage } from "../integrations/tldr.js";
 import { getDefaultSkillRootDir } from "../runtime/project-root.js";
 
@@ -51,6 +57,7 @@ export type CommandAgentInvocation<
   skill: (typeof COMMAND_AGENT_TASK_SKILLS)[TTask];
   context: TTask extends "chat" ? CommandChatContext : CommandContext;
   result?: TTask extends "afterFail" | "afterSuccess" ? CommandResult : never;
+  memory?: AgentMemoryHint;
 };
 
 const TERMINAL_OUTPUT_REQUIREMENTS = `
@@ -85,6 +92,7 @@ Linus 负责判断 Git 命令意图、解释失败原因、生成提交建议和
 - context: 当前命令上下文，包含 context.cwd、context.command、context.args、context.rawCommand，并可能包含 gitStats、gitRepository、tuiSession
 - chat 任务的 context 还包含 context.message，表示用户在 /chat 后输入的自由消息
 - result: afterSuccess 和 afterFail 任务会包含命令结果，含 result.exitCode、result.stdout、result.stderr
+- memory: 可选，系统从当前项目 .gitx/memory.json 自动注入的少量长期价值记忆摘要
 
 输入是受控 task，不是自由指令。调用方只能选择上述 task，不能自由选择 Skill。
 
@@ -101,6 +109,9 @@ Linus 负责判断 Git 命令意图、解释失败原因、生成提交建议和
 
 ## 工具选择
 
+- 输入中的 memory 是项目级长期价值记忆摘要，先参考它判断是否已有可复用经验；必要时再调用 read_memory 获取更多或更精确的记忆。长期价值记忆只用于辅助判断，不能覆盖本次 context、result 和实时工具返回。
+- 只有当你得到可长期复用的团队规范、排障结论、用户工作流偏好或项目资料摘要时，才调用 save_memory 保存简短摘要。
+- 不要保存实时 stdout、stderr、git status，不要保存完整命令输出、完整 Lark CLI JSON、密钥或完整文档正文。
 - 解释 Git 命令用法或简单参数错误时，可以调用 tldr_git_manual。
 - 生成 commit message 时，必须按 Skill 要求调用 interact_with_lark_agent 请求 Friday 获取团队规范，再调用 git_commit_context 获取实时 staged diff。
 - 需要当前仓库状态、分支或远端信息时，优先使用 context.tuiSession.git；信息不足时调用 git_repository_context。
@@ -111,6 +122,8 @@ Linus 负责判断 Git 命令意图、解释失败原因、生成提交建议和
 ## 会话记忆边界
 
 你可以记住当前会话中过往命令、失败模式、已查过的团队上下文、用户操作节奏，用来减少重复解释并保持建议连贯。
+长期价值记忆保存在当前 Git 仓库的 .gitx/memory.json，可通过 read_memory 读取、通过 save_memory 写入。
+每轮输入可能包含 memory.memories，里面只保留简短 content、category、tags、sourceAgent、sourceTask 和 updatedAt。
 当前命令事实必须以本次 context、result 和工具返回为准。
 不要把历史中的 stdout、stderr 或 git status 当成本次实时状态。
 团队上下文可优先复用历史；仓库状态和命令结果必须按需重新读取。
@@ -452,6 +465,7 @@ function createCommandAgentTools(options: CommandAgentToolOptions = {}) {
 
   return [
     createLoadCommandSkillTool(registry),
+    ...createAgentMemoryTools(),
     createTldrGitManualTool(),
     createGitCommitContextTool(),
     createGitRepositoryContextTool(),
@@ -490,14 +504,29 @@ export function formatCommandAgentInvocation<TTask extends CommandAgentTaskName>
   task: TTask,
   context: CommandAgentInvocation<TTask>["context"],
   result?: CommandAgentInvocation<TTask>["result"],
+  memory?: AgentMemoryHint,
 ) {
   const invocation: CommandAgentInvocation<TTask> = {
     task,
     skill: COMMAND_AGENT_TASK_SKILLS[task],
     context,
     ...(result ? { result } : {}),
+    ...(memory ? { memory } : {}),
   };
   return JSON.stringify(invocation);
+}
+
+async function formatCommandAgentInvocationWithMemory<TTask extends CommandAgentTaskName>(
+  task: TTask,
+  context: CommandAgentInvocation<TTask>["context"],
+  result?: CommandAgentInvocation<TTask>["result"],
+) {
+  return formatCommandAgentInvocation(
+    task,
+    context,
+    result,
+    await buildAgentMemoryHint(context.cwd),
+  );
 }
 
 export async function buildGitCommitContext({
@@ -744,6 +773,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     }),
     model,
     preserveHistory: true,
+    historyStore: createAgentHistoryStore("linus"),
     compactHistoryEntry: compactCommandAgentHistoryEntry,
     validateOutput: validateCommandAgentOutput,
     onToolProgress(event) {
@@ -757,7 +787,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
   return {
     async chat(context) {
       const agentResult = await agent.invokeWithMetadata(
-        formatCommandAgentInvocation("chat", context),
+        await formatCommandAgentInvocationWithMemory("chat", context),
       );
       return withAgentMetadata(
         parseCommandAgentOutput(agentResult.content),
@@ -767,7 +797,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     },
     async beforeRun(context) {
       const agentResult = await agent.invokeWithMetadata(
-        formatCommandAgentInvocation(routeCommandAgentTask(context), context),
+        await formatCommandAgentInvocationWithMemory(routeCommandAgentTask(context), context),
       );
       return withAgentMetadata(
         parseCommandAgentOutput(agentResult.content),
@@ -777,7 +807,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     },
     async afterSuccess(context, result) {
       const agentResult = await agent.invokeWithMetadata(
-        formatCommandAgentInvocation("afterSuccess", context, result),
+        await formatCommandAgentInvocationWithMemory("afterSuccess", context, result),
       );
       return withAgentMetadata(
         parseCommandAgentOutput(agentResult.content),
@@ -787,7 +817,7 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     },
     async afterFail(context, result) {
       const agentResult = await agent.invokeWithMetadata(
-        formatCommandAgentInvocation("afterFail", context, result),
+        await formatCommandAgentInvocationWithMemory("afterFail", context, result),
       );
       return withAgentMetadata(
         parseCommandAgentOutput(agentResult.content),

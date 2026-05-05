@@ -7,7 +7,14 @@ import {
   CURSOR_STYLE,
 } from "./constants.js";
 import type { HistoryRow } from "./history.js";
-import { getStatusBarParts, getTerminalTextWidth, type AgentKind } from "./status.js";
+import {
+  getStatusBarParts,
+  getTerminalTextWidth,
+  resolveMaxContextWindow,
+  type AgentKind,
+  type ContextMeterState,
+  type StatusTextPart,
+} from "./status.js";
 import type { TuiSessionHeaderChip } from "../runtime/tui-session.js";
 
 export { HISTORY_ROW_HEIGHT } from "./components.js";
@@ -46,6 +53,8 @@ type AppLayoutProps = {
     right: number;
   };
   statusState: StatusState;
+  contextMeters?: ContextMeterState | undefined;
+  maxContextWindow?: number | undefined;
   viewportRows?: number | undefined;
 };
 
@@ -105,6 +114,8 @@ export function AppLayout({
   promptViewportWidth,
   statusPaneWidths,
   statusState,
+  contextMeters,
+  maxContextWindow = resolveMaxContextWindow(),
   viewportRows,
 }: AppLayoutProps) {
   const headerRows = getSessionHeaderRows({ sessionHeader, isRunning });
@@ -149,7 +160,12 @@ export function AppLayout({
           width={promptViewportWidth}
         />
 
-        <StatusBar statusState={statusState} statusPaneWidths={statusPaneWidths} />
+        <StatusBar
+          statusState={statusState}
+          statusPaneWidths={statusPaneWidths}
+          contextMeters={contextMeters}
+          maxContextWindow={maxContextWindow}
+        />
       </Box>
     </Box>
   );
@@ -259,23 +275,41 @@ function PromptSegmentText({ segment }: { segment: PromptDisplaySegment }) {
 
 function StatusBar({
   statusPaneWidths,
+  contextMeters,
+  maxContextWindow,
 }: {
   statusState: StatusState;
   statusPaneWidths: AppLayoutProps["statusPaneWidths"];
+  contextMeters?: ContextMeterState | undefined;
+  maxContextWindow: number;
 }) {
   const statusBar = getStatusBarParts({
     isRunning: false,
     isAgentWaiting: false,
     tipStatusWidth: statusPaneWidths.left,
+    agentStatusWidth: statusPaneWidths.right,
+    contextMeters,
+    maxContextWindow,
   });
 
   return (
-    <Box borderStyle="single" borderColor="gray" paddingX={1}>
+    <Box borderStyle="single" borderColor="gray" paddingX={1} justifyContent="space-between">
       <Box width={statusPaneWidths.left}>
         <Text color="gray">{statusBar.left}</Text>
       </Box>
+      {statusPaneWidths.right > 0 ? (
+        <Box width={statusPaneWidths.right} justifyContent="flex-end">
+          {statusBar.right.map((part, index) => (
+            <StatusBarTextPart key={index} part={part} />
+          ))}
+        </Box>
+      ) : null}
     </Box>
   );
+}
+
+function StatusBarTextPart({ part }: { part: StatusTextPart }) {
+  return part.color ? <Text color={part.color}>{part.text}</Text> : <Text>{part.text}</Text>;
 }
 
 export function getPromptViewportWidth(columns: number | undefined) {

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { realpath as realpathAsync, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -40,6 +41,23 @@ export function getProjectEnvPath(moduleUrl: string): string {
 
 export function getDefaultSkillRootDir(moduleUrl: string): string {
   return join(findProjectRoot(moduleUrl), "skills");
+}
+
+export async function resolveProjectStateRoot(cwd: string) {
+  const start = await realpathAsync(cwd).catch(() => cwd);
+  let current = start;
+
+  while (true) {
+    if (await pathExists(join(current, ".git"))) {
+      return current;
+    }
+
+    const parent = dirname(current);
+    if (parent === current) {
+      return cwd;
+    }
+    current = parent;
+  }
 }
 
 export function parseDotEnv(content: string): Record<string, string> {
@@ -113,6 +131,15 @@ function parseDotEnvValue(value: string): string {
   }
 
   return value.replace(/\s+#.*$/, "").trim();
+}
+
+async function pathExists(path: string) {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function findClosingQuote(value: string, quote: string): number {

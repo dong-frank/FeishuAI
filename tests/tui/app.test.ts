@@ -15,7 +15,11 @@ import {
   CURSOR_STYLE,
   DEFAULT_AGENT_STATUS_WIDTH,
   TUI_FOOTER_TIPS,
+  DEFAULT_MAX_CONTEXT_WINDOW,
   TUI_USAGE_TIPS,
+  formatContextMeterParts,
+  getContextProgressSymbol,
+  resolveMaxContextWindow,
   getAgentStatusWidth,
   getNextEditableInput,
   getAgentSuggestedCompletion,
@@ -125,7 +129,17 @@ test("App automatically runs lark init once on startup", async () => {
         exitCode: 0,
         stdout: "Lark authorization agent started in background.\n",
         stderr: "",
-        afterSuccess: Promise.resolve({ content: "Friday ready" }),
+        afterSuccess: Promise.resolve({
+          content: "Friday ready",
+          metadata: {
+            durationMs: 2500,
+            contextUsage: {
+              messageCount: 6,
+              characterCount: 5000,
+              estimatedTokens: 200000,
+            },
+          },
+        }),
         afterSuccessAgentKind: "lark" as const,
       };
     },
@@ -1304,7 +1318,13 @@ test("status line keeps waiting indicators outside the prompt box", () => {
   );
 });
 
-test("status bar keeps only usage tips", () => {
+test("status bar keeps usage tips and optional context meters", () => {
+  const unknownMeters = [
+    { text: "Linus " },
+    { text: "○", color: "gray" },
+    { text: "  Friday " },
+    { text: "○", color: "gray" },
+  ];
   assert.deepEqual(
     getStatusBarParts({
       isRunning: false,
@@ -1313,7 +1333,7 @@ test("status bar keeps only usage tips", () => {
     }),
     {
       left: TUI_FOOTER_TIPS,
-      right: "",
+      right: [],
     },
   );
   assert.deepEqual(
@@ -1326,7 +1346,7 @@ test("status bar keeps only usage tips", () => {
     }),
     {
       left: TUI_FOOTER_TIPS,
-      right: "",
+      right: [],
     },
   );
   assert.deepEqual(
@@ -1340,7 +1360,7 @@ test("status bar keeps only usage tips", () => {
     }),
     {
       left: TUI_FOOTER_TIPS,
-      right: "",
+      right: unknownMeters,
     },
   );
   assert.deepEqual(
@@ -1351,17 +1371,52 @@ test("status bar keeps only usage tips", () => {
     }),
     {
       left: TUI_FOOTER_TIPS,
-      right: "",
+      right: [],
     },
   );
 });
 
+test("context meter formats compact circular progress without numeric values", () => {
+  assert.equal(DEFAULT_MAX_CONTEXT_WINDOW, 256000);
+  assert.equal(resolveMaxContextWindow({ MAX_CONTEXT_WINDOW: "128000" }), 128000);
+  assert.equal(resolveMaxContextWindow({ MAX_CONTEXT_WINDOW: "nope" }), 256000);
+  assert.equal(resolveMaxContextWindow({ MAX_CONTEXT_WINDOW: "-1" }), 256000);
+  assert.equal(getContextProgressSymbol(undefined, 256000), "○");
+  assert.equal(getContextProgressSymbol({ estimatedTokens: 0 }, 256000), "○");
+  assert.equal(getContextProgressSymbol({ estimatedTokens: 1 }, 256000), "◔");
+  assert.equal(getContextProgressSymbol({ estimatedTokens: 64000 }, 256000), "◔");
+  assert.equal(getContextProgressSymbol({ estimatedTokens: 64001 }, 256000), "◑");
+  assert.equal(getContextProgressSymbol({ estimatedTokens: 128001 }, 256000), "◕");
+  assert.equal(getContextProgressSymbol({ estimatedTokens: 192001 }, 256000), "●");
+
+  assert.deepEqual(
+    formatContextMeterParts({
+      command: { messageCount: 4, characterCount: 4000, estimatedTokens: 1000 },
+      lark: { messageCount: 6, characterCount: 5000, estimatedTokens: 200000 },
+    }, 256000).map((part) => part.text),
+    ["Linus ", "◔", "  Friday ", "●"],
+  );
+  assert.deepEqual(
+    formatContextMeterParts({
+      command: { messageCount: 4, characterCount: 4000, estimatedTokens: 1000 },
+      lark: { messageCount: 6, characterCount: 5000, estimatedTokens: 200000 },
+    }, 256000).map((part) => part.color),
+    [undefined, "green", undefined, "red"],
+  );
+});
+
 test("status text uses a bounded viewport and scrolls long text with ellipsis", () => {
+  const unknownMeters = [
+    { text: "Linus " },
+    { text: "○", color: "gray" },
+    { text: "  Friday " },
+    { text: "○", color: "gray" },
+  ];
   assert.equal(DEFAULT_AGENT_STATUS_WIDTH, 28);
   assert.equal(getAgentStatusWidth(undefined), 0);
   assert.deepEqual(getStatusPaneWidths(undefined), { left: 28, right: 0 });
   assert.deepEqual(getStatusPaneWidths(40), { left: 36, right: 0 });
-  assert.deepEqual(getStatusPaneWidths(120), { left: 116, right: 0 });
+  assert.deepEqual(getStatusPaneWidths(120), { left: 99, right: 17 });
   assert.equal(getAgentStatusWidth(40), 0);
   assert.equal(getAgentStatusWidth(120), 0);
   assert.equal(getTerminalTextWidth("空闲"), 4);
@@ -1404,7 +1459,29 @@ test("status text uses a bounded viewport and scrolls long text with ellipsis", 
     }),
     {
       left: "[Enter]执行...",
-      right: "",
+      right: unknownMeters,
+    },
+  );
+  assert.deepEqual(
+    getStatusBarParts({
+      isRunning: false,
+      isAgentWaiting: false,
+      tipStatusWidth: 20,
+      agentStatusWidth: 17,
+      contextMeters: {
+        command: { messageCount: 4, characterCount: 4000, estimatedTokens: 1000 },
+        lark: { messageCount: 6, characterCount: 5000, estimatedTokens: 200000 },
+      },
+      maxContextWindow: 256000,
+    }),
+    {
+      left: "[Enter]执行  [Tab...",
+      right: [
+        { text: "Linus " },
+        { text: "◔", color: "green" },
+        { text: "  Friday " },
+        { text: "●", color: "red" },
+      ],
     },
   );
 });

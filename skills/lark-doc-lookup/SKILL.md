@@ -1,7 +1,7 @@
 ---
 name: lark-doc-lookup
 version: 1.0.0
-description: "飞书云文档与知识库查阅：只用于搜索、定位和读取飞书文档/Wiki/云空间资料，服务 git-helper 的团队规范、故障处理、PR 流程等知识查询场景。允许 docs +search、wiki 只读节点查询和 docs +fetch；禁止创建、更新、删除、上传、下载或发送消息。"
+description: "飞书云文档与知识库查阅：只用于搜索、定位和读取飞书文档/Wiki/云空间资料，服务 GITX 的团队规范、故障处理、PR 流程等知识查询场景。允许 docs +search、wiki 只读节点查询和 docs +fetch；禁止创建、更新、删除、上传、下载或发送消息。"
 metadata:
   requires:
     bins: ["lark-cli"]
@@ -11,7 +11,7 @@ metadata:
 
 > 前置条件：先阅读 `../lark-shared/SKILL.md`，遵守认证、身份、权限和安全规则。
 
-本 Skill 只用于查阅飞书资料。它适合 `interact` 的 `get_context` action：根据 Git 命令上下文、报错、团队流程关键词，优先使用当前会话中已有的 `project_context_index` 全量目录索引定位资料；索引缺失或覆盖不足时，再查找并读取相关团队文档，返回简短、可引用的上下文摘要。
+本 Skill 只用于查阅飞书资料。它适合 `interact` 的 `get_context` action：根据 Git 命令上下文、报错、团队流程关键词，先调用 `read_project_context_index` 读取 `.gitx/memory.json` 中的本地 `project_context_index` 全量目录索引定位资料；索引缺失或覆盖不足时，再查找并读取相关团队文档，返回简短、可引用的上下文摘要。
 
 ## 允许的操作
 
@@ -41,13 +41,14 @@ lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope keywor
 
 ## 查询流程
 
-1. 用 `docs +search` 做资源发现，搜索候选资料。
+1. 先调用 `read_project_context_index` 读取本地项目索引。
+   - 如果索引里已有可用摘要，优先返回 remembered。
+   - 不要只依赖固定 topic；topic 只是当前请求入口，真正定位应结合 reason、rawCommand、错误输出、仓库信息和索引中的文档目录。
+   - 只有索引缺失、覆盖不足或需要最新内容时才继续查询飞书。
+2. 用 `docs +search` 做资源发现，搜索候选资料。
    - 搜索关键词必须通过 `--query` 传递，不要把关键词写成位置参数。
    - 默认只读取第一页结果。
    - 内部判断用 `--format json` 且 `showOutputInTui: false`。
-2. 如果当前会话历史中已有 `project_context_index`，先从全量目录索引中按标题、路径、outline、文档类型和用户意图定位资料。
-   - 不要只依赖固定 topic；topic 只是当前请求入口，真正定位应结合 reason、rawCommand、错误输出、仓库信息和索引中的文档目录。
-   - 如果索引里已有可用摘要，优先返回 remembered；只有索引缺失、覆盖不足或需要最新内容时才继续查询飞书。
 3. 查询优先级：先查询相关团队知识库，再查询个人知识库。
    - 优先从与当前仓库、团队、项目或流程关键词匹配的团队知识库/Wiki/共享文档中选择候选。
    - 只有团队知识库没有命中、权限不足、或命中内容明显不相关时，才继续查询个人知识库或个人云空间资料。

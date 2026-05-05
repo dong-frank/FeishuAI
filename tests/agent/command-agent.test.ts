@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -31,16 +33,26 @@ import {
   routeCommandAgentTask,
   parseCommandAgentOutput,
 } from "../../src/agent/command-agent.js";
+import { saveAgentMemory } from "../../src/runtime/agent-memory.js";
 
 class PersistentFakeListChatModel extends FakeListChatModel {
+  seenMessages: string[][] = [];
+
   bindTools() {
     return this;
+  }
+
+  async _generate(messages: any[], options?: any) {
+    this.seenMessages.push(messages.map((message) => String(message.content ?? "")));
+    return super._generate(messages, options);
   }
 }
 
 test("COMMAND_AGENT_TOOLS includes help and git commit context tools", () => {
   assert.deepEqual(COMMAND_AGENT_TOOLS.map((tool) => tool.name), [
     "load_skill",
+    "save_memory",
+    "read_memory",
     "tldr_git_manual",
     "git_commit_context",
     "git_repository_context",
@@ -228,7 +240,51 @@ test("COMMAND_AGENT_SYSTEM_PROMPT describes the unified memory-aware command age
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /当前命令事实必须以本次 context、result 和工具返回为准/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /不要把历史中的 stdout、stderr 或 git status 当成本次实时状态/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /团队上下文可优先复用历史/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /save_memory/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /read_memory/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /\.gitx\/memory\.json/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /输入中的 memory/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /仓库状态和命令结果必须按需重新读取/);
+});
+
+test("command agent injects compact project memories into each invocation", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "gitx-command-memory-invoke-"));
+  await saveAgentMemory(
+    cwd,
+    {
+      category: "workflow_preference",
+      content: "用户偏好 push 成功后立即创建 PR，并用中文总结结果。",
+      sourceAgent: "command",
+      sourceTask: "afterSuccess",
+      tags: ["git", "pr"],
+    },
+    new Date("2026-05-01T00:00:00.000Z"),
+  );
+  const model = new PersistentFakeListChatModel({
+    responses: [JSON.stringify({ content: "查看状态", suggestedCommand: null })],
+  });
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  await agent.chat?.({
+    cwd,
+    command: "/chat",
+    args: ["继续"],
+    rawCommand: "/chat 继续",
+    message: "继续",
+  });
+
+  assert.match(model.seenMessages[0]?.at(-1) ?? "", /"memory":/);
+  assert.match(model.seenMessages[0]?.at(-1) ?? "", /用户偏好 push 成功后立即创建 PR/);
 });
 
 test("command agent reuses one preserved agent across beforeRun and afterFail", async () => {

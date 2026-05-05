@@ -7,6 +7,7 @@ import type {
   CommandChatContext,
   CommandContext,
   AgentToolProgressEvent,
+  AgentRunMetadata,
   LarkAgent,
 } from "../agent/types.js";
 import { createCommandAgent } from "../agent/command-agent.js";
@@ -66,7 +67,12 @@ import {
   shouldIgnoreTabAgentTrigger,
   shouldTriggerBeforeRunOnTab,
 } from "./runtime.js";
-import { getStatusPaneWidths, type AgentKind } from "./status.js";
+import {
+  getStatusPaneWidths,
+  resolveMaxContextWindow,
+  type AgentKind,
+  type ContextMeterState,
+} from "./status.js";
 
 export * from "./constants.js";
 export * from "./history.js";
@@ -103,6 +109,7 @@ export function App({
   const [activeAgentKind, setActiveAgentKind] = useState<AgentKind | undefined>();
   const [agentStatusCommand, setAgentStatusCommand] = useState<string | undefined>();
   const [agentSuggestedCommand, setAgentSuggestedCommand] = useState<string | undefined>();
+  const [contextMeters, setContextMeters] = useState<ContextMeterState>({});
   const lastTabAgentInput = useRef<string | undefined>(undefined);
   const larkOutputHandler = useRef<((chunk: CommandOutputChunk) => void) | undefined>(undefined);
   const agentToolProgressHandler = useRef<
@@ -129,6 +136,7 @@ export function App({
     completionSuffix: visibleCompletion?.suffix,
   });
   const statusPaneWidths = getStatusPaneWidths(stdout.columns);
+  const maxContextWindow = resolveMaxContextWindow();
   const statusState = {
     isRunning,
     isAgentWaiting,
@@ -424,6 +432,7 @@ export function App({
         ...(message.suggestedCommand ? { suggestedCommand: message.suggestedCommand } : {}),
         ...(message.metadata ? { metadata: message.metadata } : {}),
       });
+      rememberAgentContextUsage("command", message.metadata);
       setAgentSuggestedCommand(message.suggestedCommand);
 
       updateAgentHistoryEntry(agentHistoryId, {
@@ -509,6 +518,7 @@ export function App({
         ...(output.suggestedCommand ? { suggestedCommand: output.suggestedCommand } : {}),
         ...(output.metadata ? { metadata: output.metadata } : {}),
       });
+      rememberAgentContextUsage(agentKind, output.metadata);
       setAgentSuggestedCommand(output.suggestedCommand);
 
       updateAgentHistoryEntry(agentHistoryId, {
@@ -586,6 +596,7 @@ export function App({
         ...(output.suggestedCommand ? { suggestedCommand: output.suggestedCommand } : {}),
         ...(output.metadata ? { metadata: output.metadata } : {}),
       });
+      rememberAgentContextUsage(agentKind, output.metadata);
       setAgentSuggestedCommand(output.suggestedCommand);
 
       updateAgentHistoryEntry(agentHistoryId, {
@@ -848,6 +859,7 @@ export function App({
         ...(message.suggestedCommand ? { suggestedCommand: message.suggestedCommand } : {}),
         ...(message.metadata ? { metadata: message.metadata } : {}),
       });
+      rememberAgentContextUsage("command", message.metadata);
       setAgentSuggestedCommand(message.suggestedCommand);
 
       updateAgentHistoryEntry(agentHistoryId, {
@@ -943,6 +955,20 @@ export function App({
     setHistoryScrollOffset(0);
   }
 
+  function rememberAgentContextUsage(
+    agentKind: AgentKind,
+    metadata: AgentRunMetadata | undefined,
+  ) {
+    if (!metadata?.contextUsage) {
+      return;
+    }
+
+    setContextMeters((current) => ({
+      ...current,
+      [agentKind]: metadata.contextUsage,
+    }));
+  }
+
   return (
     <AppLayout
       sessionHeader={sessionHeader}
@@ -953,6 +979,8 @@ export function App({
       promptViewportWidth={promptViewportWidth}
       statusPaneWidths={statusPaneWidths}
       statusState={statusState}
+      contextMeters={contextMeters}
+      maxContextWindow={maxContextWindow}
       viewportRows={stdout.rows}
     />
   );

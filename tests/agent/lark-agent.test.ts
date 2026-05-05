@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -19,11 +21,34 @@ import {
   LARK_AGENT_TOOLS,
   parseLarkInteractionResult,
 } from "../../src/agent/lark-agent.js";
+import { saveAgentMemory } from "../../src/runtime/agent-memory.js";
+
+class PersistentFakeListChatModel extends FakeListChatModel {
+  seenMessages: string[][] = [];
+
+  bindTools() {
+    return this;
+  }
+
+  async _generate(messages: any[], options?: any) {
+    this.seenMessages.push(messages.map((message) => String(message.content ?? "")));
+    return super._generate(messages, options);
+  }
+}
 
 test("lark agent exposes load_skill and run_lark_cli tools", () => {
   assert.deepEqual(
     LARK_AGENT_TOOLS.map((tool) => tool.name),
-    ["load_skill", "run_lark_cli", "final_response"],
+    [
+      "load_skill",
+      "save_memory",
+      "read_memory",
+      "read_project_context_index",
+      "save_project_context_index",
+      "compare_project_context_index",
+      "run_lark_cli",
+      "final_response",
+    ],
   );
 });
 
@@ -122,6 +147,10 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /飞书协作 Agent/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /返回给 Linus 使用/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /load_skill/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /save_memory/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /read_memory/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /\.gitx\/memory\.json/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /输入中的 memory/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /run_lark_cli/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /showOutputInTui/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /默认 false/);
@@ -172,6 +201,40 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /config", "init/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要编造/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /输出要适合终端阅读/);
+});
+
+test("lark agent injects compact project memories into each invocation", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "gitx-lark-memory-invoke-"));
+  await saveAgentMemory(
+    cwd,
+    {
+      category: "team_policy",
+      content: "团队提交信息使用 conventional commits。",
+      sourceAgent: "lark",
+      sourceTask: "authorize",
+      tags: ["commit", "policy"],
+    },
+    new Date("2026-05-01T00:00:00.000Z"),
+  );
+  const model = new PersistentFakeListChatModel({
+    responses: [JSON.stringify({ content: "已读取", suggestedCommand: null })],
+  });
+  const agent = createLarkAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+  });
+
+  await agent.authorize({ cwd });
+
+  assert.match(model.seenMessages[0]?.at(-1) ?? "", /"memory":/);
+  assert.match(model.seenMessages[0]?.at(-1) ?? "", /团队提交信息使用 conventional commits/);
 });
 
 test("lark agent forwards compact tool progress events", async () => {

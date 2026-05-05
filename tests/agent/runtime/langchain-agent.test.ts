@@ -422,6 +422,46 @@ test("createLangChainAgent can compact preserved history after each response", a
   assert.doesNotMatch(second.content, /RAW_SECRET_TOOL_CONTEXT/);
 });
 
+test("createLangChainAgent can restore preserved history from a store", async () => {
+  let storedMessages: unknown[] = [];
+  const historyStore = {
+    async load() {
+      return storedMessages;
+    },
+    async save(_input: string, messages: unknown[]) {
+      storedMessages = messages;
+    },
+  };
+  const firstAgent = createLangChainAgent({
+    systemPrompt: "Persist history.",
+    tools: [],
+    model: new FakeToolCallingModel() as unknown as ChatOpenAI,
+    preserveHistory: true,
+    historyStore,
+    compactHistoryEntry(input, output) {
+      return {
+        userContent: `saved user: ${input}`,
+        assistantContent: `saved assistant: ${output}`,
+      };
+    },
+  });
+
+  await firstAgent.invoke("first command");
+
+  const secondAgent = createLangChainAgent({
+    systemPrompt: "Persist history.",
+    tools: [],
+    model: new FakeToolCallingModel() as unknown as ChatOpenAI,
+    preserveHistory: true,
+    historyStore,
+  });
+  const output = await secondAgent.invoke("second command");
+
+  assert.match(output, /saved user: first command/);
+  assert.match(output, /saved assistant:/);
+  assert.match(output, /second command/);
+});
+
 test("createLangChainAgent feeds back and retries when validated output is empty", async () => {
   const model = new FeedbackAwareFakeListChatModel({
     responses: ["", "regenerated answer"],

@@ -32,6 +32,7 @@ export type LangChainAgentOptions = {
   compactHistoryEntry?: LangChainHistoryCompactor | undefined;
   validateOutput?: LangChainOutputValidator | undefined;
   onToolProgress?: AgentToolProgressHandler | undefined;
+  historyStore?: LangChainHistoryStore | undefined;
 };
 
 export type LangChainAgent = {
@@ -55,6 +56,16 @@ export type LangChainHistoryCompactor = (
 ) => {
   userContent: string;
   assistantContent: string;
+};
+
+export type LangChainHistoryMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type LangChainHistoryStore = {
+  load: (input: string) => Promise<LangChainHistoryMessage[]>;
+  save: (input: string, messages: LangChainHistoryMessage[]) => Promise<void>;
 };
 
 export type LangChainOutputValidator = (
@@ -142,10 +153,13 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
     ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
   });
   const name = options.name ?? "LangChain Agent";
-  let messageHistory: any[] = [];
+  let messageHistory: LangChainHistoryMessage[] = [];
   const invokeWithMetadata = async (input: string) => {
     failedToolError = undefined;
     const startedAt = Date.now();
+    if (options.preserveHistory && options.historyStore && messageHistory.length === 0) {
+      messageHistory = await options.historyStore.load(input);
+    }
     const messages = [
       ...(options.preserveHistory ? messageHistory : []),
       { role: "user", content: input },
@@ -172,6 +186,7 @@ export function createLangChainAgent(options: LangChainAgentOptions): LangChainA
         { role: "user", content: historyEntry.userContent },
         { role: "assistant", content: historyEntry.assistantContent },
       ];
+      await options.historyStore?.save(input, messageHistory);
     }
     const contextMessages = options.preserveHistory
       ? messageHistory

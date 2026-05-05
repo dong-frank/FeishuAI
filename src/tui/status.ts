@@ -5,8 +5,17 @@ import {
   TUI_FOOTER_TIPS,
   TUI_USAGE_TIPS,
 } from "./constants.js";
+import type { AgentContextUsage } from "../agent/types.js";
 
 export type AgentKind = "command" | "lark";
+export type ContextMeterState = Partial<Record<AgentKind, AgentContextUsage>>;
+export type StatusTextPart = {
+  text: string;
+  color?: "gray" | "green" | "yellow" | "red" | undefined;
+};
+
+export const DEFAULT_MAX_CONTEXT_WINDOW = 256000;
+export const CONTEXT_METER_STATUS_WIDTH = getTerminalTextWidth("Linus ●  Friday ●");
 
 export function getAgentDisplayName(agentKind?: AgentKind | undefined) {
   if (agentKind === "lark") {
@@ -127,10 +136,11 @@ export function getStatusPaneWidths(columns: number | undefined) {
     };
   }
 
-  const left = Math.max(8, columns - 4);
+  const right = columns >= 72 ? CONTEXT_METER_STATUS_WIDTH : 0;
+  const left = Math.max(8, columns - 4 - right);
   return {
     left,
-    right: 0,
+    right,
   };
 }
 
@@ -184,6 +194,8 @@ export function getStatusBarParts(
     tipStatusWidth?: number | undefined;
     tipStatusScrollOffset?: number | undefined;
     agentStatusScrollOffset?: number | undefined;
+    contextMeters?: ContextMeterState | undefined;
+    maxContextWindow?: number | undefined;
   },
 ) {
   return {
@@ -192,6 +204,89 @@ export function getStatusBarParts(
       width: options.tipStatusWidth ?? getTerminalTextWidth(TUI_FOOTER_TIPS),
       offset: 0,
     }),
-    right: "",
+    right:
+      (options.agentStatusWidth ?? 0) > 0
+        ? formatContextMeterParts(
+            options.contextMeters,
+            options.maxContextWindow ?? resolveMaxContextWindow(),
+          )
+        : [],
   };
+}
+
+export function resolveMaxContextWindow(
+  env: Partial<Pick<NodeJS.ProcessEnv, "MAX_CONTEXT_WINDOW">> = process.env,
+) {
+  const parsed = Number.parseInt(env.MAX_CONTEXT_WINDOW ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_MAX_CONTEXT_WINDOW;
+}
+
+export function getContextProgressSymbol(
+  usage: Pick<AgentContextUsage, "estimatedTokens"> | undefined,
+  maxContextWindow: number = DEFAULT_MAX_CONTEXT_WINDOW,
+) {
+  const ratio = getContextUsageRatio(usage, maxContextWindow);
+  if (ratio <= 0) {
+    return "○";
+  }
+  if (ratio <= 0.25) {
+    return "◔";
+  }
+  if (ratio <= 0.5) {
+    return "◑";
+  }
+  if (ratio <= 0.75) {
+    return "◕";
+  }
+
+  return "●";
+}
+
+export function getContextProgressColor(
+  usage: Pick<AgentContextUsage, "estimatedTokens"> | undefined,
+  maxContextWindow: number = DEFAULT_MAX_CONTEXT_WINDOW,
+): StatusTextPart["color"] {
+  const ratio = getContextUsageRatio(usage, maxContextWindow);
+  if (ratio <= 0) {
+    return "gray";
+  }
+  if (ratio <= 0.25) {
+    return "green";
+  }
+  if (ratio <= 0.75) {
+    return "yellow";
+  }
+
+  return "red";
+}
+
+export function formatContextMeterParts(
+  meters: ContextMeterState | undefined,
+  maxContextWindow: number = DEFAULT_MAX_CONTEXT_WINDOW,
+): StatusTextPart[] {
+  return [
+    { text: "Linus " },
+    {
+      text: getContextProgressSymbol(meters?.command, maxContextWindow),
+      color: getContextProgressColor(meters?.command, maxContextWindow),
+    },
+    { text: "  Friday " },
+    {
+      text: getContextProgressSymbol(meters?.lark, maxContextWindow),
+      color: getContextProgressColor(meters?.lark, maxContextWindow),
+    },
+  ];
+}
+
+function getContextUsageRatio(
+  usage: Pick<AgentContextUsage, "estimatedTokens"> | undefined,
+  maxContextWindow: number,
+) {
+  if (!usage || usage.estimatedTokens <= 0 || maxContextWindow <= 0) {
+    return 0;
+  }
+
+  return usage.estimatedTokens / maxContextWindow;
 }
