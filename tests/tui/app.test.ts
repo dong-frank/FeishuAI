@@ -285,14 +285,23 @@ test("pending agent history renders compact tool progress", () => {
 
   const toolRows = rows.filter((row) => row.text.includes("─ "));
   assert.deepEqual(
-    toolRows.map((row) => ({
-      text: row.text,
-      rightText: row.rightText,
-    })),
+    toolRows.map((row) => row.text),
     [
-      { text: "  ├─ load_skill skillName=command-help", rightText: "[Git Agent]" },
-      { text: "  ├─ interact_with_lark_agent action=get_context", rightText: "[Git Agent]" },
-      { text: "  └─ run_lark_cli auth status", rightText: "[Lark Agent]" },
+      "  ├─ load_skill skillName=command-help",
+      "  ├─ interact_with_lark_agent action=get_context",
+      "  └─ run_lark_cli auth status",
+    ],
+  );
+  assert.deepEqual(
+    rows
+      .filter((row) => row.text === "  [Git Agent]" || row.text === "  [Lark Agent]")
+      .map((row) => ({
+        text: row.text,
+        color: row.color,
+      })),
+    [
+      { text: "  [Git Agent]", color: "cyan" },
+      { text: "  [Lark Agent]", color: "magenta" },
     ],
   );
   assert.equal(rows.some((row) => row.text === "Waiting for agent response..."), false);
@@ -303,22 +312,18 @@ test("pending agent history renders compact tool progress", () => {
   const firstToolRow = rows.find(
     (row) => row.text === "  ├─ load_skill skillName=command-help",
   );
-  assert.equal(firstToolRow?.rightText, "[Git Agent]");
+  assert.equal(firstToolRow?.rightText, undefined);
   assert.equal(firstToolRow?.color, "gray");
-  assert.equal(firstToolRow?.rightColor, "cyan");
 
   const larkCallRow = rows.find(
     (row) => row.text === "  ├─ interact_with_lark_agent action=get_context",
   );
-  assert.equal(larkCallRow?.rightText, "[Git Agent]");
+  assert.equal(larkCallRow?.rightText, undefined);
   assert.equal(larkCallRow?.color, "gray");
-  assert.equal(larkCallRow?.rightColor, "cyan");
 
   const runningRow = rows.find((row) => row.text === "  └─ run_lark_cli auth status");
-  assert.equal(runningRow?.rightText, "[Lark Agent]");
+  assert.equal(runningRow?.rightText, undefined);
   assert.equal(runningRow?.color, "magenta");
-  assert.equal(runningRow?.rightColor, "magenta");
-  assert.equal(runningRow?.rightText, "[Lark Agent]");
 });
 
 test("agent tool progress truncates tool name and params to 50 characters", () => {
@@ -385,13 +390,21 @@ test("agent tool progress keeps call order when returning from lark to git", () 
 
   assert.deepEqual(
     rows
-      .filter((row) => row.text.includes("─ "))
-      .map((row) => `${row.rightText} ${row.text}`),
+      .filter(
+        (row) =>
+          row.text.includes("─ ") ||
+          row.text === "  [Git Agent]" ||
+          row.text === "  [Lark Agent]",
+      )
+      .map((row) => row.text),
     [
-      "[Git Agent]   ├─ load_skill",
-      "[Git Agent]   ├─ interact_with_lark_agent",
-      "[Lark Agent]   ├─ load_skill",
-      "[Git Agent]   └─ git_commit_context",
+      "  [Git Agent]",
+      "  ├─ load_skill",
+      "  ├─ interact_with_lark_agent",
+      "  [Lark Agent]",
+      "  ├─ load_skill",
+      "  [Git Agent]",
+      "  └─ git_commit_context",
     ],
   );
 });
@@ -564,7 +577,8 @@ test("agent history replacement preserves progress after failure", () => {
   );
 
   const failedRow = rows.find((row) => row.text === "  └─ git_repository_context");
-  assert.equal(failedRow?.rightText, "[Git Agent]");
+  assert.equal(rows.some((row) => row.text === "  [Git Agent]"), true);
+  assert.equal(failedRow?.rightText, undefined);
   assert.equal(failedRow?.color, "red");
   assert.equal(rows.some((row) => row.text.includes("git failed")), false);
   assert.equal(rows.some((row) => row.text === "Agent failed"), true);

@@ -336,24 +336,37 @@ function getAgentToolProgressRows(
     return [];
   }
 
-  return entry.toolProgress.flatMap((event, index) =>
-    getAgentToolProgressEventRows(
-      event,
-      index === entry.toolProgress!.length - 1,
-      entry.agentKind,
-      wrapWidth,
-    ),
-  );
+  let previousAgentKind: AgentHistoryKind | undefined;
+  return entry.toolProgress.flatMap((event, index) => {
+    const agentKind = event.agentKind ?? entry.agentKind;
+    const shouldShowAgentHeader = agentKind !== previousAgentKind;
+    previousAgentKind = agentKind;
+
+    return [
+      ...(shouldShowAgentHeader ? [getAgentToolProgressAgentHeaderRow(agentKind)] : []),
+      ...getAgentToolProgressEventRows(
+        event,
+        index === entry.toolProgress!.length - 1,
+        wrapWidth,
+      ),
+    ];
+  });
+}
+
+function getAgentToolProgressAgentHeaderRow(agentKind: AgentHistoryKind): HistoryRow {
+  return {
+    text: `  [${getAgentToolProgressAgentTitle(agentKind)}]`,
+    color: getAgentToolProgressAgentColor(agentKind),
+    bold: true,
+  };
 }
 
 function getAgentToolProgressEventRows(
   event: AgentToolProgressEvent,
   isLast: boolean,
-  fallbackAgentKind: AgentHistoryKind,
   wrapWidth?: number | undefined,
 ): HistoryRow[] {
   const color = getAgentToolProgressColor(event);
-  const agentKind = event.agentKind ?? fallbackAgentKind;
   const labelRows = splitTerminalTextByWidth(
     formatAgentToolProgressLabel(event, isLast),
     wrapWidth,
@@ -363,8 +376,6 @@ function getAgentToolProgressEventRows(
     {
       text: firstLabel,
       color,
-      rightText: `[${getAgentToolProgressAgentTitle(agentKind)}]`,
-      rightColor: getAgentToolProgressAgentColor(agentKind),
     },
     ...labelRows.slice(1).map((text) => ({
       text,
