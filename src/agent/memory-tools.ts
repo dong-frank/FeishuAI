@@ -150,7 +150,8 @@ export function createReadProjectContextIndexTool(): StructuredToolInterface {
 }
 
 export function createSaveProjectContextIndexTool(): StructuredToolInterface {
-  return tool(
+  return withTuiDisplay(
+    tool(
     async (input) =>
       JSON.stringify(
         await saveProjectContextIndex(input.cwd, {
@@ -180,11 +181,13 @@ export function createSaveProjectContextIndexTool(): StructuredToolInterface {
         })
         .strict(),
     },
-  );
+  ),
+  "保存预热知识库");
 }
 
 export function createCompareProjectContextIndexTool(): StructuredToolInterface {
-  return tool(
+  return withTuiDisplay(
+    tool(
     async ({ cwd, onlineDirectory }) =>
       JSON.stringify(await compareProjectContextIndex(cwd, onlineDirectory)),
     {
@@ -200,7 +203,8 @@ export function createCompareProjectContextIndexTool(): StructuredToolInterface 
         })
         .strict(),
     },
-  );
+  ),
+  "检查更新本地预热知识库");
 }
 
 export function createAgentMemoryTools(): StructuredToolInterface[] {

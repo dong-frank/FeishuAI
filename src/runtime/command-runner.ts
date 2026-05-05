@@ -363,7 +363,7 @@ async function runLarkCustomCommand(
       classification,
       exitCode: 0,
       durationMs: Date.now() - startedAt,
-      stdout: "Lark authorization agent started in background.\n",
+      stdout: "GITX 正在完成飞书连接配置和知识库预热，请稍等...\n",
       stderr: "",
       afterSuccess,
       afterSuccessAgentKind: "lark",

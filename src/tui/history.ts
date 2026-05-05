@@ -26,7 +26,7 @@ type AgentHistoryKind = "command" | "lark";
 type AgentHistoryState = "pending" | "success" | "failed" | "empty";
 type AgentHistoryActivity = "waiting" | "reviewing";
 const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH_FALLBACK = 50;
-const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH_RATIO = 0.4;
+const AGENT_TOOL_PROGRESS_DISPLAY_WIDTH_RATIO = 0.65;
 
 export type AgentHistoryEntry = {
   type: "agent";
