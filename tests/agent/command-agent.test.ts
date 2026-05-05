@@ -189,7 +189,8 @@ test("formatCommandAgentInvocation builds task envelopes with fixed skills", () 
 });
 
 test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
-  assert.match(HELP_AGENT_SYSTEM_PROMPT, /命令帮助 Agent/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /Linus/);
+  assert.match(HELP_AGENT_SYSTEM_PROMPT, /Git 命令帮助/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.gitStats\.successCount/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.gitStats\.failures/);
   assert.match(HELP_AGENT_SYSTEM_PROMPT, /context\.tuiSession/);
@@ -213,7 +214,9 @@ test("HELP_AGENT_SYSTEM_PROMPT only describes command help behavior", () => {
 });
 
 test("COMMAND_AGENT_SYSTEM_PROMPT describes the unified memory-aware command agent", () => {
-  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /单一命令 Agent/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /Linus/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /Git 工作流 Agent/);
+  assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /请求 Friday/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /task: "help" \| "commitMessage" \| "afterSuccess" \| "afterFail" \| "chat"/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-help/);
   assert.match(COMMAND_AGENT_SYSTEM_PROMPT, /command-git-commit-message/);
@@ -721,7 +724,8 @@ test("command task skills contain task-specific instructions", () => {
 });
 
 test("AFTER_SUCCESS_AGENT_SYSTEM_PROMPT describes injected after-success skill behavior", () => {
-  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /成功后建议 Agent/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /Linus/);
+  assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /成功后建议/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /task: "afterSuccess"/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /command-after-success/);
   assert.match(AFTER_SUCCESS_AGENT_SYSTEM_PROMPT, /Skill 已由 runtime 注入/);
@@ -750,7 +754,8 @@ Use git context.`,
 });
 
 test("AFTER_FAIL_AGENT_SYSTEM_PROMPT only describes failure behavior", () => {
-  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /失败后辅助 Agent/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /Linus/);
+  assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /失败后辅助/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /task: "afterFail"/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /command-after-fail/);
   assert.match(AFTER_FAIL_AGENT_SYSTEM_PROMPT, /Skill 已由 runtime 注入/);
@@ -789,7 +794,7 @@ test("all phase prompts describe structured output boundaries", () => {
     AFTER_SUCCESS_AGENT_SYSTEM_PROMPT,
     AFTER_FAIL_AGENT_SYSTEM_PROMPT,
   ]) {
-    assert.match(prompt, /不直接调用 Lark Agent/);
+    assert.match(prompt, /不直接调用 Friday/);
     assert.match(prompt, /不直接执行 Lark CLI/);
     assert.doesNotMatch(prompt, /followUpActions/);
     assert.doesNotMatch(prompt, /后续显式动作/);

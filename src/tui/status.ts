@@ -4,22 +4,35 @@ import {
   DEFAULT_STATUS_TEXT,
   TUI_FOOTER_TIPS,
   TUI_USAGE_TIPS,
-  STATUS_AGENTS_LOADING_TEXTS,
 } from "./constants.js";
 
 export type AgentKind = "command" | "lark";
 
+export function getAgentDisplayName(agentKind?: AgentKind | undefined) {
+  if (agentKind === "lark") {
+    return "Friday";
+  }
+
+  if (agentKind === "command") {
+    return "Linus";
+  }
+
+  return "Agent";
+}
+
 export function getStatusAgentsLoadingText({
   agentKind,
   agentCommand,
+  activity = "waiting",
 }: {
   agentKind?: AgentKind | undefined;
   agentCommand?: string | undefined;
+  activity?: "waiting" | "reviewing" | undefined;
 }) {
-  const randomText = STATUS_AGENTS_LOADING_TEXTS[Math.floor(Math.random() * STATUS_AGENTS_LOADING_TEXTS.length)] ?? "思考中";
-  const kindText = agentKind ? `${agentKind} ` : "";
+  const actionText = activity === "reviewing" ? "正在检查" : "正在处理";
+  const kindText = getAgentDisplayName(agentKind);
   const commandText = agentCommand ? ` ${agentCommand}` : "";
-  return `${kindText}${randomText}${commandText}`;
+  return `${kindText} ${actionText}${commandText} ...`;
 }
 
 export function getStatusLine({
@@ -38,11 +51,15 @@ export function getStatusLine({
   tipIndex?: number | undefined;
 }) {
   if (isAgentWaiting) {
-    return getStatusAgentsLoadingText({agentKind, agentCommand});
+    return getStatusAgentsLoadingText({ agentKind, agentCommand });
   }
 
   if (isAgentReviewing) {
-    return getStatusAgentsLoadingText({agentKind, agentCommand});
+    return getStatusAgentsLoadingText({
+      agentKind,
+      agentCommand,
+      activity: "reviewing",
+    });
   }
 
   if (isRunning) {

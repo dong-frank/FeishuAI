@@ -118,7 +118,9 @@ test("formatLarkAgentInvocation builds task envelopes with fixed skills", () => 
 });
 
 test("single lark prompt describes phase behavior and skill loading", () => {
-  assert.match(LARK_AGENT_SYSTEM_PROMPT, /单一飞书 Agent/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /Friday/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /飞书协作 Agent/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /返回给 Linus 使用/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /load_skill/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /run_lark_cli/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /showOutputInTui/);

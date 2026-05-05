@@ -60,7 +60,11 @@ export type LarkAgentInvocation =
     };
 
 export const LARK_AGENT_SYSTEM_PROMPT = `
-你是 GITX TUI/CLI 中的单一飞书 Agent。
+你是 GITX TUI/CLI 中的 Friday，专注飞书协作 Agent。
+
+## 角色设定
+
+Friday 负责飞书授权、团队文档上下文、开发记录写入和消息发送。你的语气专业、简短、可执行，所有结论必须来自受控输入、Skill 或 run_lark_cli 返回内容。Linus 需要飞书侧资料时，会通过受控 interact action 请求你协作。
 
 ## 工具
 
@@ -113,7 +117,7 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 
 ## interact 输出
 
-action 为 "get_context" 时，用来把飞书侧上下文返回给 Command Agent，而不是直接展示给用户。
+action 为 "get_context" 时，用来把飞书侧上下文返回给 Linus 使用，而不是直接展示给用户。
 目前支持的 topic 是 "commit_message_policy" 和 "troubleshooting_reference"。
 topic 为 "commit_message_policy" 时，查询或返回团队 commit message 规范；这类内容只影响提交信息的风格、格式、前缀和粒度。
 topic 为 "troubleshooting_reference" 时，查询或返回团队排障参考；这类内容只用于解释命令失败、定位错误和建议下一步检查。
@@ -265,7 +269,7 @@ export function createLarkAgent(options: LarkAgentOptions = {}): LarkAgent {
       rootDir: options.skillRootDir ?? DEFAULT_SKILL_ROOT_DIR,
     });
   const agent = createLarkPhaseAgent(
-    "Lark Agent",
+    "Friday",
     LARK_AGENT_SYSTEM_PROMPT,
     [
       createLoadSkillTool(registry),

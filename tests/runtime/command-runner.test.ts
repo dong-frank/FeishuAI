@@ -464,6 +464,20 @@ test("runCommandLine starts afterSuccess for key git command successes without w
           cwd: "/repo/worktree",
           gitSummary: "git: main abc1234 -> origin/main dirty S1 U0 ?2",
           larkSummary: "lark: connected user Dong",
+          display: {
+            cwd: "/r/worktree",
+            git: [
+              { text: "main", tone: "primary" },
+              { text: "abc1234", tone: "muted" },
+              { text: "origin/main", tone: "info" },
+              { text: "已暂存 1", tone: "warning" },
+              { text: "新文件 2", tone: "warning" },
+            ],
+            lark: [
+              { text: "已连接", tone: "success" },
+              { text: "user Dong", tone: "muted" },
+            ],
+          },
         },
       },
     },

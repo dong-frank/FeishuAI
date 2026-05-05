@@ -18,7 +18,7 @@ import {
   isHelpOutput,
   type OutputTextPart,
 } from "./output.js";
-import { getTerminalTextWidth } from "./status.js";
+import { getAgentDisplayName, getTerminalTextWidth } from "./status.js";
 
 type HistoryColor = NonNullable<OutputTextPart["color"]>;
 type OutputSource = "user" | "agent";
@@ -492,11 +492,7 @@ function getAgentHistoryTitle() {
 }
 
 function getAgentToolProgressAgentTitle(agentKind: "command" | "lark" | undefined) {
-  if (agentKind === "lark") {
-    return "Lark Agent";
-  }
-
-  return "Git Agent";
+  return getAgentDisplayName(agentKind);
 }
 
 function attachCommandStatus(
@@ -574,7 +570,7 @@ function getStyledOutputTextParts(
 
   return parts.map((part) => ({
     ...part,
-    color: part.color ?? "gray",
+    color: part.color ?? "magenta",
   }));
 }
 

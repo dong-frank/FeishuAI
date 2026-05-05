@@ -70,11 +70,11 @@ test("completion ghost style is visually distinct from ordinary gray text", () =
 });
 
 test("usage tips are recorded in one place for the status bar", () => {
-  assert.ok(TUI_USAGE_TIPS.includes("按 Enter 执行命令"));
-  assert.ok(TUI_USAGE_TIPS.includes("按 Tab 请求 Agent 帮助"));
-  assert.ok(TUI_USAGE_TIPS.includes("按 → 接受命令或文件补全"));
-  assert.ok(TUI_USAGE_TIPS.includes("按 ↑/↓ 切换命令历史"));
-  assert.ok(TUI_USAGE_TIPS.includes("按 PageUp/PageDown 滚动输出历史"));
+  assert.ok(TUI_USAGE_TIPS.includes("Enter 执行命令"));
+  assert.ok(TUI_USAGE_TIPS.includes("Tab 请求 Linus 帮助"));
+  assert.ok(TUI_USAGE_TIPS.includes("→ 接受补全"));
+  assert.ok(TUI_USAGE_TIPS.includes("↑/↓ 切换历史命令"));
+  assert.ok(TUI_USAGE_TIPS.includes("连接 Friday: lark init"));
 });
 
 test("welcome copy uses terminal character art for the brand", () => {
@@ -116,7 +116,7 @@ test("long command input history wraps before viewport clipping", () => {
     (row) => row.text,
   );
 
-  assert.deepEqual(rows.slice(3), [
+  assert.deepEqual(rows.slice(-5), [
     '$ git commit -m "feat: ',
     "新增命令历史切换与鼠标滚",
     "轮滚动支持，优化TUI布局",
@@ -294,14 +294,14 @@ test("pending agent history renders compact tool progress", () => {
   );
   assert.deepEqual(
     rows
-      .filter((row) => row.text === "  [Git Agent]" || row.text === "  [Lark Agent]")
+      .filter((row) => row.text === "  [Linus]" || row.text === "  [Friday]")
       .map((row) => ({
         text: row.text,
         color: row.color,
       })),
     [
-      { text: "  [Git Agent]", color: "cyan" },
-      { text: "  [Lark Agent]", color: "magenta" },
+      { text: "  [Linus]", color: "cyan" },
+      { text: "  [Friday]", color: "magenta" },
     ],
   );
   assert.equal(rows.some((row) => row.text === "Waiting for agent response..."), false);
@@ -393,17 +393,17 @@ test("agent tool progress keeps call order when returning from lark to git", () 
       .filter(
         (row) =>
           row.text.includes("─ ") ||
-          row.text === "  [Git Agent]" ||
-          row.text === "  [Lark Agent]",
+          row.text === "  [Linus]" ||
+          row.text === "  [Friday]",
       )
       .map((row) => row.text),
     [
-      "  [Git Agent]",
+      "  [Linus]",
       "  ├─ load_skill",
       "  ├─ interact_with_lark_agent",
-      "  [Lark Agent]",
+      "  [Friday]",
       "  ├─ load_skill",
-      "  [Git Agent]",
+      "  [Linus]",
       "  └─ git_commit_context",
     ],
   );
@@ -577,7 +577,7 @@ test("agent history replacement preserves progress after failure", () => {
   );
 
   const failedRow = rows.find((row) => row.text === "  └─ git_repository_context");
-  assert.equal(rows.some((row) => row.text === "  [Git Agent]"), true);
+  assert.equal(rows.some((row) => row.text === "  [Linus]"), true);
   assert.equal(failedRow?.rightText, undefined);
   assert.equal(failedRow?.color, "red");
   assert.equal(rows.some((row) => row.text.includes("git failed")), false);
@@ -643,11 +643,12 @@ test("command history keeps right-side status on the final wrapped command row",
     12,
   );
 
-  assert.equal(rows[3]?.text, "$ git status");
-  assert.equal(rows[3]?.rightText, undefined);
-  assert.equal(rows[4]?.text, " --short");
-  assert.equal(rows[4]?.rightText, "[✓ 900ms]");
-  assert.equal(rows[5]?.text, "");
+  const commandRowIndex = rows.findIndex((row) => row.text === "$ git status");
+  assert.notEqual(commandRowIndex, -1);
+  assert.equal(rows[commandRowIndex]?.rightText, undefined);
+  assert.equal(rows[commandRowIndex + 1]?.text, " --short");
+  assert.equal(rows[commandRowIndex + 1]?.rightText, "[✓ 900ms]");
+  assert.equal(rows[commandRowIndex + 2]?.text, "");
 });
 
 test("command duration text uses compact shell-style units", () => {
@@ -1100,7 +1101,7 @@ test("command history navigation walks submitted commands and restores the draft
 test("status line keeps waiting indicators outside the prompt box", () => {
   assert.equal(
     DEFAULT_STATUS_TEXT,
-    "按 Enter 执行命令",
+    "Enter 执行命令",
   );
   assert.equal(
     getStatusLine({ isRunning: false, isAgentWaiting: false }),
@@ -1108,7 +1109,7 @@ test("status line keeps waiting indicators outside the prompt box", () => {
   );
   assert.equal(
     getStatusLine({ isRunning: false, isAgentWaiting: false, tipIndex: 1 }),
-    "按 Tab 请求 Agent 帮助",
+    "Tab 请求 Linus 帮助",
   );
   assert.equal(
     getStatusLine({ isRunning: true, isAgentWaiting: false }),
@@ -1121,7 +1122,7 @@ test("status line keeps waiting indicators outside the prompt box", () => {
       agentKind: "command",
       agentCommand: "git status",
     }),
-    "正在请求帮助 git status ...",
+    "Linus 正在处理 git status ...",
   );
   assert.equal(
     getStatusLine({
@@ -1130,7 +1131,7 @@ test("status line keeps waiting indicators outside the prompt box", () => {
       agentKind: "lark",
       agentCommand: "lark init",
     }),
-    "正在处理 lark init ...",
+    "Friday 正在处理 lark init ...",
   );
   assert.equal(
     getStatusLine({
@@ -1139,7 +1140,7 @@ test("status line keeps waiting indicators outside the prompt box", () => {
       agentKind: "command",
       agentCommand: "git status",
     }),
-    "正在请求帮助 git status ...",
+    "Linus 正在处理 git status ...",
   );
   assert.equal(
     getStatusLine({
@@ -1149,7 +1150,7 @@ test("status line keeps waiting indicators outside the prompt box", () => {
       agentKind: "command",
       agentCommand: "git push",
     }),
-    "正在检查 git push ...",
+    "Linus 正在检查 git push ...",
   );
 });
 
@@ -1214,7 +1215,7 @@ test("status text uses a bounded viewport and scrolls long text with ellipsis", 
   assert.equal(getAgentStatusWidth(40), 0);
   assert.equal(getAgentStatusWidth(120), 0);
   assert.equal(getTerminalTextWidth("空闲"), 4);
-  assert.equal(getTerminalTextWidth("按 Tab 请求 Agent 帮助"), 22);
+  assert.equal(getTerminalTextWidth("Tab 请求 Linus 帮助"), 19);
 
   assert.equal(
     getScrollingStatusText({
@@ -1226,19 +1227,19 @@ test("status text uses a bounded viewport and scrolls long text with ellipsis", 
   );
   assert.equal(
     getScrollingStatusText({
-      text: "正在请求帮助 git commit --amend --no-edit --verbose ...",
+      text: "Linus 正在处理 git commit --amend --no-edit --verbose ...",
       width: 24,
       offset: 0,
     }),
-    "正在请求帮助 git comm...",
+    "Linus 正在处理 git co...",
   );
   assert.equal(
     getScrollingStatusText({
-      text: "正在请求帮助 git commit --amend --no-edit --verbose ...",
+      text: "Linus 正在处理 git commit --amend --no-edit --verbose ...",
       width: 24,
       offset: 10,
     }),
-    "...助 git commit --am...",
+    "...处理 git commit --...",
   );
   assert.deepEqual(
     getStatusBarParts({
@@ -1508,8 +1509,8 @@ test("agent history entries render live agent command output under the agent ban
 
   assert.ok(rows.some((row) => row.text === "GITX"));
   assert.equal(rows.some((row) => row.text === "agent: lark init"), false);
-  assert.equal(rows.find((row) => row.text === "authorize link")?.parts?.[0]?.color, "gray");
-  assert.equal(rows.find((row) => row.text === "waiting for login")?.parts?.[0]?.color, "gray");
+  assert.equal(rows.find((row) => row.text === "authorize link")?.parts?.[0]?.color, "magenta");
+  assert.equal(rows.find((row) => row.text === "waiting for login")?.parts?.[0]?.color, "magenta");
 });
 
 test("output sections strip terminal control characters before rendering", () => {

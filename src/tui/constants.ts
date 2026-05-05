@@ -4,12 +4,12 @@ export const DEFAULT_AGENT_STATUS_WIDTH = 28;
 export const DEFAULT_STATUS_PANE_WIDTH = 28;
 export const TUI_USAGE_TIPS = [
   "Enter 执行命令",
-  "Tab 请求帮助",
+  "Tab 请求 Linus 帮助",
   "→ 接受补全",
   "Ctrl+C 退出",
   "↑/↓ 切换历史命令",
   "帮助生成 commit message: git commit + Tab",
-  "连接飞书: lark init"
+  "连接 Friday: lark init"
 ] as const;
 export const TUI_FOOTER_TIPS = "[Enter]执行  [Tab]Agent  [↑↓]历史  [PgUp/PgDn]滚动  [Ctrl+C]退出";
 export const DEFAULT_STATUS_TEXT = TUI_USAGE_TIPS[0];
