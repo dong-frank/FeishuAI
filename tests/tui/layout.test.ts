@@ -82,8 +82,8 @@ test("session header rows do not expose run state chips", () => {
 });
 
 test("session header labels align separators by terminal display width", () => {
-  assert.equal(formatHeaderLabelText("Git"), "Git  │ ");
-  assert.equal(formatHeaderLabelText("飞书"), "飞书 │ ");
+  assert.equal(formatHeaderLabelText("Linus"), "Linus │ ");
+  assert.equal(formatHeaderLabelText("Friday"), "Friday│ ");
 });
 
 test("session header colors avoid overusing cyan", () => {

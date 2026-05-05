@@ -127,11 +127,11 @@ export function AppLayout({
             </Text>
           </Box>
           <Box>
-            <HeaderLabel text="Git" />
+            <HeaderLabel text="Linus" />
             <HeaderChipList chips={headerRows[1].git} />
           </Box>
           <Box>
-            <HeaderLabel text="飞书" />
+            <HeaderLabel text="Friday" />
             <HeaderChipList chips={headerRows[2].lark} />
           </Box>
         </Box>
@@ -175,7 +175,7 @@ function HeaderLabel({ text }: { text: string }) {
   return <Text color="gray">{formatHeaderLabelText(text)}</Text>;
 }
 
-const HEADER_LABEL_WIDTH = 5;
+const HEADER_LABEL_WIDTH = 6;
 
 export function formatHeaderLabelText(text: string) {
   return `${padTerminalTextEnd(text, HEADER_LABEL_WIDTH)}│ `;
