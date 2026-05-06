@@ -1,365 +1,127 @@
 # GITX
 
-飞书 AI 校园挑战赛项目。目标是做一个面向开发者 Git 工作流的智能 CLI/TUI 工具：用户像使用 Git Bash 一样输入命令，`GITX` 负责理解命令上下文、查询通用 Git 手册和飞书组织知识库，并在合适的阶段给出帮助、报错修复建议或协作通知。
+GITX 是一个面向新手开发者 Git 工作流的智能 CLI/TUI 工具。开发者可以在终端里像使用 Git Bash 一样输入 Git 命令，GITX 会在命令前、失败后、成功后提供帮助、排障建议和协作提醒。
 
-## 项目目标
+## 环境要求
 
-`GITX` 希望解决三个核心场景：
+- Node.js 20+
+- npm
+- Git
+- 可选：`lark-cli`，用于飞书授权、文档检索和协作动作
 
-1. **命令使用帮助**
-   用户输入完整命令后按 `Tab` 时，Agent 不实际执行命令，而是根据命令内容查询通用 Git 手册和团队规范，返回简短、可执行的使用说明。
-
-2. **Git 报错诊断**
-   用户执行 Git 命令失败后，Agent 获取命令、退出码、stdout、stderr，并结合飞书知识库中的团队经验，返回原因解释和修复步骤。
-
-3. **协作通知**
-   例如用户完成 `git push` 并创建 PR 后，Agent 总结变更信息，并通过飞书通知对应维护者进行 review。
-
-## 当前进度
-
-当前阶段重点是先搭好产品主干，还没有把飞书 API 接入核心运行链路。
-
-已完成：
-
-- CLI 名称设为 `GITX`。
-- 无参数启动时进入 TUI，形成类似 Git Bash 的交互入口。
-- runtime 层完成命令解析、命令分类和命令执行流程。
-- 所有 `git` 子命令都会按 Git 命令分类，并交给真实 Git 执行与报错。
-- 支持 Git 子命令和文件路径 ghost 补全，例如输入 `git sta` 后可按 Right 接受到 `git status`。
-- 按 `Tab` 时进入 `beforeRun` 流程，不执行原命令。
-- Agent 侧定义了 `beforeRun`、`afterSuccess`、`afterFail` 三个命令阶段接口。
-- LangChain agent 已改为官方 `createAgent` 模式，工具调用由 LangChain 编排。
-- 已接入第一个工具 `tldr_git_manual`，用于查询 tldr 中的 Git 命令快速手册。
-- 已封装基础 `lark-cli` 能力，包括 status、setup、login、docs search 等入口。
-- 已建立测试覆盖，当前包含 runtime、command、agent、integrations 等测试。
-
-暂未完成：
-
-- 飞书知识库 API 尚未接入 Agent 的真实检索流程。
-- `beforeRun`、`afterSuccess`、`afterFail` 已接入 TUI 主执行链路。
-- PR 总结和飞书通知维护者还处于产品规划阶段。
-- TUI 目前是基础交互形态，后续还需要增强输出渲染、流式反馈和状态展示。
-
-## 产品形态
-
-项目采用“前端 TUI + runtime + Agent + 工具集”的结构：
-
-```text
-用户输入命令
-    ↓
-TUI 入口
-    ↓
-runtime 解析命令、分类、判断是否请求帮助
-    ↓
-Agent 根据 phase 决定行为
-    ↓
-调用工具：tldr、飞书知识库、通知工具等
-    ↓
-返回命令说明、报错修复建议或协作通知结果
-```
-
-## 目录结构
-
-```text
-src/
-  agent/          LangChain Agent 封装、命令 Agent、phase 接口
-  commands/       CLI 子命令，例如 lark
-  integrations/   外部工具集成，例如 lark-cli、tldr
-  runtime/        命令解析、分类、补全、运行时流程
-  tui/            Ink/React TUI 交互界面
-tests/            单元测试与集成测试
-skills/           项目内 Codex skills
-weekly-report/    周期记录文档
-```
-
-## 核心设计
-
-### Phase
-
-Agent 介入命令生命周期的位置用 phase 表达：
-
-- `beforeRun`：用户按 `Tab` 主动请求命令帮助、风险提示或规范检查。
-- `afterSuccess`：命令执行成功后，可用于总结、通知、下一步建议。
-- `afterFail`：命令执行失败后，可用于报错诊断和修复建议。
-
-当前 TUI 已接入 `beforeRun`、`afterSuccess`、`afterFail`。
-
-### Tools
-
-Agent 工具统一放在 `COMMAND_AGENT_TOOLS` 中。当前已有：
-
-- `tldr_git_manual`：查询 tldr Git 快速手册。
-
-后续计划加入：
-
-- `search_lark_docs`：搜索飞书文档或知识库。
-- `read_lark_doc`：读取指定飞书文档内容。
-- `notify_reviewer`：向维护者发送 PR review 通知。
-
-## 使用方式
-
-安装依赖：
+## 安装依赖
 
 ```bash
 npm install
 ```
 
-开发运行：
+## 配置 `.env`
+
+在项目根目录创建 `.env` 文件：
+
+```bash
+API_KEY=你的模型 API Key
+BASE_URL=https://你的模型服务地址/v1
+MODEL=你的默认模型名
+```
+
+可选配置：
+
+```bash
+COMMAND_MODEL=命令侧 Agent 使用的模型名
+LARK_MODEL=飞书侧 Agent 使用的模型名
+MAX_CONTEXT_WINDOW=128000
+```
+
+说明：
+
+- `API_KEY`：模型服务密钥。
+- `BASE_URL`：OpenAI 兼容接口地址。
+- `MODEL`：默认模型名；未配置 `COMMAND_MODEL` 或 `LARK_MODEL` 时会回退到它。
+- `COMMAND_MODEL`：Linus 使用，主要负责 Git 命令理解、报错诊断和终端建议。
+- `LARK_MODEL`：Friday 使用，主要负责飞书文档、消息、会议和多维表格动作。
+- `MAX_CONTEXT_WINDOW`：可选，用于 TUI 展示上下文窗口使用情况。
+
+## 启动
+
+开发模式启动：
 
 ```bash
 npm run dev
 ```
 
-进入 TUI：
+构建后启动：
 
 ```bash
-npm run dev
+npm run build
+npm start
 ```
 
-在 TUI 中请求命令帮助：
+## 基本使用
+
+进入 TUI 后可以直接输入 Git 命令：
 
 ```bash
 git status
-# 按 Tab
-git push origin main
-# 按 Tab
+git push
+git commit
 ```
 
-飞书 CLI 相关命令：
+常用交互：
+
+- 输入完整 Git 命令后按 `Tab`：触发命令前帮助，不执行原命令。
+- 命令失败后：触发失败诊断，返回原因和下一步建议。
+- 命令成功后：触发只读协作建议。
+- 输入 `/chat <内容>`：明确请求飞书协作动作，例如写开发记录、通知 reviewer、更新需求看板。
+
+飞书授权入口：
 
 ```bash
 npm run dev -- /login
 ```
 
-## FlowDesk 可复现实验
+## FlowDesk Demo
 
-FlowDesk 是当前项目内置的一组可重复运行的演示与评估 fixture，用来模拟一个新人开发者在团队 Git 工作流中遇到 commit message、冲突、upstream、push 后协作通知等场景。默认 reset 会把模拟项目重建到 `~/flowdesk-demo`，裸远端、文档替身和记录数据放到 `~/.gitx-flowdesk/`，不会和 `GITX` 源码混在一起。
+FlowDesk 是项目内置的可复现 Demo 场景，会生成独立演示仓库到 `~/flowdesk-demo`。
 
-实验入口：
+常用 reset：
 
 ```bash
-npm run experiment:flowdesk -- reset
 npm run experiment:flowdesk -- reset --stage commit-message
 npm run experiment:flowdesk -- reset --stage conflict
 npm run experiment:flowdesk -- reset --stage upstream
 npm run experiment:flowdesk -- reset --stage post-push
-npm run experiment:flowdesk -- export
-npm run experiment:flowdesk -- score
 ```
-
-默认生成目录：
-
-```text
-~/flowdesk-demo/                                  # 独立的 FlowDesk Python 模拟项目
-~/.gitx-flowdesk/remotes/flowdesk-demo.git        # 本地 bare origin remote
-~/.gitx-flowdesk/lark-docs/                       # 本地 Markdown 飞书文档替身
-~/.gitx-flowdesk/results/                         # 导出数据和实验记录
-~/.gitx-flowdesk/results/runs/                    # TUI/manual flow JSONL run 文件
-```
-
-每次 `reset` 都是幂等的：会重建 demo 项目、remote、文档 fixture 和当前 stage 所需的 Git 状态。为避免误删真实项目，脚本只会覆盖看起来像 FlowDesk 实验目录的 `~/flowdesk-demo`。`reset` 完成后终端会打印当前实验目录、当前分支、推荐执行命令、预期触发 phase 和 case id。
-
-### Stage 说明
-
-```text
-fresh
-  初始化 FlowDesk demo 仓库，创建 main、origin remote 和基础提交。
-  推荐命令：git status
-  适合检查项目初始状态和团队文档 fixture。
-
-commit-message
-  切到 feature/fd-124-priority-filter，并写入 Dev A 的 staged diff。
-  推荐命令：git commit
-  预期 phase：beforeRun
-  用于展示 GITX 根据 staged diff 和团队规范生成 commit message。
-
-conflict
-  模拟 Dev B 已经 push 到 origin/main，Dev A 执行 merge 时会和 service.py 冲突。
-  推荐命令：git merge origin/main
-  预期 phase：afterFail
-  用于展示冲突诊断和结合团队排障手册给修复建议。解决后用显式 git commit -m 完成 merge commit，避免 TUI 中进入 Vim。
-
-upstream
-  Dev A 本地 feature 分支已有提交，但没有设置 upstream。
-  推荐命令：git push
-  预期 phase：afterFail
-  用于展示 upstream 报错解释和 suggestedCommand。
-
-post-push
-  Dev A 已成功 push feature 分支。
-  推荐命令：git push -u origin feature/fd-124-priority-filter
-  预期 phase：afterSuccess
-  用于展示 afterSuccess 只读读取飞书上下文并建议下一步；写开发记录、发送消息等敏感协作动作需要用户随后通过 /chat 手动触发。
-```
-
-### 手动演示流程
 
 以 upstream 场景为例：
 
 ```bash
 npm run experiment:flowdesk -- reset --stage upstream
 cd ~/flowdesk-demo
-npm run --prefix /Users/dong/2026/feishuAI dev
+npm run --prefix /path/to/feishuAI dev
 ```
 
-进入 TUI 后执行 reset 输出中的推荐命令：
+进入 TUI 后执行：
 
 ```bash
 git push
 ```
 
-这个命令会因为当前 feature 分支没有 upstream 而失败，随后 `GITX` 应进入 `afterFail`，解释错误并给出类似下面的建议命令：
+GITX 会进入失败诊断流程，并给出类似下面的建议命令：
 
 ```bash
 git push -u origin feature/fd-124-priority-filter
 ```
 
-post-push 场景用于展示新的安全边界：
+## 测试
 
 ```bash
-cd /Users/dong/2026/feishuAI
-npm run experiment:flowdesk -- reset --stage post-push
-cd ~/flowdesk-demo
-npm run --prefix /Users/dong/2026/feishuAI dev
+npm test
 ```
 
-进入 TUI 后先执行：
+## 项目文档
 
-```bash
-git push -u origin feature/fd-124-priority-filter
-```
-
-成功后 `afterSuccess` 只应该给出简短建议和自然语言 `/chat` 命令，不应直接写开发记录或发送飞书消息。随后可以手动输入：
-
-```bash
-/chat 把刚才 git push 写入团队开发记录
-/chat 以我的身份通知 FlowDesk Sprint 12 演示群：FD-124 已 push，分支 feature/fd-124-priority-filter，请许嘉宁帮忙 review
-/chat 把 FD-124 在 Sprint 12 需求看板多维表格里的状态更新为待 Review
-/chat 明天下午 3 点约许嘉宁开 30 分钟 FD-124 代码 review 会议
-```
-
-commit message 场景可以这样跑：
-
-```bash
-cd /Users/dong/2026/feishuAI
-npm run experiment:flowdesk -- reset --stage commit-message
-cd ~/flowdesk-demo
-npm run --prefix /Users/dong/2026/feishuAI dev
-```
-
-进入 TUI 后输入：
-
-```bash
-git commit
-# 按 Tab，请求 beforeRun 帮助，不直接执行 commit
-```
-
-conflict 场景可以这样跑：
-
-```bash
-cd /Users/dong/2026/feishuAI
-npm run experiment:flowdesk -- reset --stage conflict
-cd ~/flowdesk-demo
-npm run --prefix /Users/dong/2026/feishuAI dev
-```
-
-进入 TUI 后输入：
-
-```bash
-git merge origin/main
-```
-
-冲突出现后，手动编辑：
-
-```text
-~/flowdesk-demo/flowdesk/tickets/service.py
-```
-
-保留 Dev A 的 priority filter 和 Dev B 的排序逻辑，然后回到 TUI 或普通终端执行：
-
-```bash
-git add flowdesk/tickets/service.py
-git commit -m "merge main into FD-124 priority filter"
-```
-
-### 实验过程记录
-
-`reset --stage <stage>` 会在 demo 仓库根目录写入：
-
-```text
-~/flowdesk-demo/.gitx-experiment.json
-```
-
-TUI 启动后会从当前目录向上查找这个标记文件。只有找到标记文件时才启用实验记录；普通项目不会写实验日志。
-
-一次 manual flow 会写入 JSONL：
-
-```text
-~/.gitx-flowdesk/results/runs/<run_id>.jsonl
-```
-
-目前记录四类事件：
-
-```text
-command_submitted   用户提交的命令
-command_completed   exitCode、stdout、stderr、durationMs
-agent_completed     phase、agentKind、content、suggestedCommand、metadata
-agent_failed        phase、agentKind、error
-```
-
-可以用下面的命令查看最近记录：
-
-```bash
-ls -lt ~/.gitx-flowdesk/results/runs
-tail -n 20 ~/.gitx-flowdesk/results/runs/<run_id>.jsonl
-```
-
-### 导出和评分占位
-
-当前 `export` 先导出静态 cases，并附带最近 run 文件摘要，不做正确性判断：
-
-```bash
-cd /Users/dong/2026/feishuAI
-npm run experiment:flowdesk -- export
-```
-
-输出文件：
-
-```text
-~/.gitx-flowdesk/results/flowdesk-cases.jsonl
-~/.gitx-flowdesk/results/flowdesk-export-summary.json
-```
-
-`score` 目前是 placeholder，用来保留后续接 Ragas 或等价评估器的位置：
-
-```bash
-npm run experiment:flowdesk -- score
-```
-
-输出文件：
-
-```text
-~/.gitx-flowdesk/results/flowdesk-score-summary.json
-```
-
-后续接入评估时，建议把 JSONL run 文件作为主数据源，LangSmith trace 作为辅助观察：JSONL 负责稳定复现实验输入输出，LangSmith 负责查看 Agent 内部调用链、token、耗时和 trace 细节。
-
-## 环境变量
-
-LangChain 模型配置读取：
-
-```bash
-API_KEY=...
-MODEL=...
-```
-
-当前默认 baseURL 在代码中配置为火山兼容 OpenAI 接口：
-
-```text
-https://ark.cn-beijing.volces.com/api/v3
-```
-
-## 第五周期冲刺任务
-1. 完善前端部分：包括agent的请求返回部分，最好流式或者有工具调用相关内容
-2. 项目可用性：包括第一次安装的初始化设置、一个github page页面说明
-3. demo录制：包括根据demo预期展示的内容进行提示词的修改，以及完成demo录制并剪辑
+- [项目亮点](docs/project-highlights.md)
+- [AI 亮点](docs/ai-highlights.md)
+- [核心代码说明](docs/core-code.md)
+- [GitHub Pages 展示页](docs/index.html)
