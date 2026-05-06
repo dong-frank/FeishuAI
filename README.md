@@ -189,7 +189,7 @@ post-push
   Dev A 已成功 push feature 分支。
   推荐命令：git push -u origin feature/fd-124-priority-filter
   预期 phase：afterSuccess
-  用于展示写开发记录、更新需求状态、约 Senior Dev review 会议等后续协作能力。
+  用于展示 afterSuccess 只读读取飞书上下文并建议下一步；写开发记录、发送消息等敏感协作动作需要用户随后通过 /chat 手动触发。
 ```
 
 ### 手动演示流程
@@ -212,6 +212,30 @@ git push
 
 ```bash
 git push -u origin feature/fd-124-priority-filter
+```
+
+post-push 场景用于展示新的安全边界：
+
+```bash
+cd /Users/dong/2026/feishuAI
+npm run experiment:flowdesk -- reset --stage post-push
+cd .experiments/flowdesk-demo
+npm run --prefix ../.. dev
+```
+
+进入 TUI 后先执行：
+
+```bash
+git push -u origin feature/fd-124-priority-filter
+```
+
+成功后 `afterSuccess` 只应该给出简短建议和自然语言 `/chat` 命令，不应直接写开发记录或发送飞书消息。随后可以手动输入：
+
+```bash
+/chat 把刚才 git push 写入团队开发记录
+/chat 以我的身份通知 FlowDesk Sprint 12 演示群：FD-124 已 push，分支 feature/fd-124-priority-filter，请许嘉宁帮忙 review
+/chat 把 FD-124 在 Sprint 12 需求看板多维表格里的状态更新为待 Review
+/chat 明天下午 3 点约许嘉宁开 30 分钟 FD-124 代码 review 会议
 ```
 
 commit message 场景可以这样跑：

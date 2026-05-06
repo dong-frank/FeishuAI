@@ -20,6 +20,7 @@ Typical manual demo loop:
 2. `cd .experiments/flowdesk-demo`
 3. Start `git-helper`.
 4. Run the printed command and observe the expected phase.
+5. For `post-push`, run the suggested `/chat ...` follow-up manually if you want to show Lark writes or messages.
 
 The local Markdown files in `fixtures/lark-docs/` stand in for Feishu documents so the experiment remains reproducible before syncing to a real workspace.
 
@@ -44,5 +45,7 @@ The reusable story keeps the team to four people:
 
 The morning standup is only narrative setup. It assigns `FD-124` to 饶东申,
 mentions that 许嘉宁 is changing related list behavior and CI/CD, and explains
-why the later push should lead to a review meeting. The tool demo starts after
-饶东申 returns to the terminal.
+why the later push should lead to a review conversation. The tool demo starts
+after 饶东申 returns to the terminal. In the current GITX flow, a successful push
+only produces a read-only recommendation; writing the development record or
+sending a Lark message must be triggered by an explicit `/chat` command.

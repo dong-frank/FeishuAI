@@ -316,7 +316,13 @@ export function createInteractWithLarkAgentTool({
   allowedActions,
 }: InteractWithLarkAgentToolOptions = {}): StructuredToolInterface {
   const allowedActionSet = new Set<LarkInteractionAction>(
-    allowedActions ?? ["get_context", "send_message", "write_development_record"],
+    allowedActions ?? [
+      "get_context",
+      "send_message",
+      "schedule_meeting",
+      "write_base_record",
+      "write_development_record",
+    ],
   );
   return withTuiDisplay(
     tool(
@@ -336,7 +342,7 @@ export function createInteractWithLarkAgentTool({
           }
 
           return JSON.stringify({
-            content: "未配置 Friday，开发记录未更新。",
+            content: "未配置 Friday，飞书动作未执行。",
           });
         }
 
@@ -359,6 +365,8 @@ function createInteractWithLarkAgentSchema(
   allowedActionSet = new Set<LarkInteractionAction>([
     "get_context",
     "send_message",
+    "schedule_meeting",
+    "write_base_record",
     "write_development_record",
   ]),
 ) {
@@ -405,6 +413,36 @@ function createInteractWithLarkAgentSchema(
       .strict(),
     z
       .object({
+        action: z.literal("schedule_meeting"),
+        cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
+        reason: z.string().describe("请求该交互的原因。"),
+        title: z.string().optional(),
+        start: z.string().optional(),
+        end: z.string().optional(),
+        attendeeIds: z.array(z.string()).optional(),
+        description: z.string().optional(),
+        needsRoom: z.boolean().optional(),
+        roomHint: z.string().optional(),
+        rawRequest: z.string().optional(),
+        summary: z.string().optional(),
+      })
+      .strict(),
+    z
+      .object({
+        action: z.literal("write_base_record"),
+        cwd: z.string().describe("当前工作目录，必须使用输入 context.cwd。"),
+        reason: z.string().describe("请求该交互的原因。"),
+        baseToken: z.string().optional(),
+        tableId: z.string().optional(),
+        recordId: z.string().optional(),
+        fields: z.record(z.string(), z.unknown()),
+        target: z.string().optional(),
+        rawRequest: z.string().optional(),
+        summary: z.string().optional(),
+      })
+      .strict(),
+    z
+      .object({
         action: z.literal("write_development_record"),
         ...commandContextSchema,
         result: z
@@ -442,6 +480,38 @@ function normalizeLarkInteractionInput(
       ...(input.recipient ? { recipient: input.recipient } : {}),
       message: input.message,
       ...(input.identity ? { identity: input.identity } : {}),
+      ...(input.summary ? { summary: input.summary } : {}),
+    };
+  }
+
+  if (input.action === "schedule_meeting") {
+    return {
+      action: "schedule_meeting",
+      cwd: input.cwd,
+      reason: input.reason,
+      ...(input.title ? { title: input.title } : {}),
+      ...(input.start ? { start: input.start } : {}),
+      ...(input.end ? { end: input.end } : {}),
+      ...(input.attendeeIds ? { attendeeIds: input.attendeeIds } : {}),
+      ...(input.description ? { description: input.description } : {}),
+      ...(typeof input.needsRoom === "boolean" ? { needsRoom: input.needsRoom } : {}),
+      ...(input.roomHint ? { roomHint: input.roomHint } : {}),
+      ...(input.rawRequest ? { rawRequest: input.rawRequest } : {}),
+      ...(input.summary ? { summary: input.summary } : {}),
+    };
+  }
+
+  if (input.action === "write_base_record") {
+    return {
+      action: "write_base_record",
+      cwd: input.cwd,
+      reason: input.reason,
+      ...(input.baseToken ? { baseToken: input.baseToken } : {}),
+      ...(input.tableId ? { tableId: input.tableId } : {}),
+      ...(input.recordId ? { recordId: input.recordId } : {}),
+      fields: input.fields,
+      ...(input.target ? { target: input.target } : {}),
+      ...(input.rawRequest ? { rawRequest: input.rawRequest } : {}),
       ...(input.summary ? { summary: input.summary } : {}),
     };
   }

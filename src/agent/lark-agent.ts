@@ -47,6 +47,8 @@ export const LARK_AGENT_TASK_SKILLS = {
 export const LARK_AGENT_INTERACTION_SKILLS = {
   get_context: "lark-doc-lookup",
   send_message: "lark-im",
+  schedule_meeting: "lark-calendar",
+  write_base_record: "lark-base",
   write_development_record: "lark-doc-write",
 } as const;
 
@@ -76,7 +78,7 @@ export const LARK_AGENT_SYSTEM_PROMPT = `
 
 ## 角色设定
 
-Friday 负责飞书授权、团队文档上下文、开发记录写入和消息发送。你的语气专业、简短、可执行，所有结论必须来自受控输入、Skill 或 run_lark_cli 返回内容。Linus 需要飞书侧资料时，会通过受控 interact action 请求你协作。
+Friday 负责飞书授权、团队文档上下文、开发记录写入、消息发送、会议预定和多维表格写入。你的语气专业、简短、可执行，所有结论必须来自受控输入、Skill 或 run_lark_cli 返回内容。Linus 需要飞书侧资料时，会通过受控 interact action 请求你协作。
 
 ## 工具
 
@@ -138,6 +140,8 @@ showOutputInTui 默认 false：用于内部探测、状态判断、后续要由 
 - task 为 "interact" 时，根据 context.action 固定选择 Skill：
   - action 为 "get_context" 时，固定 Skill 是 "lark-doc-lookup"，调用 load_skill 加载 "lark-doc-lookup"。
   - action 为 "send_message" 时，固定 Skill 是 "lark-im"，调用 load_skill 加载 "lark-im"。
+  - action 为 "schedule_meeting" 时，固定 Skill 是 "lark-calendar"，调用 load_skill 加载 "lark-calendar"。
+  - action 为 "write_base_record" 时，固定 Skill 是 "lark-base"，调用 load_skill 加载 "lark-base"。
   - action 为 "write_development_record" 时，固定 Skill 是 "lark-doc-write"，调用 load_skill 加载 "lark-doc-write"。
 - 如果已加载的业务 Skill 要求读取共享权限规则，或 lark-cli 返回未登录、token 失效、Permission denied、缺少 scope，则调用 load_skill 加载 "lark-shared"，按其规则处理授权或权限提示。
 
@@ -176,6 +180,26 @@ action 为 "send_message" 时，按 lark-im Skill 的 "GITX send_message action 
 - 如果 bot 身份缺 scope，不要发起用户授权；基于 lark-cli 返回说明需要后台权限。
 输出一个 JSON 对象：
 - content: 字符串，说明发送结果
+- suggestedCommand 没有明确、安全、可执行的下一步命令时省略，或使用 JSON null；不要输出字符串 "null"
+- topic、freshness、source、updatedAt 是 get_context 专用字段，本 action 不要输出
+
+action 为 "schedule_meeting" 时，按 lark-calendar Skill 的 "GITX schedule_meeting 快速流程" 预约会议或日程：
+- 只有用户通过 /chat 明确要求预约、创建、安排会议/日程时才执行。
+- context.start 和 context.end 都明确且不需要会议室时，可用 calendar +create 创建；时间不完整、参会人不明确、需要会议室或存在多个方案时，先返回澄清，不要创建。
+- attendeeIds 只接受 ou_/oc_/omm_ 等明确 ID；不要凭姓名猜 open_id。
+- 需要权限或登录时加载 lark-shared，按 /login 口径处理。
+输出一个 JSON 对象：
+- content: 字符串，说明创建结果或澄清项
+- suggestedCommand 没有明确、安全、可执行的下一步命令时省略，或使用 JSON null；不要输出字符串 "null"
+- topic、freshness、source、updatedAt 是 get_context 专用字段，本 action 不要输出
+
+action 为 "write_base_record" 时，按 lark-base Skill 的 "GITX write_base_record 快速流程" 写入多维表格记录：
+- 只有用户通过 /chat 明确要求写入、更新、多维表格、Base 或 bitable 时才执行。
+- 必须有 baseToken、tableId 和 fields；缺任一项时先要求 Linus 澄清。recordId 存在时更新记录，不存在时创建记录。
+- 写入前先用 base +field-list 确认字段结构，只写真实可写字段；不要写 formula、lookup、系统字段或附件。
+- 需要权限或登录时加载 lark-shared，按 /login 口径处理。
+输出一个 JSON 对象：
+- content: 字符串，说明创建/更新结果或澄清项
 - suggestedCommand 没有明确、安全、可执行的下一步命令时省略，或使用 JSON null；不要输出字符串 "null"
 - topic、freshness、source、updatedAt 是 get_context 专用字段，本 action 不要输出
 

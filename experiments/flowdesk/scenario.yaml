@@ -45,3 +45,9 @@ stages:
     case_id: FD-124-POST-PUSH
     expected_phase: afterSuccess
     recommended_command: git push -u origin feature/fd-124-priority-filter
+    expected_behavior: read-only advisor; suggest manual /chat follow-up
+    manual_followups:
+      - /chat 把刚才 git push 写入团队开发记录
+      - /chat 以我的身份通知 FlowDesk Sprint 12 演示群：FD-124 已 push，分支 feature/fd-124-priority-filter，请许嘉宁帮忙 review
+      - /chat 把 FD-124 在 Sprint 12 需求看板多维表格里的状态更新为待 Review
+      - /chat 明天下午 3 点约许嘉宁开 30 分钟 FD-124 代码 review 会议

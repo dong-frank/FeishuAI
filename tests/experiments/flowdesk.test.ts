@@ -59,6 +59,22 @@ test("reset upstream stage creates a branch where plain git push fails with upst
   );
 });
 
+test("reset post-push stage keeps a successful push command for read-only afterSuccess", async () => {
+  const workspaceRoot = await createTempWorkspace();
+
+  const result = await resetFlowdeskExperiment({
+    workspaceRoot,
+    stage: "post-push",
+  });
+
+  assert.equal(result.caseId, "FD-124-POST-PUSH");
+  assert.equal(result.expectedPhase, "afterSuccess");
+  assert.equal(result.recommendedCommand, "git push -u origin feature/fd-124-priority-filter");
+
+  const push = await git(["push", "-u", "origin", "feature/fd-124-priority-filter"], result.projectDir);
+  assert.match(`${push.stdout}\n${push.stderr}`, /Everything up-to-date|branch 'feature\/fd-124-priority-filter' set up/);
+});
+
 test("reset writes experiment marker metadata for recorder discovery", async () => {
   const workspaceRoot = await createTempWorkspace();
 
@@ -133,7 +149,17 @@ test("export and score produce reusable evaluation artifacts", async () => {
 
   assert.match(jsonl, /FD-124-COMMIT/);
   assert.match(jsonl, /FD-124-UPSTREAM/);
+  assert.match(jsonl, /FD-124-POST-PUSH/);
+  assert.match(jsonl, /FD-124-CHAT-RECORD/);
+  assert.match(jsonl, /FD-124-CHAT-NOTIFY/);
+  assert.match(jsonl, /FD-124-CHAT-BASE/);
+  assert.match(jsonl, /FD-124-CHAT-MEETING/);
   assert.match(jsonl, /expected_behavior/);
+  assert.match(jsonl, /只读 advisor/);
+  assert.match(jsonl, /\/chat 把刚才 git push 写入团队开发记录/);
+  assert.match(jsonl, /send_message/);
+  assert.match(jsonl, /write_base_record/);
+  assert.match(jsonl, /schedule_meeting/);
   assert.deepEqual(exportResult.recentRunFiles, [runPath]);
   const exportSummary = JSON.parse(await readFile(exportResult.summaryPath, "utf8"));
   assert.deepEqual(exportSummary.recentRunFiles, [runPath]);
@@ -142,6 +168,6 @@ test("export and score produce reusable evaluation artifacts", async () => {
   await stat(scoreResult.outputPath);
   const summary = JSON.parse(await readFile(scoreResult.outputPath, "utf8"));
 
-  assert.equal(summary.caseCount >= 5, true);
+  assert.equal(summary.caseCount >= 9, true);
   assert.equal(summary.metrics.suggestedCommandValidity.total >= 1, true);
 });

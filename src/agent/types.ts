@@ -175,6 +175,34 @@ export type LarkSendMessageInteraction = LarkMessageContext & {
   action: "send_message";
 };
 
+export type LarkMeetingContext = {
+  action: "schedule_meeting";
+  cwd: string;
+  reason: string;
+  title?: string;
+  start?: string;
+  end?: string;
+  attendeeIds?: string[];
+  description?: string;
+  needsRoom?: boolean;
+  roomHint?: string;
+  rawRequest?: string;
+  summary?: string;
+};
+
+export type LarkBaseRecordContext = {
+  action: "write_base_record";
+  cwd: string;
+  reason: string;
+  baseToken?: string;
+  tableId?: string;
+  recordId?: string;
+  fields: Record<string, unknown>;
+  target?: string;
+  rawRequest?: string;
+  summary?: string;
+};
+
 export type LarkDevelopmentRecordContext = {
   action: "write_development_record";
   cwd: string;
@@ -192,6 +220,8 @@ export type LarkDevelopmentRecordContext = {
 export type LarkInteractionRequest =
   | LarkGetContextInteraction
   | LarkSendMessageInteraction
+  | LarkMeetingContext
+  | LarkBaseRecordContext
   | LarkDevelopmentRecordContext;
 
 export type LarkInteractionResult = LarkContextPack | CommandAgentOutput;

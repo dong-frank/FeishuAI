@@ -101,6 +101,30 @@ test("after-success lark interaction rejects write actions", async () => {
       }),
     /write_development_record/,
   );
+  await assert.rejects(
+    () =>
+      interactWithLarkAgentTool.invoke({
+        action: "schedule_meeting",
+        cwd: "/repo",
+        reason: "after_success_schedule_review",
+        title: "FD-124 review",
+        start: "2026-05-07T15:00:00+08:00",
+        end: "2026-05-07T15:30:00+08:00",
+      }),
+    /schedule_meeting/,
+  );
+  await assert.rejects(
+    () =>
+      interactWithLarkAgentTool.invoke({
+        action: "write_base_record",
+        cwd: "/repo",
+        reason: "after_success_update_board",
+        baseToken: "app_token",
+        tableId: "tbl_token",
+        fields: { Story: "FD-124" },
+      }),
+    /write_base_record/,
+  );
   assert.deepEqual(calls, []);
 });
 
@@ -864,6 +888,10 @@ test("command task skills contain task-specific instructions", () => {
   assert.match(chatSkill, /明确要求/);
   assert.match(chatSkill, /write_development_record/);
   assert.match(chatSkill, /send_message/);
+  assert.match(chatSkill, /schedule_meeting/);
+  assert.match(chatSkill, /write_base_record/);
+  assert.match(chatSkill, /Base/);
+  assert.match(chatSkill, /会议时间/);
   assert.match(chatSkill, /不明确/);
   assert.match(chatSkill, /不要执行命令/);
   assert.match(chatSkill, /suggestedCommand/);
@@ -1269,6 +1297,98 @@ test("interact_with_lark_agent sends messages through the lark agent", async () 
       message: "git push 已完成，请查看最新变更。",
       identity: "bot",
       summary: "通知维护者 push 完成",
+    },
+  ]);
+});
+
+test("interact_with_lark_agent schedules meetings through the lark agent", async () => {
+  const calls: unknown[] = [];
+  const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
+    larkAgent: {
+      interact(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          content: "已创建会议：FD-124 review",
+        });
+      },
+    },
+  });
+
+  const result = await interactWithLarkAgentTool.invoke({
+    action: "schedule_meeting",
+    cwd: "/repo",
+    reason: "manual_chat_schedule_review",
+    title: "FD-124 review",
+    start: "2026-05-07T15:00:00+08:00",
+    end: "2026-05-07T15:30:00+08:00",
+    attendeeIds: ["ou_reviewer"],
+    description: "Review priority filter implementation.",
+    needsRoom: false,
+    rawRequest: "明天下午 3 点约 FD-124 review",
+  });
+
+  assert.deepEqual(JSON.parse(result), {
+    content: "已创建会议：FD-124 review",
+  });
+  assert.deepEqual(calls, [
+    {
+      action: "schedule_meeting",
+      cwd: "/repo",
+      reason: "manual_chat_schedule_review",
+      title: "FD-124 review",
+      start: "2026-05-07T15:00:00+08:00",
+      end: "2026-05-07T15:30:00+08:00",
+      attendeeIds: ["ou_reviewer"],
+      description: "Review priority filter implementation.",
+      needsRoom: false,
+      rawRequest: "明天下午 3 点约 FD-124 review",
+    },
+  ]);
+});
+
+test("interact_with_lark_agent writes base records through the lark agent", async () => {
+  const calls: unknown[] = [];
+  const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
+    larkAgent: {
+      interact(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          content: "已写入多维表格记录：rec_123",
+        });
+      },
+    },
+  });
+
+  const result = await interactWithLarkAgentTool.invoke({
+    action: "write_base_record",
+    cwd: "/repo",
+    reason: "manual_chat_update_story_board",
+    baseToken: "app_token",
+    tableId: "tbl_story",
+    recordId: "rec_123",
+    fields: {
+      Story: "FD-124",
+      Status: "待 Review",
+    },
+    target: "Sprint 12 需求看板",
+  });
+
+  assert.deepEqual(JSON.parse(result), {
+    content: "已写入多维表格记录：rec_123",
+  });
+  assert.deepEqual(calls, [
+    {
+      action: "write_base_record",
+      cwd: "/repo",
+      reason: "manual_chat_update_story_board",
+      baseToken: "app_token",
+      tableId: "tbl_story",
+      recordId: "rec_123",
+      fields: {
+        Story: "FD-124",
+        Status: "待 Review",
+      },
+      target: "Sprint 12 需求看板",
     },
   ]);
 });

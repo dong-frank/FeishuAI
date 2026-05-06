@@ -59,6 +59,8 @@ test("lark agent exposes only controlled task to skill mappings", () => {
   assert.deepEqual(LARK_AGENT_INTERACTION_SKILLS, {
     get_context: "lark-doc-lookup",
     send_message: "lark-im",
+    schedule_meeting: "lark-calendar",
+    write_base_record: "lark-base",
     write_development_record: "lark-doc-write",
   });
 });
@@ -165,6 +167,54 @@ test("formatLarkAgentInvocation builds task envelopes with fixed skills", () => 
       },
     }),
   );
+
+  assert.equal(
+    formatLarkAgentInvocation("interact", {
+      action: "schedule_meeting",
+      cwd: "/repo",
+      reason: "manual_chat_schedule_review",
+      title: "FD-124 review",
+      start: "2026-05-07T15:00:00+08:00",
+      end: "2026-05-07T15:30:00+08:00",
+      attendeeIds: ["ou_reviewer"],
+    }),
+    JSON.stringify({
+      task: "interact",
+      skill: "lark-calendar",
+      context: {
+        action: "schedule_meeting",
+        cwd: "/repo",
+        reason: "manual_chat_schedule_review",
+        title: "FD-124 review",
+        start: "2026-05-07T15:00:00+08:00",
+        end: "2026-05-07T15:30:00+08:00",
+        attendeeIds: ["ou_reviewer"],
+      },
+    }),
+  );
+
+  assert.equal(
+    formatLarkAgentInvocation("interact", {
+      action: "write_base_record",
+      cwd: "/repo",
+      reason: "manual_chat_update_story_board",
+      baseToken: "app_token",
+      tableId: "tbl_story",
+      fields: { Story: "FD-124", Status: "待 Review" },
+    }),
+    JSON.stringify({
+      task: "interact",
+      skill: "lark-base",
+      context: {
+        action: "write_base_record",
+        cwd: "/repo",
+        reason: "manual_chat_update_story_board",
+        baseToken: "app_token",
+        tableId: "tbl_story",
+        fields: { Story: "FD-124", Status: "待 Review" },
+      },
+    }),
+  );
 });
 
 test("single lark prompt describes phase behavior and skill loading", () => {
@@ -190,6 +240,8 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /interact/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /get_context/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /write_development_record/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /schedule_meeting/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /write_base_record/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /requestContext/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /getContext/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /commit_message_policy/);
@@ -218,11 +270,17 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-authorize/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-doc-lookup/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-im/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-calendar/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-base/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-doc-write/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-shared/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /Permission denied/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /showOutputInTui: true/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /重试原发送命令一次/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /GITX schedule_meeting 快速流程/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /calendar \+create/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /GITX write_base_record 快速流程/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /base \+field-list/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /受控 task/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /受控 action/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /固定 Skill/);
@@ -534,6 +592,42 @@ test("parseLarkInteractionResult returns command output for send_message", () =>
   );
 });
 
+test("parseLarkInteractionResult returns command output for schedule_meeting", () => {
+  assert.deepEqual(
+    parseLarkInteractionResult(
+      {
+        action: "schedule_meeting",
+        cwd: "/repo",
+        reason: "manual_chat_schedule_review",
+        title: "FD-124 review",
+      },
+      JSON.stringify({ content: "已创建会议：FD-124 review" }),
+    ),
+    {
+      content: "已创建会议：FD-124 review",
+    },
+  );
+});
+
+test("parseLarkInteractionResult returns command output for write_base_record", () => {
+  assert.deepEqual(
+    parseLarkInteractionResult(
+      {
+        action: "write_base_record",
+        cwd: "/repo",
+        reason: "manual_chat_update_board",
+        baseToken: "app_token",
+        tableId: "tbl_story",
+        fields: { Story: "FD-124" },
+      },
+      JSON.stringify({ content: "已写入多维表格记录：rec_123" }),
+    ),
+    {
+      content: "已写入多维表格记录：rec_123",
+    },
+  );
+});
+
 test("lark agent compacts preserved history to task, action, topic, and reply", async () => {
   const repeatedRuntimeContext = "LARK_RUNTIME_CONTEXT_SHOULD_NOT_BE_REMEMBERED".repeat(80);
   const agent = createLarkAgent({
@@ -689,6 +783,46 @@ test("lark im skill defines the GITX send message fast path", () => {
   assert.match(skill, /im:message.send_as_user/);
   assert.match(skill, /重试原发送命令一次/);
   assert.match(skill, /showOutputInTui: true/);
+  assert.match(skill, /\/login/);
+  assert.doesNotMatch(skill, /references\//);
+  assert.doesNotMatch(skill, /auth login/);
+  assert.doesNotMatch(skill, /lark init/);
+});
+
+test("lark calendar skill defines the GITX meeting creation fast path", () => {
+  const skill = readFileSync(
+    join(process.cwd(), "skills", "lark-calendar", "SKILL.md"),
+    "utf8",
+  );
+
+  assert.match(skill, /GITX Lark Calendar/);
+  assert.match(skill, /schedule_meeting 快速流程/);
+  assert.match(skill, /lark-cli calendar \+create/);
+  assert.match(skill, /ISO 8601/);
+  assert.match(skill, /attendeeIds/);
+  assert.match(skill, /lark-shared/);
+  assert.match(skill, /showOutputInTui: true/);
+  assert.match(skill, /\/login/);
+  assert.doesNotMatch(skill, /references\//);
+  assert.doesNotMatch(skill, /auth login/);
+  assert.doesNotMatch(skill, /lark init/);
+});
+
+test("lark base skill defines the GITX base record write fast path", () => {
+  const skill = readFileSync(
+    join(process.cwd(), "skills", "lark-base", "SKILL.md"),
+    "utf8",
+  );
+
+  assert.match(skill, /GITX Lark Base/);
+  assert.match(skill, /write_base_record 快速流程/);
+  assert.match(skill, /lark-cli base \+field-list/);
+  assert.match(skill, /lark-cli base \+record-upsert/);
+  assert.match(skill, /baseToken/);
+  assert.match(skill, /tableId/);
+  assert.match(skill, /fields/);
+  assert.match(skill, /formula、lookup、系统字段、附件字段/);
+  assert.match(skill, /lark-shared/);
   assert.match(skill, /\/login/);
   assert.doesNotMatch(skill, /references\//);
   assert.doesNotMatch(skill, /auth login/);
