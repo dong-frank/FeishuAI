@@ -372,9 +372,9 @@ function createInteractWithLarkAgentSchema(
 ) {
   const repositorySchema = z
     .object({
-      root: z.string().optional(),
-      remoteUrl: z.string().optional(),
-      webUrl: z.string().optional(),
+      root: z.string().nullable().optional(),
+      remoteUrl: z.string().nullable().optional(),
+      webUrl: z.string().nullable().optional(),
     })
     .strict()
     .optional();
@@ -544,9 +544,9 @@ function normalizeLarkInteractionInput(
 function compactLarkContextRepository(
   repository:
     | {
-        root?: string | undefined;
-        remoteUrl?: string | undefined;
-        webUrl?: string | undefined;
+        root?: string | null | undefined;
+        remoteUrl?: string | null | undefined;
+        webUrl?: string | null | undefined;
       }
     | undefined,
 ): {

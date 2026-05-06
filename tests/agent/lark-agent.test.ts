@@ -283,6 +283,9 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /showOutputInTui: true/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /重试原发送命令一次/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /GITX schedule_meeting 快速流程/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /先自动查询/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /im \+chat-search/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /contact \+search-user/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /calendar \+create/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /GITX write_base_record 快速流程/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /需求看板/);
@@ -835,8 +838,12 @@ test("lark calendar skill defines the GITX meeting creation fast path", () => {
   assert.match(skill, /GITX Lark Calendar/);
   assert.match(skill, /schedule_meeting 快速流程/);
   assert.match(skill, /lark-cli calendar \+create/);
+  assert.match(skill, /lark-cli im \+chat-search/);
+  assert.match(skill, /lark-cli contact \+search-user/);
   assert.match(skill, /ISO 8601/);
   assert.match(skill, /attendeeIds/);
+  assert.match(skill, /先自动查询/);
+  assert.match(skill, /多个结果/);
   assert.match(skill, /lark-shared/);
   assert.match(skill, /showOutputInTui: true/);
   assert.match(skill, /\/login/);

@@ -187,8 +187,8 @@ action 为 "send_message" 时，按 lark-im Skill 的 "GITX send_message action 
 
 action 为 "schedule_meeting" 时，按 lark-calendar Skill 的 "GITX schedule_meeting 快速流程" 预约会议或日程：
 - 只有用户通过 /chat 明确要求预约、创建、安排会议/日程时才执行。
-- context.start 和 context.end 都明确且不需要会议室时，可用 calendar +create 创建；时间不完整、参会人不明确、需要会议室或存在多个方案时，先返回澄清，不要创建。
-- attendeeIds 只接受 ou_/oc_/omm_ 等明确 ID；不要凭姓名猜 open_id。
+- context.start 和 context.end 都明确且不需要会议室时，可用 calendar +create 创建；时间不完整、需要会议室或存在多个方案时，先返回澄清，不要创建。
+- attendeeIds 已有 ou_/oc_/omm_ 等明确 ID 时直接使用；attendeeIds 为空但 rawRequest/title/description 里有群名或人名时，按 lark-calendar Skill 先自动查询：群名用 im +chat-search，人员姓名用 contact +search-user。只接受唯一明确匹配，多个结果或空结果才澄清；不要直接要求用户去找 chat_id/open_id。
 - 需要权限或登录时加载 lark-shared，按 /login 口径处理。
 输出一个 JSON 对象：
 - content: 字符串，说明创建结果或澄清项

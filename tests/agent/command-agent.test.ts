@@ -1131,6 +1131,56 @@ test("interact_with_lark_agent returns structured lark context through the lark 
   ]);
 });
 
+test("interact_with_lark_agent accepts nullable repository web urls", async () => {
+  const calls: unknown[] = [];
+  const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
+    larkAgent: {
+      interact(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          topic: "commit_message_policy",
+          content: "团队使用 conventional commits。",
+          freshness: "refreshed",
+        });
+      },
+    },
+  });
+
+  const result = await interactWithLarkAgentTool.invoke({
+    action: "get_context",
+    topic: "commit_message_policy",
+    cwd: "/repo",
+    reason: "generate_commit_message",
+    command: "git",
+    rawCommand: "git commit -m",
+    repository: {
+      root: "/repo",
+      remoteUrl: "/tmp/origin.git",
+      webUrl: null,
+    },
+  });
+
+  assert.deepEqual(JSON.parse(result), {
+    topic: "commit_message_policy",
+    content: "团队使用 conventional commits。",
+    freshness: "refreshed",
+  });
+  assert.deepEqual(calls, [
+    {
+      action: "get_context",
+      topic: "commit_message_policy",
+      cwd: "/repo",
+      reason: "generate_commit_message",
+      command: "git",
+      rawCommand: "git commit -m",
+      repository: {
+        root: "/repo",
+        remoteUrl: "/tmp/origin.git",
+      },
+    },
+  ]);
+});
+
 test("interact_with_lark_agent accepts branch naming policy requests", async () => {
   const calls: unknown[] = [];
   const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
