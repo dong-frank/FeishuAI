@@ -128,7 +128,10 @@ export type LarkProjectHints = {
   repositoryName?: string;
 };
 
-export type LarkContextTopic = "commit_message_policy" | "troubleshooting_reference";
+export type LarkContextTopic =
+  | "commit_message_policy"
+  | "troubleshooting_reference"
+  | "development_record_guidance";
 
 export type LarkContextRequest = {
   cwd: string;
@@ -157,8 +160,10 @@ export type LarkContextPack = {
 
 export type LarkMessageContext = {
   cwd: string;
+  reason: string;
   recipient?: string;
   message: string;
+  identity?: "bot" | "user";
   summary?: string;
 };
 

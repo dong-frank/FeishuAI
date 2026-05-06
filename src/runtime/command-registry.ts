@@ -38,6 +38,7 @@ const SUPPORTED_CUSTOM_COMMANDS = new Set([
   "cd",
   "GITX",
   "help",
+  "/login",
   "lark",
   "exit",
   "quit",

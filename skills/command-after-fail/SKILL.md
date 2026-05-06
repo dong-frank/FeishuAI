@@ -1,7 +1,7 @@
 ---
 name: command-after-fail
 version: 1.0.0
-description: "Command Agent 命令失败排障任务：按错误复杂度选择 tldr 或飞书排障资料，结合真实失败输出给出短建议。"
+description: "Linus 命令失败排障任务：按错误复杂度选择 tldr 或飞书排障资料，结合真实失败输出给出短建议。"
 ---
 
 # Command After Fail

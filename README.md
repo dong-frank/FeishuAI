@@ -128,7 +128,7 @@ git push origin main
 飞书 CLI 相关命令：
 
 ```bash
-npm run dev -- lark init
+npm run dev -- /login
 ```
 
 ## FlowDesk 可复现实验

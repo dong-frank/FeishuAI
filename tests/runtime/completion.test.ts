@@ -22,21 +22,13 @@ test("getCompletion keeps trailing args after completed subcommand", () => {
 });
 
 test("getCompletion suggests top-level commands", () => {
-  assert.deepEqual(getCompletion("l"), {
-    completion: "lark init",
-    suffix: "ark init",
-  });
-  assert.deepEqual(getCompletion("la"), {
-    completion: "lark init",
-    suffix: "rk init",
-  });
-  assert.deepEqual(getCompletion("lark"), {
-    completion: "lark init",
-    suffix: " init",
-  });
   assert.deepEqual(getCompletion("/c"), {
     completion: "/chat",
     suffix: "hat",
+  });
+  assert.deepEqual(getCompletion("/l"), {
+    completion: "/login",
+    suffix: "ogin",
   });
   assert.deepEqual(getCompletion("ex"), {
     completion: "exit",
@@ -44,14 +36,11 @@ test("getCompletion suggests top-level commands", () => {
   });
 });
 
-test("getCompletion suggests only lark init as a lark subcommand", () => {
-  assert.deepEqual(getCompletion("lark in"), {
-    completion: "lark init",
-    suffix: "it",
-  });
+test("getCompletion does not suggest legacy lark commands", () => {
+  assert.equal(getCompletion("l"), undefined);
   assert.equal(getCompletion("lark lo"), undefined);
   assert.equal(getCompletion("lark st"), undefined);
-  assert.equal(getCompletion("lark init"), undefined);
+  assert.equal(getCompletion(["lark", "init"].join(" ")), undefined);
   assert.equal(getCompletion("lark nope"), undefined);
 });
 

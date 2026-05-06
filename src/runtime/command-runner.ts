@@ -253,8 +253,12 @@ export async function runCommandLine(
     return runBlockedNestedTuiCommand(commandLine, classification);
   }
 
+  if (classification.kind === "custom" && classification.name === "/login") {
+    return runLoginCustomCommand(commandLine, classification, cwd, options);
+  }
+
   if (classification.kind === "custom" && classification.name === "lark") {
-    return runLarkCustomCommand(commandLine, parsed, classification, cwd, options);
+    return runLegacyLarkCustomCommand(commandLine, parsed, classification);
   }
 
   const runCommand = options.executeCommand ?? executeCommand;
@@ -335,32 +339,18 @@ export async function runCommandLine(
   };
 }
 
-async function runLarkCustomCommand(
+async function runLoginCustomCommand(
   commandLine: string,
-  parsed: ParsedCommandLine,
   classification: CommandClassification,
   cwd: string,
   options: RunCommandLineOptions,
 ): Promise<CommandRunOutput> {
-  const subcommand = parsed.args[0];
   const startedAt = Date.now();
-
-  if (subcommand !== "init") {
-    return {
-      commandLine,
-      kind: "execute",
-      classification,
-      exitCode: 1,
-      durationMs: Date.now() - startedAt,
-      stdout: "",
-      stderr: `Unsupported lark command: ${subcommand ?? ""}\n`,
-    };
-  }
 
   try {
     const afterSuccess = getLarkAgent(options).authorize({
       cwd,
-      intent: "init",
+      intent: "login",
       projectHints: await buildLarkProjectHints(cwd),
     }, options.agentSignal ? { signal: options.agentSignal } : undefined);
     await recordLarkInitStarted(cwd);
@@ -388,6 +378,26 @@ async function runLarkCustomCommand(
       stderr: `${message}\n`,
     };
   }
+}
+
+async function runLegacyLarkCustomCommand(
+  commandLine: string,
+  parsed: ParsedCommandLine,
+  classification: CommandClassification,
+): Promise<CommandRunOutput> {
+  const subcommand = parsed.args[0];
+  return {
+    commandLine,
+    kind: "execute",
+    classification,
+    exitCode: 1,
+    durationMs: 0,
+    stdout: "",
+    stderr:
+      subcommand === "init"
+        ? "旧登录入口已更换为 /login，请使用 /login 连接 Friday。\n"
+        : `Unsupported lark command: ${subcommand ?? ""}\n`,
+  };
 }
 
 async function runCdCommand(

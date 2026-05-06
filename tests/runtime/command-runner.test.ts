@@ -188,11 +188,11 @@ test("runCommandLine blocks recursive empty GITX TUI launches", async () => {
   assert.deepEqual(calls, []);
 });
 
-test("runCommandLine starts lark init authorization agent without waiting", async () => {
+test("runCommandLine starts /login authorization agent without waiting", async () => {
   const events: unknown[] = [];
   let releaseAuthorize: (() => void) | undefined;
   const cwd = await createTempCwd();
-  const result = await runCommandLine("lark init", {
+  const result = await runCommandLine("/login", {
     cwd,
     larkAgent: {
       authorize(context) {
@@ -226,7 +226,7 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
   assert.deepEqual(events, [
     {
       cwd,
-      intent: "init",
+      intent: "login",
       projectHints: {
         cwdName: basename(cwd),
       },
@@ -244,10 +244,10 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
   });
 });
 
-test("runCommandLine records lark init when the authorization agent starts", async () => {
+test("runCommandLine records /login when the authorization agent starts", async () => {
   const cwd = await createTempCwd();
 
-  const result = await runCommandLine("lark init", {
+  const result = await runCommandLine("/login", {
     cwd,
     larkAgent: {
       authorize() {
@@ -263,9 +263,9 @@ test("runCommandLine records lark init when the authorization agent starts", asy
   assert.ok((await loadLarkInitState(cwd)).lastStartedAt);
 });
 
-test("runCommandLine refreshes lark init cooldown on manual init but not unsupported lark commands", async () => {
+test("runCommandLine refreshes login cooldown on manual /login but not unsupported lark commands", async () => {
   const cwd = await createTempCwd();
-  const first = await runCommandLine("lark init", {
+  const first = await runCommandLine("/login", {
     cwd,
     larkAgent: {
       authorize() {
@@ -280,7 +280,7 @@ test("runCommandLine refreshes lark init cooldown on manual init but not unsuppo
   const firstStartedAt = (await loadLarkInitState(cwd)).lastStartedAt;
 
   await new Promise((resolve) => setTimeout(resolve, 5));
-  const second = await runCommandLine("lark init", {
+  const second = await runCommandLine("/login", {
     cwd,
     larkAgent: {
       authorize() {
@@ -305,7 +305,7 @@ test("runCommandLine refreshes lark init cooldown on manual init but not unsuppo
   assert.equal((await loadLarkInitState(cwd)).lastStartedAt, secondStartedAt);
 });
 
-test("runCommandLine passes git project hints to lark init", async () => {
+test("runCommandLine passes git project hints to /login", async () => {
   const parent = await createTempCwd();
   const cwd = join(parent, "flowdesk-demo");
   await mkdir(cwd);
@@ -314,7 +314,7 @@ test("runCommandLine passes git project hints to lark init", async () => {
   const gitRoot = await realpath(cwd);
 
   const contexts: unknown[] = [];
-  const result = await runCommandLine("lark init", {
+  const result = await runCommandLine("/login", {
     cwd,
     larkAgent: {
       authorize(context) {
@@ -333,7 +333,7 @@ test("runCommandLine passes git project hints to lark init", async () => {
   assert.deepEqual(contexts, [
     {
       cwd,
-      intent: "init",
+      intent: "login",
       projectHints: {
         cwdName: "flowdesk-demo",
         gitRoot,

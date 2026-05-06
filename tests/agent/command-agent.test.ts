@@ -76,6 +76,34 @@ test("after-success tools include git context and lark interaction only", () => 
   ]);
 });
 
+test("after-success lark interaction rejects write actions", async () => {
+  const calls: unknown[] = [];
+  const interactWithLarkAgentTool = createCommandAfterSuccessTools({
+    larkAgent: {
+      interact(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          content: "should not be called",
+        });
+      },
+    },
+  }).find((tool) => tool.name === "interact_with_lark_agent");
+
+  assert.ok(interactWithLarkAgentTool);
+  await assert.rejects(
+    () =>
+      interactWithLarkAgentTool.invoke({
+        action: "write_development_record",
+        cwd: "/repo",
+        reason: "after_success_git_push",
+        command: "git",
+        rawCommand: "git push",
+      }),
+    /write_development_record/,
+  );
+  assert.deepEqual(calls, []);
+});
+
 test("command agent keeps legacy response format export but uses explicit final_response tool", () => {
   assert.equal(COMMAND_AGENT_RESPONSE_FORMAT, COMMAND_AGENT_TOOL_RESPONSE_FORMAT);
   const finalResponseTool = COMMAND_AGENT_TOOLS.find((tool) => tool.name === "final_response");
@@ -624,6 +652,63 @@ test("command agent returns explicit final_response tool output", async () => {
   assert.match(JSON.stringify(output?.metadata?.rawToolCalls), /final_response/);
 });
 
+test("command agent afterSuccess rejects lark write tool calls", async () => {
+  const model = new FakeToolCallingModel({
+    toolCalls: [
+      [
+        {
+          name: "interact_with_lark_agent",
+          args: {
+            action: "write_development_record",
+            cwd: "/repo",
+            reason: "after_success_git_push",
+            command: "git",
+            rawCommand: "git push",
+          },
+          id: "write-after-success-1",
+        },
+      ],
+    ],
+  });
+  const calls: unknown[] = [];
+  const agent = createCommandAgent({
+    model: model as unknown as ChatOpenAI,
+    skillRegistry: {
+      listSkills() {
+        return [];
+      },
+      loadSkill(name: string) {
+        return Promise.resolve(`skill:${name}`);
+      },
+    },
+    larkAgent: {
+      interact(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({ content: "should not be called" });
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      agent.afterSuccess?.(
+        {
+          cwd: "/repo",
+          command: "git",
+          args: ["push"],
+          rawCommand: "git push",
+        },
+        {
+          exitCode: 0,
+          stdout: "Everything up-to-date",
+          stderr: "",
+        },
+      ),
+    /write_development_record/,
+  );
+  assert.deepEqual(calls, []);
+});
+
 test("command agent forwards compact tool progress events", async () => {
   const events: unknown[] = [];
   const model = new FakeToolCallingModel({
@@ -764,9 +849,11 @@ test("command task skills contain task-specific instructions", () => {
 
   assert.match(afterSuccessSkill, /git_repository_context/);
   assert.match(afterSuccessSkill, /interact_with_lark_agent/);
-  assert.match(afterSuccessSkill, /write_development_record/);
+  assert.match(afterSuccessSkill, /development_record_guidance/);
+  assert.doesNotMatch(afterSuccessSkill, /write_development_record/);
+  assert.match(afterSuccessSkill, /\/chat 把刚才 git push 写入团队开发记录/);
   assert.match(afterSuccessSkill, /push 后/);
-  assert.match(afterSuccessSkill, /只在 git push 成功/);
+  assert.match(afterSuccessSkill, /只读/);
   assert.match(afterSuccessSkill, /commit 后/);
   assert.match(afterSuccessSkill, /pull、merge、rebase 后/);
   assert.match(afterSuccessSkill, /不要复述成功输出/);
@@ -774,6 +861,10 @@ test("command task skills contain task-specific instructions", () => {
   assert.match(afterSuccessSkill, /不要建议破坏工作区/);
 
   assert.match(chatSkill, /\/chat/);
+  assert.match(chatSkill, /明确要求/);
+  assert.match(chatSkill, /write_development_record/);
+  assert.match(chatSkill, /send_message/);
+  assert.match(chatSkill, /不明确/);
   assert.match(chatSkill, /不要执行命令/);
   assert.match(chatSkill, /suggestedCommand/);
   assert.match(chatSkill, /终端/);
@@ -1043,6 +1134,53 @@ test("interact_with_lark_agent accepts troubleshooting reference requests", asyn
   ]);
 });
 
+test("interact_with_lark_agent accepts development record guidance requests", async () => {
+  const calls: unknown[] = [];
+  const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
+    larkAgent: {
+      interact(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          topic: "development_record_guidance",
+          content: "团队开发记录在 GITX Friday 开发记录，push 后可追加 Linus 变更摘要。",
+          freshness: "refreshed",
+          source: {
+            title: "GITX Friday 开发记录",
+          },
+        });
+      },
+    },
+  });
+
+  const result = await interactWithLarkAgentTool.invoke({
+    action: "get_context",
+    topic: "development_record_guidance",
+    cwd: "/repo",
+    reason: "after_success_git_push_guidance",
+    command: "git",
+    rawCommand: "git push",
+  });
+
+  assert.deepEqual(JSON.parse(result), {
+    topic: "development_record_guidance",
+    content: "团队开发记录在 GITX Friday 开发记录，push 后可追加 Linus 变更摘要。",
+    freshness: "refreshed",
+    source: {
+      title: "GITX Friday 开发记录",
+    },
+  });
+  assert.deepEqual(calls, [
+    {
+      action: "get_context",
+      topic: "development_record_guidance",
+      cwd: "/repo",
+      reason: "after_success_git_push_guidance",
+      command: "git",
+      rawCommand: "git push",
+    },
+  ]);
+});
+
 test("interact_with_lark_agent writes development records through the lark agent", async () => {
   const calls: unknown[] = [];
   const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
@@ -1092,6 +1230,45 @@ test("interact_with_lark_agent writes development records through the lark agent
         root: "/repo",
         webUrl: "https://github.com/dong/feishuAI",
       },
+    },
+  ]);
+});
+
+test("interact_with_lark_agent sends messages through the lark agent", async () => {
+  const calls: unknown[] = [];
+  const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
+    larkAgent: {
+      interact(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          content: "已发送到 GITX 演示群：om_123",
+        });
+      },
+    },
+  });
+
+  const result = await interactWithLarkAgentTool.invoke({
+    action: "send_message",
+    cwd: "/repo",
+    reason: "manual_chat_notify_maintainers",
+    recipient: "GITX 演示群",
+    message: "git push 已完成，请查看最新变更。",
+    identity: "bot",
+    summary: "通知维护者 push 完成",
+  });
+
+  assert.deepEqual(JSON.parse(result), {
+    content: "已发送到 GITX 演示群：om_123",
+  });
+  assert.deepEqual(calls, [
+    {
+      action: "send_message",
+      cwd: "/repo",
+      reason: "manual_chat_notify_maintainers",
+      recipient: "GITX 演示群",
+      message: "git push 已完成，请查看最新变更。",
+      identity: "bot",
+      summary: "通知维护者 push 完成",
     },
   ]);
 });

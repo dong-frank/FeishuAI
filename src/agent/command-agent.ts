@@ -22,6 +22,7 @@ import {
   createLangChainChatModel,
   formatRawToolCallsDebugOutput,
   withTuiDisplay,
+  type LangChainAgent,
 } from "./runtime/langchain-agent.js";
 import { createAgentHistoryStore } from "./runtime/agent-history-store.js";
 import {
@@ -73,7 +74,7 @@ const TERMINAL_OUTPUT_REQUIREMENTS = `
 - 可以大胆给出 suggestedCommand，用户不一定会接受；它只是 TUI 里的高优先级补全候选。只要有一个合理、完整、可执行的下一步命令，就给出 suggestedCommand；如果当前信息不足或建议可能危险，才输出空字符串。
 - skills里面封装了流程经验，需要参考对应的skills来回答。
 - Linus 不直接调用 Friday，不直接执行 Lark CLI，也不输出 callLarkAgent、agent、toolName 等执行字段。
-- 当前 phase 不会等待用户确认，也不输出后续动作草稿；需要执行飞书动作时必须通过受控 command task 和 interact_with_lark_agent 请求 Friday。
+- 当前 phase 不会等待用户确认，也不输出后续动作草稿；敏感飞书写入、发送、通知类动作只能在用户通过 /chat 明确要求时，通过受控 command task 和 interact_with_lark_agent 请求 Friday。
 
 `.trim();
 
@@ -117,8 +118,8 @@ Linus 负责判断 Git 命令意图、解释失败原因、生成提交建议和
 - 生成 commit message 时，必须按 Skill 要求调用 interact_with_lark_agent 请求 Friday 获取团队规范，再调用 git_commit_context 获取实时 staged diff。
 - 需要当前仓库状态、分支或远端信息时，优先使用 context.tuiSession.git；信息不足时调用 git_repository_context。
 - afterFail 中简单语法或参数错误优先调用 tldr_git_manual；复杂问题或团队流程相关问题才通过 interact_with_lark_agent 请求 Friday 查询飞书资料。
-- afterSuccess 只在 Skill 要求的关键场景调用 interact_with_lark_agent 请求 Friday 写入团队开发记录。
-- chat 按用户 message 直接答复；只有解释 Git 用法、读取实时仓库信息或需要团队飞书上下文时才调用对应工具。
+- afterSuccess 只能做只读建议：必要时调用 interact_with_lark_agent 的 get_context 读取团队开发记录位置或流程提示，不能请求 Friday 写入文档、发送消息或通知他人。
+- chat 按用户 message 直接答复；只有解释 Git 用法、读取实时仓库信息、需要团队飞书上下文，或用户明确要求写入/更新/发送/通知时才调用对应工具。
 
 ## 会话记忆边界
 
@@ -176,7 +177,7 @@ export const AFTER_SUCCESS_AGENT_SYSTEM_PROMPT = `
 
 ## 角色设定
 
-Linus 在 Git 命令成功后给出下一步建议。需要记录飞书开发动态或触发团队协作时，只能通过 interact_with_lark_agent 请求 Friday。
+Linus 在 Git 命令成功后给出下一步建议。需要飞书团队开发记录位置或流程提示时，只能通过 interact_with_lark_agent 读取 Friday 的上下文；不能在 afterSuccess 中写入飞书文档、发送消息或通知他人。
 
 ## 任务包结构
 
@@ -190,6 +191,8 @@ Linus 在 Git 命令成功后给出下一步建议。需要记录飞书开发动
 - task 为 "afterSuccess" 时，固定 Skill 是 "command-after-success"。
 - Skill 已由 runtime 注入到本 system prompt 中；不要再加载 Skill。
 - 需要当前仓库状态、分支或远端信息时调用 git_repository_context。
+- 需要判断是否建议用户写入团队开发记录时，只能调用 interact_with_lark_agent 的 get_context，topic 使用 "development_record_guidance"。
+- 不要调用或建议内部 action 名称；如果需要用户手动触发飞书写入，给出自然语言 /chat suggestedCommand。
 - 最终输出非常短的下一步建议；如果能判断出一个合理、完整、可执行且不危险的下一步命令，放入 suggestedCommand。优先参考 context.rawCommand，其次参考 result.stdout 和 result.stderr。
 
 ${TERMINAL_OUTPUT_REQUIREMENTS}
@@ -271,6 +274,7 @@ type GitCommitContextOutput = {
 
 type InteractWithLarkAgentToolOptions = {
   larkAgent?: Pick<LarkAgent, "interact"> | undefined;
+  allowedActions?: readonly LarkInteractionAction[] | undefined;
 };
 
 type CommandAgentToolOptions = InteractWithLarkAgentToolOptions & {
@@ -283,6 +287,8 @@ const COMMAND_AGENT_FINAL_RESPONSE_SCHEMA = z
     suggestedCommand: z.string().nullable().optional(),
   })
   .strict();
+
+type LarkInteractionAction = LarkInteractionRequest["action"];
 
 export function createLoadCommandSkillTool(registry: SkillRegistry): StructuredToolInterface {
   return withTuiDisplay(
@@ -307,10 +313,19 @@ Returns the skill's prompt and context.`,
 
 export function createInteractWithLarkAgentTool({
   larkAgent,
+  allowedActions,
 }: InteractWithLarkAgentToolOptions = {}): StructuredToolInterface {
+  const allowedActionSet = new Set<LarkInteractionAction>(
+    allowedActions ?? ["get_context", "send_message", "write_development_record"],
+  );
   return withTuiDisplay(
     tool(
       async (input) => {
+        if (!allowedActionSet.has(input.action)) {
+          throw new Error(
+            `Lark action ${input.action} is not allowed for this command task.`,
+          );
+        }
         if (!larkAgent) {
           if (input.action === "get_context") {
             return JSON.stringify({
@@ -330,15 +345,23 @@ export function createInteractWithLarkAgentTool({
       {
         name: "interact_with_lark_agent",
         description:
-          "与 Friday 执行受控交互。只接受固定交互参数，不接受 lark-cli args",
-        schema: createInteractWithLarkAgentSchema(),
+          `与 Friday 执行受控交互。只接受固定交互参数，不接受 lark-cli args。当前允许的 action: ${[
+            ...allowedActionSet,
+          ].join(", ")}`,
+        schema: createInteractWithLarkAgentSchema(allowedActionSet),
       },
     ),
     "请求 Friday",
   );
 }
 
-function createInteractWithLarkAgentSchema() {
+function createInteractWithLarkAgentSchema(
+  allowedActionSet = new Set<LarkInteractionAction>([
+    "get_context",
+    "send_message",
+    "write_development_record",
+  ]),
+) {
   const repositorySchema = z
     .object({
       root: z.string().optional(),
@@ -361,7 +384,11 @@ function createInteractWithLarkAgentSchema() {
         action: z.literal("get_context"),
         ...commandContextSchema,
         topic: z
-          .enum(["commit_message_policy", "troubleshooting_reference"])
+          .enum([
+            "commit_message_policy",
+            "troubleshooting_reference",
+            "development_record_guidance",
+          ])
           .describe("需要的飞书上下文主题。"),
       })
       .strict(),
@@ -372,6 +399,7 @@ function createInteractWithLarkAgentSchema() {
         reason: z.string().describe("请求该交互的原因。"),
         recipient: z.string().optional(),
         message: z.string(),
+        identity: z.enum(["bot", "user"]).optional(),
         summary: z.string().optional(),
       })
       .strict(),
@@ -389,7 +417,16 @@ function createInteractWithLarkAgentSchema() {
           .optional(),
       })
       .strict(),
-  ]);
+  ]).superRefine((input, context) => {
+    if (!allowedActionSet.has(input.action)) {
+      context.addIssue({
+        code: "custom",
+        message: `Lark action ${input.action} is not allowed for this command task. Allowed actions: ${[
+          ...allowedActionSet,
+        ].join(", ")}`,
+      });
+    }
+  });
 }
 
 type InteractWithLarkAgentInput = z.infer<ReturnType<typeof createInteractWithLarkAgentSchema>>;
@@ -401,8 +438,10 @@ function normalizeLarkInteractionInput(
     return {
       action: "send_message",
       cwd: input.cwd,
+      reason: input.reason,
       ...(input.recipient ? { recipient: input.recipient } : {}),
       message: input.message,
+      ...(input.identity ? { identity: input.identity } : {}),
       ...(input.summary ? { summary: input.summary } : {}),
     };
   }
@@ -486,7 +525,10 @@ export function createCommandAfterFailTools(options: CommandAgentToolOptions = {
 export function createCommandAfterSuccessTools(options: CommandAgentToolOptions = {}) {
   return [
     createGitRepositoryContextTool(),
-    createInteractWithLarkAgentTool(options),
+    createInteractWithLarkAgentTool({
+      ...options,
+      allowedActions: ["get_context"],
+    }),
   ];
 }
 
@@ -786,6 +828,34 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
     },
     onContextUsage: options.onContextUsage,
   });
+  let afterSuccessAgentPromise: Promise<LangChainAgent> | undefined;
+
+  function getAfterSuccessAgent() {
+    afterSuccessAgentPromise ??= skillRegistry
+      .loadSkill(COMMAND_AGENT_TASK_SKILLS.afterSuccess)
+      .then((skillContent) =>
+        createLangChainAgent({
+          name: "Linus",
+          systemPrompt: formatAfterSuccessAgentSystemPrompt(skillContent),
+          tools: [
+            ...createCommandAfterSuccessTools({
+              larkAgent: options.larkAgent,
+            }),
+            createFinalResponseTool(COMMAND_AGENT_FINAL_RESPONSE_SCHEMA),
+          ],
+          model,
+          validateOutput: validateCommandAgentOutput,
+          onToolProgress(event) {
+            options.onToolProgress?.({
+              ...event,
+              agentKind: "command",
+            });
+          },
+          onContextUsage: options.onContextUsage,
+        }),
+      );
+    return afterSuccessAgentPromise;
+  }
 
   return {
     async chat(context, options) {
@@ -811,7 +881,8 @@ export function createCommandAgent(options: CommandAgentOptions = {}): CommandAg
       );
     },
     async afterSuccess(context, result, options) {
-      const agentResult = await agent.invokeWithMetadata(
+      const afterSuccessAgent = await getAfterSuccessAgent();
+      const agentResult = await afterSuccessAgent.invokeWithMetadata(
         await formatCommandAgentInvocationWithMemory("afterSuccess", context, result),
         options,
       );

@@ -1,7 +1,7 @@
 ---
 name: lark-authorize
 version: 1.0.0
-description: "飞书/Lark CLI 授权引导：检查连接状态，按需配置应用凭证、登录授权并验证。当用户需要初始化飞书连接、修复未登录状态、配置 lark-cli、执行 lark init 或确认飞书连接可用时使用。"
+description: "Friday 飞书授权引导：检查连接状态，按需配置应用凭证、登录授权并验证。当用户需要初始化飞书连接、修复未登录状态、配置 lark-cli、执行 /login 或确认飞书连接可用时使用。"
 metadata:
   requires:
     bins: ["lark-cli"]
@@ -62,13 +62,11 @@ lark-cli config init --new
 
 当 Step 1 表明未登录、授权缺失或 Step 2 刚完成配置后执行。
 
-在后台运行此命令。命令会输出一个授权链接；提取该链接并发送给用户。用户在浏览器中完成登录授权后，命令会自动退出。
+用户入口统一是 `/login`。本步骤是 Friday 在 `/login` 流程内部执行的授权动作；不要建议用户手动运行底层 lark-cli 登录命令。
 
-```bash
-lark-cli auth login --recommend
-```
+在后台运行授权命令。命令会输出一个授权链接；提取该链接并发送给用户。用户在浏览器中完成登录授权后，命令会自动退出。
 
-调用 `run_lark_cli` 时设置 `showOutputInTui: true`。
+调用 `run_lark_cli`，参数为 `["auth", "login", "--recommend"]`，并设置 `showOutputInTui: true`。
 
 执行要求：
 
@@ -91,7 +89,7 @@ lark-cli auth status
 
 - 已连接：说明当前身份、授权状态和可用信息，然后进入 Step 5。
 - 未连接：说明缺少配置还是缺少登录，并给出下一步建议。
-- 权限不足：说明需要增量授权；优先按缺失 scope 执行 `lark-cli auth login --scope "<missing_scope>"`。
+- 权限不足：说明需要重新通过 `/login` 完成授权，不要建议用户手动执行底层授权命令。
 
 ### Step 5: Project Knowledge Warmup
 
@@ -185,7 +183,7 @@ lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope keywor
 
 - 禁止输出 appSecret、accessToken、refreshToken 等密钥。
 - 不要声称已完成配置或登录，除非对应命令返回成功且 Step 4 验证通过。
-- 不要对 bot 身份执行 `auth login`；bot 权限问题应引导用户到飞书开发者后台开通 scope。
+- 不要引导用户手动执行底层授权命令；bot 权限问题应引导用户到飞书开发者后台开通 scope。
 - 写入或删除飞书资源不属于本 Skill 范围；Step 5 也只能读取文档。
 
 ## 输出要求

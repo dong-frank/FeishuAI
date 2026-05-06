@@ -1,7 +1,7 @@
 ---
 name: command-help
 version: 1.0.0
-description: "Command Agent 命令帮助任务：解释当前命令用法，结合用户 Git 历史画像和 TUI 会话状态给出简短可执行建议。"
+description: "Linus 命令帮助任务：解释当前命令用法，结合用户 Git 历史画像和 TUI 会话状态给出简短可执行建议。"
 ---
 
 # Command Help

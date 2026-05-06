@@ -36,6 +36,7 @@ import {
   getNextHistoryScrollOffset,
   getVisibleHistoryRows,
   getAutoRunLarkInitAction,
+  shouldRefreshSessionAfterAgentActivity,
   DEFAULT_STATUS_TEXT,
   formatCommandDuration,
   getRenderedOutputText,
@@ -69,7 +70,7 @@ async function createTempCwd() {
   return mkdtemp(join(tmpdir(), "git-helper-tui-"));
 }
 
-test("automatic lark init action runs when startup and cooldown allow it", () => {
+test("automatic /login action runs when startup and cooldown allow it", () => {
   assert.equal(
     getAutoRunLarkInitAction({
       autoRunLarkInit: true,
@@ -80,7 +81,7 @@ test("automatic lark init action runs when startup and cooldown allow it", () =>
   );
 });
 
-test("automatic lark init action skips inside cooldown or after one startup attempt", () => {
+test("automatic /login action skips inside cooldown or after one startup attempt", () => {
   assert.equal(
     getAutoRunLarkInitAction({
       autoRunLarkInit: true,
@@ -96,6 +97,21 @@ test("automatic lark init action skips inside cooldown or after one startup atte
       shouldAutoRun: true,
     }),
     "skip",
+  );
+});
+
+test("agent activity refreshes session after Friday or manual chat actions", () => {
+  assert.equal(
+    shouldRefreshSessionAfterAgentActivity({ agentKind: "lark", phase: "afterSuccess" }),
+    true,
+  );
+  assert.equal(
+    shouldRefreshSessionAfterAgentActivity({ agentKind: "command", phase: "chat" }),
+    true,
+  );
+  assert.equal(
+    shouldRefreshSessionAfterAgentActivity({ agentKind: "command", phase: "beforeRun" }),
+    false,
   );
 });
 
@@ -123,12 +139,12 @@ test("loadPersistedContextMeters restores Linus and Friday meters from history f
     `${JSON.stringify({
       schemaVersion: 1,
       messages: [
-        { role: "user", content: "lark init" },
+        { role: "user", content: "/login" },
         { role: "assistant", content: "authorized" },
       ],
       contextUsage: {
         messageCount: 2,
-        characterCount: 19,
+        characterCount: 16,
         estimatedTokens: 128000,
       },
     }, null, 2)}\n`,
@@ -143,7 +159,7 @@ test("loadPersistedContextMeters restores Linus and Friday meters from history f
     },
     lark: {
       messageCount: 2,
-      characterCount: 19,
+      characterCount: 16,
       estimatedTokens: 128000,
     },
   });
@@ -160,7 +176,7 @@ test("usage tips are recorded in one place for the status bar", () => {
   assert.ok(TUI_USAGE_TIPS.includes("Tab 请求 Linus 帮助"));
   assert.ok(TUI_USAGE_TIPS.includes("→ 接受补全"));
   assert.ok(TUI_USAGE_TIPS.includes("↑/↓ 切换历史命令"));
-  assert.ok(TUI_USAGE_TIPS.includes("连接 Friday: lark init"));
+  assert.ok(TUI_USAGE_TIPS.includes("连接 Friday: /login"));
 });
 
 test("welcome copy uses terminal character art for the brand", () => {
@@ -1316,9 +1332,9 @@ test("status line keeps waiting indicators outside the prompt box", () => {
       isRunning: false,
       isAgentWaiting: true,
       agentKind: "lark",
-      agentCommand: "lark init",
+      agentCommand: "/login",
     }),
-    "Friday 正在处理 lark init ...",
+    "Friday 正在处理 /login ...",
   );
   assert.equal(
     getStatusLine({
@@ -1377,7 +1393,7 @@ test("status bar keeps usage tips and optional context meters", () => {
       isRunning: false,
       isAgentWaiting: true,
       agentKind: "lark",
-      agentCommand: "lark init",
+      agentCommand: "/login",
       tipIndex: 1,
       agentStatusWidth: 28,
     }),
@@ -1583,7 +1599,7 @@ test("help output is rendered in a banner instead of normal history text", () =>
     {
       type: "output",
       result: {
-        commandLine: "lark init",
+        commandLine: "/login",
         kind: "help",
         agentKind: "lark",
         exitCode: 0,
@@ -1639,7 +1655,7 @@ test("agent history entries render pending, success, failed, and empty states", 
       type: "agent",
       id: "agent-2",
       agentKind: "lark",
-      commandLine: "lark init",
+      commandLine: "/login",
       state: "success",
       content: "auth ready",
       metadata: {
@@ -1681,7 +1697,7 @@ test("agent history entries render pending, success, failed, and empty states", 
       type: "agent",
       id: "agent-6",
       agentKind: "lark",
-      commandLine: "lark init",
+      commandLine: "/login",
       state: "pending",
       activity: "reviewing",
     },
@@ -1690,7 +1706,7 @@ test("agent history entries render pending, success, failed, and empty states", 
   const agentTitles = rows.filter((row) => row.rightText);
   assert.deepEqual(
     agentTitles.map((row) => row.text),
-    ["git commit", "lark init", "git push", "git status", "git push", "lark init"],
+    ["git commit", "/login", "git push", "git status", "git push", "/login"],
   );
   assert.equal(agentTitles[0]?.rightText, "[...]");
   assert.equal(agentTitles[0]?.rightColor, "yellow");
@@ -1754,17 +1770,35 @@ test("agent history entries render live agent command output under the agent ban
       type: "agent",
       id: "agent-1",
       agentKind: "lark",
-      commandLine: "lark init",
+      commandLine: "/login",
       state: "pending",
       stdout: "authorize link\n",
       stderr: "waiting for login\n",
     },
   ]);
 
-  assert.ok(rows.some((row) => row.text === "lark init"));
-  assert.equal(rows.some((row) => row.text === "agent: lark init"), false);
+  assert.ok(rows.some((row) => row.text === "/login"));
+  assert.equal(rows.some((row) => row.text === "agent: /login"), false);
   assert.equal(rows.find((row) => row.text === "authorize link")?.parts?.[0]?.color, "magenta");
   assert.equal(rows.find((row) => row.text === "waiting for login")?.parts?.[0]?.color, "magenta");
+});
+
+test("command chat agent history renders live Friday command output", () => {
+  const rows = getHistoryRows([
+    {
+      type: "agent",
+      id: "agent-1",
+      agentKind: "command",
+      commandLine: "/chat 通知维护者",
+      state: "pending",
+      stdout: "Open this login URL\n",
+      stderr: "waiting for authorization\n",
+    },
+  ]);
+
+  assert.ok(rows.some((row) => row.text === "/chat 通知维护者"));
+  assert.equal(rows.find((row) => row.text === "Open this login URL")?.parts?.[0]?.color, "magenta");
+  assert.equal(rows.find((row) => row.text === "waiting for authorization")?.parts?.[0]?.color, "magenta");
 });
 
 test("agent history title shows the command that triggered the agent", () => {

@@ -8,8 +8,7 @@ export type CommandCompletion = {
   suffix: string;
 };
 
-const TOP_LEVEL_COMMANDS = ["/chat", "exit", "lark init"] as const;
-const LARK_SUBCOMMANDS = ["init"] as const;
+const TOP_LEVEL_COMMANDS = ["/chat", "/login", "exit"] as const;
 
 export function getCompletion(
   input: string,
@@ -23,14 +22,6 @@ export function getCompletion(
 
   if (parts.length === 1) {
     return getStaticCompletion(input, parts[0] ?? "", TOP_LEVEL_COMMANDS);
-  }
-
-  if (parts[0] === "lark") {
-    if (parts.length !== 2) {
-      return undefined;
-    }
-
-    return getStaticCompletion(input, parts[1] ?? "", LARK_SUBCOMMANDS);
   }
 
   if (parts[0] !== "git") {

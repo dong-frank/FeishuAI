@@ -112,6 +112,31 @@ test("formatLarkAgentInvocation builds task envelopes with fixed skills", () => 
 
   assert.equal(
     formatLarkAgentInvocation("interact", {
+      action: "send_message",
+      cwd: "/repo",
+      reason: "manual_chat_notify_maintainers",
+      recipient: "GITX 演示群",
+      message: "git push 已完成，请查看最新变更。",
+      identity: "bot",
+      summary: "通知维护者 push 完成",
+    }),
+    JSON.stringify({
+      task: "interact",
+      skill: "lark-im",
+      context: {
+        action: "send_message",
+        cwd: "/repo",
+        reason: "manual_chat_notify_maintainers",
+        recipient: "GITX 演示群",
+        message: "git push 已完成，请查看最新变更。",
+        identity: "bot",
+        summary: "通知维护者 push 完成",
+      },
+    }),
+  );
+
+  assert.equal(
+    formatLarkAgentInvocation("interact", {
       action: "write_development_record",
       cwd: "/repo",
       reason: "after_success_git_push",
@@ -186,10 +211,18 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /missing/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /searchDocs/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /send_message/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /GITX send_message action 快速流程/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /\+chat-search/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /\+messages-send/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /--text/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-authorize/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-doc-lookup/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-im/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-doc-write/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-shared/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /Permission denied/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /showOutputInTui: true/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /重试原发送命令一次/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /受控 task/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /受控 action/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /固定 Skill/);
@@ -197,7 +230,6 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要接受或执行 CLI args/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /docs", "\+search/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /docs", "\+fetch/);
-  assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /im", "\+messages-send/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /config", "init/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要编造/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /输出要适合终端阅读/);
@@ -481,6 +513,27 @@ test("parseLarkInteractionResult returns command output for write_development_re
   );
 });
 
+test("parseLarkInteractionResult returns command output for send_message", () => {
+  assert.deepEqual(
+    parseLarkInteractionResult(
+      {
+        action: "send_message",
+        cwd: "/repo",
+        reason: "manual_chat_notify_maintainers",
+        recipient: "GITX 演示群",
+        message: "git push 已完成，请查看最新变更。",
+        identity: "bot",
+      },
+      JSON.stringify({
+        content: "已发送到 GITX 演示群：om_123",
+      }),
+    ),
+    {
+      content: "已发送到 GITX 演示群：om_123",
+    },
+  );
+});
+
 test("lark agent compacts preserved history to task, action, topic, and reply", async () => {
   const repeatedRuntimeContext = "LARK_RUNTIME_CONTEXT_SHOULD_NOT_BE_REMEMBERED".repeat(80);
   const agent = createLarkAgent({
@@ -550,7 +603,7 @@ test("lark agent compacts preserved history to task, action, topic, and reply", 
       content: "团队使用 conventional commits。",
       freshness: "refreshed",
       source: {
-        title: "FlowDesk Git 协作规范",
+        title: "GITX Linus 协作规范",
         url: "https://example.com/doc",
       },
     }),
@@ -585,7 +638,7 @@ test("lark agent compacts preserved history to task, action, topic, and reply", 
     freshness: "refreshed",
     content: "团队使用 conventional commits。",
     source: {
-      title: "FlowDesk Git 协作规范",
+      title: "GITX Linus 协作规范",
       url: "https://example.com/doc",
     },
   });
@@ -617,6 +670,44 @@ test("lark doc write skill constrains document writes", () => {
   assert.doesNotMatch(skill, /write_development_record/);
   assert.doesNotMatch(skill, /团队开发记录/);
   assert.doesNotMatch(skill, /git push/);
+});
+
+test("lark im skill defines the GITX send message fast path", () => {
+  const skill = readFileSync(
+    join(process.cwd(), "skills", "lark-im", "SKILL.md"),
+    "utf8",
+  );
+
+  assert.match(skill, /GITX Lark IM/);
+  assert.match(skill, /send_message 快速流程/);
+  assert.match(skill, /lark-cli im \+chat-search/);
+  assert.match(skill, /lark-cli im \+messages-send/);
+  assert.match(skill, /--text/);
+  assert.match(skill, /identity/);
+  assert.match(skill, /不要猜 open_id/);
+  assert.match(skill, /lark-shared/);
+  assert.match(skill, /im:message.send_as_user/);
+  assert.match(skill, /重试原发送命令一次/);
+  assert.match(skill, /showOutputInTui: true/);
+  assert.match(skill, /\/login/);
+  assert.doesNotMatch(skill, /references\//);
+  assert.doesNotMatch(skill, /auth login/);
+  assert.doesNotMatch(skill, /lark init/);
+});
+
+test("lark shared skill keeps GITX permission recovery on /login", () => {
+  const skill = readFileSync(
+    join(process.cwd(), "skills", "lark-shared", "SKILL.md"),
+    "utf8",
+  );
+
+  assert.match(skill, /name: lark-shared/);
+  assert.match(skill, /\/login/);
+  assert.match(skill, /im:message.send_as_user/);
+  assert.match(skill, /showOutputInTui: true/);
+  assert.match(skill, /重试一次/);
+  assert.doesNotMatch(skill, /auth login/);
+  assert.doesNotMatch(skill, /lark init/);
 });
 
 test("run_lark_cli only forwards output to TUI history when requested", async () => {

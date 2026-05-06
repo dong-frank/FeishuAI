@@ -1,7 +1,7 @@
 ---
 name: lark-doc-write
 version: 1.0.0
-description: "Use when Lark Agent needs to search, read, and update a Feishu/Lark document through a controlled document-writing interaction."
+description: "Use when Friday needs to search, read, and update a Feishu/Lark document through a controlled document-writing interaction."
 metadata:
   requires:
     bins: ["lark-cli"]

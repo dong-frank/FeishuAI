@@ -1,7 +1,7 @@
 ---
 name: command-git-commit-message
 version: 1.0.0
-description: "Command Agent git commit message 任务：基于团队文档上下文和 staged diff 生成提交信息建议。"
+description: "Linus git commit message 任务：基于团队文档上下文和 staged diff 生成提交信息建议。"
 ---
 
 # Command Git Commit Message

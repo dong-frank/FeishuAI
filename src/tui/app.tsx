@@ -120,6 +120,16 @@ export function getAutoRunLarkInitAction({
   return "run";
 }
 
+export function shouldRefreshSessionAfterAgentActivity({
+  agentKind,
+  phase,
+}: {
+  agentKind: AgentKind;
+  phase: "beforeRun" | "chat" | "afterSuccess" | "afterFail";
+}) {
+  return agentKind === "lark" || phase === "chat";
+}
+
 export function App({
   autoRunLarkInit = true,
   initialCwd = process.cwd(),
@@ -263,13 +273,13 @@ export function App({
         });
         didAutoRunLarkInit.current = true;
         if (action === "run") {
-          void runTuiCommand("lark init", { allowExit: false });
+          void runTuiCommand("/login", { allowExit: false });
         }
       })
       .catch(() => {
         if (!cancelled && !didAutoRunLarkInit.current) {
           didAutoRunLarkInit.current = true;
-          void runTuiCommand("lark init", { allowExit: false });
+          void runTuiCommand("/login", { allowExit: false });
         }
       });
 
@@ -704,6 +714,9 @@ export function App({
         larkOutputHandler.current = undefined;
       }
       if (!controller.signal.aborted) {
+        if (shouldRefreshSessionAfterAgentActivity({ agentKind, phase: "afterSuccess" })) {
+          void refreshSession(currentCwd);
+        }
         setIsAgentReviewing(false);
         setActiveAgentKind(undefined);
         setAgentStatusCommand(undefined);
@@ -1007,11 +1020,14 @@ export function App({
     const agentHistoryId = appendPendingAgentHistoryEntry("command", context.rawCommand, "waiting");
     const controller = beginAgentRun(agentHistoryId, "command");
     const updateToolProgress = createAgentToolProgressHandler(agentHistoryId);
+    const updateLarkLiveOutput = (chunk: CommandOutputChunk) =>
+      appendAgentHistoryOutput(agentHistoryId, chunk);
     setIsAgentWaiting(true);
     setActiveAgentKind("command");
     setAgentStatusCommand(context.rawCommand);
     try {
       agentToolProgressHandler.current = updateToolProgress;
+      larkOutputHandler.current = updateLarkLiveOutput;
       const message = await commandAgent.current?.chat?.(context, {
         signal: controller.signal,
       });
@@ -1075,7 +1091,13 @@ export function App({
       if (agentToolProgressHandler.current === updateToolProgress) {
         agentToolProgressHandler.current = undefined;
       }
+      if (larkOutputHandler.current === updateLarkLiveOutput) {
+        larkOutputHandler.current = undefined;
+      }
       if (!controller.signal.aborted) {
+        if (shouldRefreshSessionAfterAgentActivity({ agentKind: "command", phase: "chat" })) {
+          void refreshSession(context.cwd);
+        }
         setIsAgentWaiting(false);
         setActiveAgentKind(undefined);
         setAgentStatusCommand(undefined);

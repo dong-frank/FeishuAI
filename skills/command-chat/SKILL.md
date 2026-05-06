@@ -1,6 +1,6 @@
 ---
 name: command-chat
-description: Direct /chat messages from the git-helper TUI to the Command Agent.
+description: Direct /chat messages from the GITX to the Linus.
 ---
 
 # Command Chat Skill
@@ -21,8 +21,14 @@ description: Direct /chat messages from the git-helper TUI to the Command Agent.
 - 可以利用当前会话记忆延续上下文，但实时仓库事实必须以本次 context 或工具结果为准。
 - 需要解释 Git 命令用法时，可以调用 `tldr_git_manual`。
 - 需要当前仓库状态、分支或远端信息时，优先使用 context.tuiSession.git；信息不足时调用 `git_repository_context`。
-- 只有当用户明确询问团队流程、飞书资料，或回答确实依赖团队上下文时，才调用 `interact_with_lark_agent` 获取上下文。
-- 不要执行命令，不要调用 Lark Agent 执行动作，不要直接运行 Lark CLI。
+- 只有当用户明确询问团队流程、飞书资料，或回答确实依赖团队上下文时，才调用 `interact_with_lark_agent` 的 `get_context` 获取上下文。
+- 当用户在 context.message 中明确要求写入、更新、发送或通知时，才可以调用 `interact_with_lark_agent` 执行敏感飞书动作：
+  - 写入或更新团队开发记录时使用 action: `write_development_record`。
+  - 发送飞书消息或通知维护者时使用 action: `send_message`。
+  - 发送消息时尽量传入 recipient、message 和 identity；用户说“让 Friday/机器人/你通知”时 identity 用 `bot`，用户说“以我的身份/我来发送”时 identity 用 `user`。
+  - 如果目标文档、写入内容、收件人或消息内容不明确，先在 content 中询问澄清，不要执行动作。
+  - 不要把 afterSuccess 的建议当作授权；只有当前 `/chat` 消息里的明确要求才算授权。
+- 不要执行命令：不要执行本地 shell 命令，不要直接运行 Lark CLI；飞书侧动作只能通过上面的受控 `interact_with_lark_agent` action。
 - 如果能给出安全、完整、可执行的下一步命令，可以填入 `suggestedCommand`；否则输出 null 或空字符串。
 
 ## 输出
