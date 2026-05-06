@@ -17,6 +17,7 @@ import {
   recordGitCommandFailure,
   recordGitCommandSuccess,
 } from "../../src/runtime/git-command-stats.js";
+import { loadLarkInitState } from "../../src/runtime/lark-init-state.js";
 
 async function createTempCwd() {
   return mkdtemp(join(tmpdir(), "git-helper-runner-"));
@@ -241,6 +242,67 @@ test("runCommandLine starts lark init authorization agent without waiting", asyn
       },
     },
   });
+});
+
+test("runCommandLine records lark init when the authorization agent starts", async () => {
+  const cwd = await createTempCwd();
+
+  const result = await runCommandLine("lark init", {
+    cwd,
+    larkAgent: {
+      authorize() {
+        return Promise.resolve({ content: "auth ready" });
+      },
+    },
+    executeCommand: async () => {
+      throw new Error("external command should not run");
+    },
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.ok((await loadLarkInitState(cwd)).lastStartedAt);
+});
+
+test("runCommandLine refreshes lark init cooldown on manual init but not unsupported lark commands", async () => {
+  const cwd = await createTempCwd();
+  const first = await runCommandLine("lark init", {
+    cwd,
+    larkAgent: {
+      authorize() {
+        return Promise.resolve({ content: "auth ready" });
+      },
+    },
+    executeCommand: async () => {
+      throw new Error("external command should not run");
+    },
+  });
+  assert.equal(first.exitCode, 0);
+  const firstStartedAt = (await loadLarkInitState(cwd)).lastStartedAt;
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const second = await runCommandLine("lark init", {
+    cwd,
+    larkAgent: {
+      authorize() {
+        return Promise.resolve({ content: "auth ready" });
+      },
+    },
+    executeCommand: async () => {
+      throw new Error("external command should not run");
+    },
+  });
+  assert.equal(second.exitCode, 0);
+  const secondStartedAt = (await loadLarkInitState(cwd)).lastStartedAt;
+  assert.notEqual(secondStartedAt, firstStartedAt);
+
+  const unsupported = await runCommandLine("lark nope", {
+    cwd,
+    executeCommand: async () => {
+      throw new Error("external command should not run");
+    },
+  });
+  assert.equal(unsupported.exitCode, 1);
+  assert.equal((await loadLarkInitState(cwd)).lastStartedAt, secondStartedAt);
 });
 
 test("runCommandLine passes git project hints to lark init", async () => {

@@ -32,6 +32,7 @@ import {
   initializeTuiSession as defaultInitializeTuiSession,
   type TuiSessionInfo,
 } from "../runtime/tui-session.js";
+import { shouldAutoRunLarkInit as defaultShouldAutoRunLarkInit } from "../runtime/lark-init-state.js";
 import { AppLayout, getPromptViewportWidth } from "./layout.js";
 import {
   getHistoryRows,
@@ -92,6 +93,7 @@ type AppProps = {
     commandLine: string,
     options?: RunCommandLineOptions,
   ) => Promise<CommandRunOutput>;
+  shouldAutoRunLarkInit?: typeof defaultShouldAutoRunLarkInit;
 };
 
 type ActiveAgentRun = {
@@ -100,11 +102,30 @@ type ActiveAgentRun = {
   controller: AbortController;
 };
 
+export type AutoRunLarkInitAction = "run" | "skip";
+
+export function getAutoRunLarkInitAction({
+  autoRunLarkInit,
+  didAutoRunLarkInit,
+  shouldAutoRun,
+}: {
+  autoRunLarkInit: boolean;
+  didAutoRunLarkInit: boolean;
+  shouldAutoRun: boolean;
+}): AutoRunLarkInitAction {
+  if (!autoRunLarkInit || didAutoRunLarkInit || !shouldAutoRun) {
+    return "skip";
+  }
+
+  return "run";
+}
+
 export function App({
   autoRunLarkInit = true,
   initialCwd = process.cwd(),
   initializeSession = defaultInitializeTuiSession,
   runCommandLine = defaultRunCommandLine,
+  shouldAutoRunLarkInit = defaultShouldAutoRunLarkInit,
 }: AppProps = {}) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -228,9 +249,34 @@ export function App({
       return;
     }
 
-    didAutoRunLarkInit.current = true;
-    void runTuiCommand("lark init", { allowExit: false });
-  }, [autoRunLarkInit]);
+    let cancelled = false;
+    void shouldAutoRunLarkInit(currentCwd)
+      .then((shouldRun) => {
+        if (cancelled || didAutoRunLarkInit.current) {
+          return;
+        }
+
+        const action = getAutoRunLarkInitAction({
+          autoRunLarkInit,
+          didAutoRunLarkInit: didAutoRunLarkInit.current,
+          shouldAutoRun: shouldRun,
+        });
+        didAutoRunLarkInit.current = true;
+        if (action === "run") {
+          void runTuiCommand("lark init", { allowExit: false });
+        }
+      })
+      .catch(() => {
+        if (!cancelled && !didAutoRunLarkInit.current) {
+          didAutoRunLarkInit.current = true;
+          void runTuiCommand("lark init", { allowExit: false });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [autoRunLarkInit, currentCwd, shouldAutoRunLarkInit]);
 
   useEffect(() => {
     let cancelled = false;

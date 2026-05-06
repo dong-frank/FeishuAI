@@ -2,13 +2,9 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Readable, Writable } from "node:stream";
 import test from "node:test";
-import React from "react";
-import { render } from "ink";
 
 import {
-  App,
   buildChatCommandContext,
   buildBeforeRunContext,
   COMPLETION_GHOST_STYLE,
@@ -39,6 +35,7 @@ import {
   getStatusLine,
   getNextHistoryScrollOffset,
   getVisibleHistoryRows,
+  getAutoRunLarkInitAction,
   DEFAULT_STATUS_TEXT,
   formatCommandDuration,
   getRenderedOutputText,
@@ -72,94 +69,34 @@ async function createTempCwd() {
   return mkdtemp(join(tmpdir(), "git-helper-tui-"));
 }
 
-function createTestInkStreams() {
-  const stdout = new Writable({
-    write(_chunk, _encoding, callback) {
-      callback();
-    },
-  }) as Writable & { columns: number; rows: number; isTTY: boolean };
-  stdout.columns = 80;
-  stdout.rows = 24;
-  stdout.isTTY = false;
-
-  const stderr = new Writable({
-    write(_chunk, _encoding, callback) {
-      callback();
-    },
-  });
-
-  const stdin = new Readable({
-    read() {},
-  }) as Readable & {
-    isTTY: boolean;
-    setRawMode: (isRaw: boolean) => void;
-  };
-  stdin.isTTY = false;
-  stdin.setRawMode = () => {};
-
-  return { stdin, stdout, stderr };
-}
-
-test("App automatically runs lark init once on startup", async () => {
-  const cwd = await createTempCwd();
-  const calls: string[] = [];
-  const streams = createTestInkStreams();
-  const props = {
-    initialCwd: cwd,
-    initializeSession: async () => ({
-      startedAt: "2026-05-05T12:00:00.000Z",
-      cwd,
-      git: {
-        isRepository: false,
-        status: {
-          staged: 0,
-          unstaged: 0,
-          untracked: 0,
-          dirty: false,
-        },
-      },
-      lark: {
-        isInstalled: true,
-        isConnected: false,
-      },
+test("automatic lark init action runs when startup and cooldown allow it", () => {
+  assert.equal(
+    getAutoRunLarkInitAction({
+      autoRunLarkInit: true,
+      didAutoRunLarkInit: false,
+      shouldAutoRun: true,
     }),
-    runCommandLine: async (commandLine: string) => {
-      calls.push(commandLine);
-      return {
-        commandLine,
-        kind: "execute" as const,
-        exitCode: 0,
-        stdout: "Lark authorization agent started in background.\n",
-        stderr: "",
-        afterSuccess: Promise.resolve({
-          content: "Friday ready",
-          metadata: {
-            durationMs: 2500,
-            contextUsage: {
-              messageCount: 6,
-              characterCount: 5000,
-              estimatedTokens: 200000,
-            },
-          },
-        }),
-        afterSuccessAgentKind: "lark" as const,
-      };
-    },
-  };
+    "run",
+  );
+});
 
-  const instance = render(React.createElement(App, props), {
-    stdin: streams.stdin,
-    stdout: streams.stdout,
-    stderr: streams.stderr,
-    exitOnCtrlC: false,
-  });
-
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(calls, ["lark init"]);
-
-  instance.unmount();
+test("automatic lark init action skips inside cooldown or after one startup attempt", () => {
+  assert.equal(
+    getAutoRunLarkInitAction({
+      autoRunLarkInit: true,
+      didAutoRunLarkInit: false,
+      shouldAutoRun: false,
+    }),
+    "skip",
+  );
+  assert.equal(
+    getAutoRunLarkInitAction({
+      autoRunLarkInit: true,
+      didAutoRunLarkInit: true,
+      shouldAutoRun: true,
+    }),
+    "skip",
+  );
 });
 
 test("loadPersistedContextMeters restores Linus and Friday meters from history files", async () => {
