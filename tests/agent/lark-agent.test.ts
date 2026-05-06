@@ -245,8 +245,10 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /requestContext/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /getContext/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /commit_message_policy/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /branch_naming_policy/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /troubleshooting_reference/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队 commit message 规范/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队分支命名规范/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队排障参考/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /团队开发记录文档/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /project_context_index/);
@@ -256,8 +258,8 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /project_context_index 必须包含/);
   assert.doesNotMatch(LARK_AGENT_SYSTEM_PROMPT, /development_record、review_process、requirements_status、ci_cd/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /同一个 topic/);
-  assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把 commit 规范当作排障方法/);
-  assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把排障资料当作 commit 规范/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把 commit 规范当作分支命名或排障方法/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /不要把分支命名规范或排障资料当作 commit 规范/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /remembered/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /refreshed/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /missing/);
@@ -275,11 +277,16 @@ test("single lark prompt describes phase behavior and skill loading", () => {
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-doc-write/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /lark-shared/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /Permission denied/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /search:docs:read/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /保存空索引/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /重试原命令一次/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /showOutputInTui: true/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /重试原发送命令一次/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /GITX schedule_meeting 快速流程/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /calendar \+create/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /GITX write_base_record 快速流程/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /需求看板/);
+  assert.match(LARK_AGENT_SYSTEM_PROMPT, /需求状态/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /base \+field-list/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /受控 task/);
   assert.match(LARK_AGENT_SYSTEM_PROMPT, /受控 action/);
@@ -499,6 +506,11 @@ test("lark authorize skill warms project context with read-only docs commands", 
   assert.match(skill, /docs \+fetch/);
   assert.match(skill, /wiki spaces get_node/);
   assert.match(skill, /wiki nodes list/);
+  assert.match(skill, /search:docs:read/);
+  assert.match(skill, /lark-shared/);
+  assert.match(skill, /--scope/);
+  assert.match(skill, /重试原.*一次/);
+  assert.match(skill, /保存.*missing.*前/);
   assert.doesNotMatch(skill, /最多选择 3 到 5 个/);
   assert.doesNotMatch(skill, /优先覆盖这些主题/);
   assert.match(skill, /禁止/);
@@ -513,6 +525,8 @@ test("lark doc lookup distinguishes docs search from wiki browsing", () => {
   );
 
   assert.match(skill, /docs \+search/);
+  assert.match(skill, /branch_naming_policy/);
+  assert.match(skill, /团队分支命名规范/);
   assert.match(skill, /资源发现/);
   assert.match(skill, /wiki spaces get_node/);
   assert.match(skill, /wiki nodes list/);
@@ -548,6 +562,29 @@ test("parseLarkInteractionResult keeps get_context structured packs", () => {
     {
       topic: "commit_message_policy",
       content: "团队使用 conventional commits。",
+      freshness: "refreshed",
+    },
+  );
+});
+
+test("parseLarkInteractionResult keeps branch naming context packs", () => {
+  assert.deepEqual(
+    parseLarkInteractionResult(
+      {
+        action: "get_context",
+        cwd: "/repo",
+        topic: "branch_naming_policy",
+        reason: "suggest_checkout_branch_name",
+      },
+      JSON.stringify({
+        topic: "branch_naming_policy",
+        content: "功能分支使用 feature/<story-id>-<short-desc>。",
+        freshness: "refreshed",
+      }),
+    ),
+    {
+      topic: "branch_naming_policy",
+      content: "功能分支使用 feature/<story-id>-<short-desc>。",
       freshness: "refreshed",
     },
   );
@@ -821,6 +858,10 @@ test("lark base skill defines the GITX base record write fast path", () => {
   assert.match(skill, /baseToken/);
   assert.match(skill, /tableId/);
   assert.match(skill, /fields/);
+  assert.match(skill, /project_context_index/);
+  assert.match(skill, /需求看板/);
+  assert.match(skill, /Story ID/);
+  assert.match(skill, /待评审/);
   assert.match(skill, /formula、lookup、系统字段、附件字段/);
   assert.match(skill, /lark-shared/);
   assert.match(skill, /\/login/);

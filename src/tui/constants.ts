@@ -9,9 +9,10 @@ export const TUI_USAGE_TIPS = [
   "Ctrl+C 退出",
   "↑/↓ 切换历史命令",
   "帮助生成 commit message: git commit + Tab",
-  "连接 Friday: /login"
+  "连接或补授权 Friday: /login",
+  "和 Linus/Friday 对话: /chat <问题或请求>"
 ] as const;
-export const TUI_FOOTER_TIPS = "[Enter]执行  [Tab]Agent  [↑↓]历史  [PgUp/PgDn]滚动  [Ctrl+C]退出";
+export const TUI_FOOTER_TIPS = "[Enter]执行  [Tab]Agent  [/chat]和GITX对话  [/login]连接飞书  [↑↓]历史  [Ctrl+C｜exit]退出";
 export const DEFAULT_STATUS_TEXT = TUI_USAGE_TIPS[0];
 export const WELCOME_TITLE = "GITX";
 export const WELCOME_BANNER_LINES = [

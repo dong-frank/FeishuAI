@@ -21,7 +21,6 @@ lerna-debug.log*
 
 # Local GITX state
 .gitx/
-.git-helper/
 .experiments/
 
 # OS files

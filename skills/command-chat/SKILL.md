@@ -27,9 +27,11 @@ description: Direct /chat messages from the GITX to the Linus.
   - 发送飞书消息或通知维护者时使用 action: `send_message`。
   - 预约会议、创建日程或安排 review meeting 时使用 action: `schedule_meeting`。
   - 写入或更新飞书多维表格/Base/bitable 记录时使用 action: `write_base_record`。
+  - 复合请求必须拆成多个动作依次执行：如果同一句 `/chat` 同时要求写开发记录，并且要求更新需求状态、需求看板、Story 状态或状态更新为“待评审/待 Review”，先调用 `write_development_record` 写开发记录，再调用 `write_base_record` 更新需求看板；不要因为已经调用了 `write_development_record` 就忽略后半句的看板更新。
   - 发送消息时尽量传入 recipient、message 和 identity；用户说“让 Friday/机器人/你通知”时 identity 用 `bot`，用户说“以我的身份/我来发送”时 identity 用 `user`。
   - 预约会议时尽量传入 title、start、end、attendeeIds、description；时间、参会人 ID 或会议室选择不明确时先澄清，不要创建。
-  - 写多维表格时尽量传入 baseToken、tableId、recordId 和 fields；目标表、字段或写入值不明确时先澄清，不要写入。
+  - 需求状态、需求看板、Story 状态、状态更新为“待评审/待 Review”都属于需求看板 Base 更新意图，即使用户没有显式说“多维表格/Base/bitable”，也应使用 action: `write_base_record`。
+  - 写多维表格时尽量传入 baseToken、tableId、recordId 和 fields；如果缺少 token/table 但目标是需求看板，传入 target（例如“Sprint 12 需求看板”或“需求看板”）、rawRequest 和能从消息中抽取出的 fields（例如 Story ID、状态、分支名），交给 Friday 基于项目知识索引定位；目标表、字段和值都无法判断时再澄清。
   - 如果目标文档、写入内容、收件人、消息内容、会议时间、参会人、Base 目标或字段值不明确，先在 content 中询问澄清，不要执行动作。
   - 不要把 afterSuccess 的建议当作授权；只有当前 `/chat` 消息里的明确要求才算授权。
 - 不要执行命令：不要执行本地 shell 命令，不要直接运行 Lark CLI；飞书侧动作只能通过上面的受控 `interact_with_lark_agent` action。

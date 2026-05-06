@@ -2,7 +2,7 @@
 
 FlowDesk is a reusable experiment fixture for validating `git-helper` in a simulated Scrum onboarding workflow.
 
-The generated project is independent from this repository. Reset commands write only under `.experiments/`:
+The generated project is independent from this repository. Reset commands rebuild `~/flowdesk-demo` for recording and keep generated experiment data under `~/.gitx-flowdesk/`:
 
 ```bash
 npm run experiment:flowdesk -- reset
@@ -17,7 +17,7 @@ npm run experiment:flowdesk -- score
 Typical manual demo loop:
 
 1. Reset to a stage.
-2. `cd .experiments/flowdesk-demo`
+2. `cd ~/flowdesk-demo`
 3. Start `git-helper`.
 4. Run the printed command and observe the expected phase.
 5. For `post-push`, run the suggested `/chat ...` follow-up manually if you want to show Lark writes or messages.

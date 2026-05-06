@@ -24,7 +24,7 @@ test("findExperimentMarker discovers experiment metadata from parent directories
   const child = join(root, "flowdesk", "nested");
   await mkdir(child, { recursive: true });
   await writeFile(
-    join(root, ".git-helper-experiment.json"),
+    join(root, ".gitx-experiment.json"),
     JSON.stringify({
       experiment: "flowdesk",
       stage: "upstream",
@@ -46,7 +46,7 @@ test("experiment recorder appends JSONL events with shared run metadata", async 
   const root = await createTempCwd();
   const resultsDir = join(root, "results");
   await writeFile(
-    join(root, ".git-helper-experiment.json"),
+    join(root, ".gitx-experiment.json"),
     JSON.stringify({
       experiment: "flowdesk",
       stage: "upstream",

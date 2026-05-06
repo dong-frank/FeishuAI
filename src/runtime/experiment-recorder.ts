@@ -4,7 +4,7 @@ import { dirname, join, parse, resolve } from "node:path";
 
 import type { AgentRunMetadata } from "../agent/types.js";
 
-export const EXPERIMENT_MARKER_FILENAME = ".git-helper-experiment.json";
+export const EXPERIMENT_MARKER_FILENAME = ".gitx-experiment.json";
 
 export type ExperimentMarkerMetadata = {
   experiment: string;

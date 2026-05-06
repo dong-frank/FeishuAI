@@ -1,4 +1,4 @@
-.git-helper-experiment.json
-.git-helper/
+.gitx-experiment.json
+.gitx/
 __pycache__/
 .pytest_cache/

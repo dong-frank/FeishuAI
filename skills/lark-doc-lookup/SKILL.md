@@ -13,7 +13,7 @@ metadata:
 
 本 Skill 只用于查阅飞书资料。它适合 `interact` 的 `get_context` action：根据 Git 命令上下文、报错、团队流程关键词，先调用 `read_project_context_index` 读取 `.gitx/memory.json` 中的本地 `project_context_index` 全量目录索引定位资料；索引缺失或覆盖不足时，再查找并读取相关团队文档，返回简短、可引用的上下文摘要。
 
-支持的 topic 包括 `commit_message_policy`、`troubleshooting_reference` 和 `development_record_guidance`。其中 `development_record_guidance` 只能返回团队开发记录文档的位置、结构、相关章节和建议写入方式；不要更新文档，真正写入必须由用户通过 `/chat` 明确触发写入 action。
+支持的 topic 包括 `commit_message_policy`、`branch_naming_policy`、`troubleshooting_reference` 和 `development_record_guidance`。其中 `branch_naming_policy` 只返回团队分支命名规范和示例；`development_record_guidance` 只能返回团队开发记录文档的位置、结构、相关章节和建议写入方式；不要更新文档，真正写入必须由用户通过 `/chat` 明确触发写入 action。
 
 ## 允许的操作
 

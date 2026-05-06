@@ -19,14 +19,16 @@ metadata:
 Friday 收到 `write_base_record` action 时，只执行下面流程。
 
 1. 校验输入
-   - 必须来自用户当前 `/chat` 的明确写入意图，例如“写入多维表格、更新 Base、记录到 bitable”。
-   - 必须有 `baseToken`、`tableId` 和非空 `fields`。
+   - 必须来自用户当前 `/chat` 的明确写入意图，例如“写入多维表格、更新 Base、记录到 bitable、更新需求看板、需求状态更新为待评审”。
+   - 必须有非空 `fields`。`fields` 可以是 Linus 从自然语言抽取出的字段意图，写入前必须用真实字段结构校正。
    - `recordId` 存在时更新已有记录；没有 `recordId` 时创建新记录。
-   - 如果用户只给了自然语言目标 `target`，没有 token/table，先澄清或要求 Linus 通过项目知识索引定位，不要猜 token。
+   - 如果用户只给了自然语言目标 `target`，没有 `baseToken` / `tableId`，先调用 `read_project_context_index` 查看 `project_context_index`，从 `nonDocResources` 或检索提示中定位标题/路径匹配 `target`、`需求看板`、`Sprint 12 需求看板` 的 bitable/Base 资源。
+   - 只有从 `project_context_index` 或输入中明确得到 `baseToken` 和 `tableId` 后才写入；仍然缺少时返回澄清，不要猜 token。
 
 2. 写入前读取字段
    - 先执行：`lark-cli base +field-list --base-token <baseToken> --table-id <tableId> --limit 100 --format json`
    - 只允许写真实存在且可写的字段。
+   - 根据真实字段名映射常见语义：`Story` / `Story ID` / `需求编号` 对应需求编号；`Status` / `状态` 对应需求状态；`Branch` / `分支名` 对应分支。用户说“待评审”而字段选项使用“待 Review”时，按真实字段选项写入“待 Review”。
    - 不写 formula、lookup、系统字段、附件字段；这些字段应忽略并在结果里说明。
 
 3. 写入命令

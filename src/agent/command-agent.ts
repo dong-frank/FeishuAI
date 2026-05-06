@@ -394,6 +394,7 @@ function createInteractWithLarkAgentSchema(
         topic: z
           .enum([
             "commit_message_policy",
+            "branch_naming_policy",
             "troubleshooting_reference",
             "development_record_guidance",
           ])

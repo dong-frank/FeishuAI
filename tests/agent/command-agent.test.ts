@@ -855,6 +855,11 @@ test("command task skills contain task-specific instructions", () => {
   assert.match(helpSkill, /tldr_git_manual/);
   assert.match(helpSkill, /successCount 较高/);
   assert.match(helpSkill, /failures 是历史画像/);
+  assert.match(helpSkill, /git checkout -b/);
+  assert.match(helpSkill, /git switch -c/);
+  assert.match(helpSkill, /branch_naming_policy/);
+  assert.match(helpSkill, /feature\/<story-id>-<short-desc>/);
+  assert.match(helpSkill, /git checkout -b feature\/fd-124-priority-filter/);
 
   assert.match(commitSkill, /先调用 `interact_with_lark_agent`，再调用 `git_commit_context`/);
   assert.match(commitSkill, /commit_message_policy/);
@@ -890,6 +895,11 @@ test("command task skills contain task-specific instructions", () => {
   assert.match(chatSkill, /send_message/);
   assert.match(chatSkill, /schedule_meeting/);
   assert.match(chatSkill, /write_base_record/);
+  assert.match(chatSkill, /复合请求/);
+  assert.match(chatSkill, /不要因为已经调用了 `write_development_record` 就忽略/);
+  assert.match(chatSkill, /需求状态/);
+  assert.match(chatSkill, /需求看板/);
+  assert.match(chatSkill, /待评审/);
   assert.match(chatSkill, /Base/);
   assert.match(chatSkill, /会议时间/);
   assert.match(chatSkill, /不明确/);
@@ -1117,6 +1127,47 @@ test("interact_with_lark_agent returns structured lark context through the lark 
         root: "/repo",
         webUrl: "https://github.com/dong/feishuAI",
       },
+    },
+  ]);
+});
+
+test("interact_with_lark_agent accepts branch naming policy requests", async () => {
+  const calls: unknown[] = [];
+  const interactWithLarkAgentTool = createInteractWithLarkAgentTool({
+    larkAgent: {
+      interact(context: unknown) {
+        calls.push(context);
+        return Promise.resolve({
+          topic: "branch_naming_policy",
+          content: "功能分支使用 feature/<story-id>-<short-desc>。",
+          freshness: "refreshed",
+        });
+      },
+    },
+  });
+
+  const result = await interactWithLarkAgentTool.invoke({
+    action: "get_context",
+    topic: "branch_naming_policy",
+    cwd: "/repo",
+    reason: "suggest_checkout_branch_name",
+    command: "git",
+    rawCommand: "git checkout -b feature",
+  });
+
+  assert.deepEqual(JSON.parse(result), {
+    topic: "branch_naming_policy",
+    content: "功能分支使用 feature/<story-id>-<short-desc>。",
+    freshness: "refreshed",
+  });
+  assert.deepEqual(calls, [
+    {
+      action: "get_context",
+      topic: "branch_naming_policy",
+      cwd: "/repo",
+      reason: "suggest_checkout_branch_name",
+      command: "git",
+      rawCommand: "git checkout -b feature",
     },
   ]);
 });

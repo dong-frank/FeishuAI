@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
 import {
   exportFlowdeskCases,
+  getDefaultFlowdeskLayout,
   resetFlowdeskExperiment,
   scoreFlowdeskExperiment,
 } from "../../experiments/flowdesk/scripts/reset.js";
@@ -21,6 +22,17 @@ async function createTempWorkspace() {
 async function git(args: string[], cwd: string) {
   return execFileAsync("git", args, { cwd });
 }
+
+test("default FlowDesk layout migrates the demo project under home", () => {
+  const layout = getDefaultFlowdeskLayout();
+
+  assert.equal(layout.workspaceRoot, homedir());
+  assert.equal(layout.projectDir, join(homedir(), "flowdesk-demo"));
+  assert.equal(layout.remoteDir, join(homedir(), ".gitx-flowdesk", "remotes", "flowdesk-demo.git"));
+  assert.equal(layout.larkDocsDir, join(homedir(), ".gitx-flowdesk", "lark-docs"));
+  assert.equal(layout.resultsDir, join(homedir(), ".gitx-flowdesk", "results"));
+  assert.equal(layout.runDataDir, join(homedir(), ".gitx-flowdesk", "results", "runs"));
+});
 
 test("reset commit-message stage creates a staged FlowDesk priority-filter diff", async () => {
   const workspaceRoot = await createTempWorkspace();
@@ -84,7 +96,7 @@ test("reset writes experiment marker metadata for recorder discovery", async () 
   });
 
   const marker = JSON.parse(
-    await readFile(join(result.projectDir, ".git-helper-experiment.json"), "utf8"),
+    await readFile(join(result.projectDir, ".gitx-experiment.json"), "utf8"),
   );
 
   assert.equal(marker.experiment, "flowdesk");
@@ -106,7 +118,7 @@ test("experiment marker is ignored by the demo repository status", async () => {
 
   const status = await git(["status", "--short"], result.projectDir);
 
-  assert.doesNotMatch(status.stdout, /\.git-helper-experiment\.json/);
+  assert.doesNotMatch(status.stdout, /\.gitx-experiment\.json/);
   assert.match(status.stdout, /^M  flowdesk\/tickets\/filters\.py/m);
   assert.match(status.stdout, /^M  flowdesk\/tickets\/service\.py/m);
   assert.match(status.stdout, /^M  tests\/test_ticket_filters\.py/m);

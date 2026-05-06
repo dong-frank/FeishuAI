@@ -176,7 +176,10 @@ test("usage tips are recorded in one place for the status bar", () => {
   assert.ok(TUI_USAGE_TIPS.includes("Tab 请求 Linus 帮助"));
   assert.ok(TUI_USAGE_TIPS.includes("→ 接受补全"));
   assert.ok(TUI_USAGE_TIPS.includes("↑/↓ 切换历史命令"));
-  assert.ok(TUI_USAGE_TIPS.includes("连接 Friday: /login"));
+  assert.ok(TUI_USAGE_TIPS.includes("连接或补授权 Friday: /login"));
+  assert.ok(TUI_USAGE_TIPS.includes("和 Linus/Friday 对话: /chat <问题或请求>"));
+  assert.match(TUI_FOOTER_TIPS, /\/chat/);
+  assert.match(TUI_FOOTER_TIPS, /\/login/);
 });
 
 test("welcome copy uses terminal character art for the brand", () => {

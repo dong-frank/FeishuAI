@@ -132,6 +132,15 @@ lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope sectio
 lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope keyword --keyword "<关键词>" --detail simple --format json
 ```
 
+权限补齐规则：
+
+- 如果 `docs +search` 返回未登录、token 失效、Permission denied、缺少 scope 或明确缺少 `search:docs:read`，不要立刻保存 missing 或空 `project_context_index`。
+- 先调用 `load_skill` 加载 `lark-shared`，按其规则在当前 TUI 内部发起最小 scope 授权：调用 `run_lark_cli`，参数使用 `["auth", "login", "--scope", "search:docs:read"]`，`showOutputInTui: true`，等待用户完成授权。
+- 授权命令结束后，重试原来的 `docs +search` 一次；只有这次重试仍然失败，才说明缺少权限并保存 missing 状态。
+- 如果 `wiki`、`drive metas batch_query` 或 `docs +fetch` 返回缺少其它 user scope，也按 lark-cli 输出里的 scope 加载 `lark-shared`，用 `["auth", "login", "--scope", "<缺失scope>"]` 补授权，并重试原命令一次。
+- 保存 missing 或空索引前，必须已经尝试过上述 lark-shared 授权补齐和一次原命令重试；不要把“重新执行 /login”作为第一反应。
+- 如果错误是 bot 后台 scope 或应用后台权限，不要发起用户授权；只基于 lark-cli 返回内容说明需要后台开通。
+
 读取策略：
 
 - `docs +search` 只用于定位项目对应知识库或项目文档入口；不要把它当成最终资料集合。
@@ -144,7 +153,7 @@ lark-cli docs +fetch --api-version v2 --doc "<文档URL或token>" --scope keywor
 - 对 `obj_type` 是 `sheet` 或 `bitable` 的节点，只记录标题、路径、token 和用途推断，不要用 docs fetch 强读内部表格数据。
 - 如果项目知识库文档很多，可以分批处理，但最终 `project_context_index` 应说明已遍历范围、已索引数量、跳过数量和原因。
 - 不要只按固定主题预热；主题是开放的，索引应服务后续任意 Git/Lark Agent 查询。
-- 如果搜索或读取权限不足，只基于 lark-cli 返回内容说明原因，不要猜测文档内容。
+- 如果搜索或读取权限不足，先按上面的权限补齐规则处理；重试后仍失败时，只基于 lark-cli 返回内容说明原因，不要猜测文档内容。
 - 如果无搜索结果，保留一个 missing 状态的 `project_context_index`，说明没有命中项目资料。
 
 禁止执行：
