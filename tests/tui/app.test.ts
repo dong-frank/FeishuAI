@@ -149,10 +149,9 @@ test("loadPersistedContextMeters restores Linus and Friday meters from history f
   });
 });
 
-test("completion ghost style is visually distinct from ordinary gray text", () => {
+test("completion ghost style matches the status bar tips", () => {
   assert.deepEqual(COMPLETION_GHOST_STYLE, {
-    color: "black",
-    dimColor: true,
+    color: "gray",
   });
 });
 

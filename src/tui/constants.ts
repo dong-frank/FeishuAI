@@ -33,8 +33,7 @@ export const STATUS_AGENTS_LOADING_TEXTS = [
 ] as const;
 
 export const COMPLETION_GHOST_STYLE = {
-  color: "black",
-  dimColor: true,
+  color: "gray",
 } as const;
 
 export const CURSOR_STYLE = {
