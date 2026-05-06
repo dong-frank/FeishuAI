@@ -442,7 +442,7 @@ function getAgentToolProgressColor(event: AgentToolProgressEvent): HistoryColor 
     return "red";
   }
 
-  return "white";
+  return "gray";
 }
 
 function getAgentToolProgressAgentColor(agentKind: AgentHistoryKind): HistoryColor {
@@ -466,7 +466,7 @@ function getAgentHistoryBodyRows(
   }
 
   if (entry.content?.trim()) {
-    return splitPlainTextRows(entry.content.trim(), { color: "gray" }, wrapWidth);
+    return splitPlainTextRows(entry.content.trim(), { color: "white" }, wrapWidth);
   }
 
   return [];

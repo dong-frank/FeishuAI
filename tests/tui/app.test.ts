@@ -402,13 +402,13 @@ test("pending agent history renders compact tool progress", () => {
     (row) => row.text === "  ├─ load_skill skillName=command-help",
   );
   assert.equal(firstToolRow?.rightText, undefined);
-  assert.equal(firstToolRow?.color, "white");
+  assert.equal(firstToolRow?.color, "gray");
 
   const larkCallRow = rows.find(
     (row) => row.text === "  ├─ interact_with_lark_agent action=get_context",
   );
   assert.equal(larkCallRow?.rightText, undefined);
-  assert.equal(larkCallRow?.color, "white");
+  assert.equal(larkCallRow?.color, "gray");
 
   const runningRow = rows.find((row) => row.text === "  └─ run_lark_cli auth status");
   assert.equal(runningRow?.rightText, undefined);
@@ -498,8 +498,8 @@ test("agent history separates tool progress from final display", () => {
   assert.ok(toolHeaderIndex < toolRowIndex);
   assert.ok(toolRowIndex < finalRowIndex);
   assert.equal(rows.some((row) => row.text === "  [GITX]"), false);
-  assert.equal(rows[toolRowIndex]?.color, "white");
-  assert.equal(rows[finalRowIndex]?.color, "gray");
+  assert.equal(rows[toolRowIndex]?.color, "gray");
+  assert.equal(rows[finalRowIndex]?.color, "white");
 });
 
 test("agent tool progress keeps call order when returning from lark to git", () => {
